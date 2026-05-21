@@ -7,7 +7,12 @@ import { env } from '../src/config/env.js';
 const { Pool } = pg;
 
 async function main() {
-  const pool = new Pool({ connectionString: env.DATABASE_URL });
+  const pool = new Pool({
+    connectionString: env.DATABASE_URL,
+    // SSL required by Render/most hosted PG; rejectUnauthorized: false for
+    // their self-signed internal CA. Local dev keeps plaintext localhost.
+    ssl: env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
+  });
   const db = drizzle(pool);
   // eslint-disable-next-line no-console
   console.log('Running migrations...');

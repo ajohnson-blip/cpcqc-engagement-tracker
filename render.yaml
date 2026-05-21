@@ -1,0 +1,137 @@
+# render.yaml — Infrastructure as Code for Render.com.
+#
+# Render reads this file when you create a "Blueprint" pointing at this repo
+# and provisions the database + both web services in one shot.
+#
+# How to deploy:
+#   1. Sign in to render.com with GitHub.
+#   2. Dashboard → New + → Blueprint.
+#   3. Pick the cpcqc-engagement-tracker repo. Render previews this file.
+#   4. Click Apply. Database provisions first (~1 min), then services build.
+#   5. Once the services are live, copy each onrender.com URL and set the
+#      env vars marked `sync: false` below in the dashboard. See
+#      DEPLOYMENT_NOTES at the bottom of this file for the exact list.
+#
+# Plans below are conservative starting points; resize in the Render
+# dashboard once you see real load. Approx monthly cost as configured:
+#   DB (basic-256mb): ~$6   backend (starter): ~$7   frontend (starter): ~$7
+
+databases:
+  - name: cpcqc-tracker-db
+    plan: basic-256mb
+    region: oregon
+    postgresMajorVersion: "16"
+    databaseName: cpcqc_tracker
+    user: cpcqc
+
+services:
+  # ---------- Backend: Express + Drizzle ----------
+  - type: web
+    name: cpcqc-tracker-backend
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: backend
+    # `npm ci` for reproducible installs, `build` compiles TS → dist/,
+    # `db:migrate` applies any pending Drizzle migrations against the
+    # freshly-attached database before the new version goes live.
+    buildCommand: npm ci && npm run build && npm run db:migrate
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # PORT is set by Render automatically; env.ts reads process.env.PORT.
+
+      # Wired automatically from the database block above.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cpcqc-tracker-db
+          property: connectionString
+
+      # Generated once at blueprint-apply time; persistent across deploys.
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_TTL_SECONDS
+        value: "900"
+      - key: JWT_REFRESH_TTL_DAYS
+        value: "30"
+
+      # Cookies must be secure on HTTPS, and scoped to the frontend's
+      # registered domain. COOKIE_DOMAIN: leave blank for default (host-only),
+      # or set to e.g. ".qi.cpcqc.org" once the custom domain is wired up.
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_DOMAIN
+        sync: false
+
+      # Set to backend's own onrender.com URL (used in absolute URLs in emails,
+      # password-reset links, etc.).
+      - key: APP_BASE_URL
+        sync: false
+
+      # Comma-separated list of allowed origins (frontend domain(s)).
+      - key: CORS_ORIGIN
+        sync: false
+
+      # Email — set SENDGRID_API_KEY in the dashboard once SendGrid is wired up.
+      - key: EMAIL_FROM
+        value: engagement@qi.cpcqc.org
+      - key: SENDGRID_API_KEY
+        sync: false
+
+  # ---------- Frontend: Next.js 14 ----------
+  - type: web
+    name: cpcqc-tracker-frontend
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    # Override package.json's hardcoded -p 3000 so Next listens on Render's $PORT.
+    startCommand: npx next start -p $PORT
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # NEXT_PUBLIC_* vars are baked into the JS bundle AT BUILD TIME, so
+      # after the backend's URL is known, set this in the dashboard and
+      # trigger a frontend redeploy.
+      - key: NEXT_PUBLIC_API_BASE
+        sync: false
+
+# ---------------------------------------------------------------------------
+# DEPLOYMENT_NOTES — what to do after the first blueprint apply
+# ---------------------------------------------------------------------------
+# 1. Database is provisioned and DATABASE_URL is auto-wired into the backend.
+# 2. Backend will FAIL its first build because CORS_ORIGIN and APP_BASE_URL
+#    are unset (zod env-schema requires them). That's expected.
+# 3. Open the backend service → Settings → grab its onrender.com URL.
+# 4. Open the frontend service → Settings → grab its onrender.com URL.
+# 5. In the BACKEND service env vars, set:
+#      APP_BASE_URL  = https://<backend>.onrender.com
+#      CORS_ORIGIN   = https://<frontend>.onrender.com
+#      COOKIE_DOMAIN = (leave blank for now; revisit when qi.cpcqc.org wired)
+#    Save → Render redeploys automatically.
+# 6. In the FRONTEND service env vars, set:
+#      NEXT_PUBLIC_API_BASE = https://<backend>.onrender.com
+#    Save → Render redeploys automatically.
+# 7. Once both are green, run the seed commands from the backend service's
+#    "Shell" tab in the Render dashboard:
+#      npm run db:seed
+#      npm run db:import-templates
+#      npm run create-cpcqc-staff
+#    (Optional, for fake data: npm run db:enroll)
+# 8. Sign in at https://<frontend>.onrender.com with one of the seeded staff
+#    accounts (password from create-cpcqc-staff.ts), smoke-test, then rotate
+#    the temp password.
+#
+# When you get DNS access to qi.cpcqc.org:
+#   - Add a custom domain to the frontend service (e.g. qi.cpcqc.org).
+#   - Optionally add a subdomain to the backend (e.g. api.qi.cpcqc.org).
+#   - Update CORS_ORIGIN, NEXT_PUBLIC_API_BASE, APP_BASE_URL, COOKIE_DOMAIN
+#     accordingly. Render handles HTTPS certs automatically via Let's Encrypt.
