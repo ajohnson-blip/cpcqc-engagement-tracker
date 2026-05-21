@@ -471,24 +471,34 @@ async function processMeetingAttendance(ctx: ProcessContext, sheet: ExcelJS.Work
     const [hospital, initiative, track, meetingMonthRaw, meetingType, notes] = cells;
     if (isExampleRow(notes ?? '')) continue;
     const meetingMonth = (meetingMonthRaw ?? '').trim();
-    const monthMatch = /^(\d{4})-(\d{2})$/.exec(meetingMonth);
-    if (!monthMatch) {
+    // Accept either YYYY-MM (e.g., "2026-02") or YYYY-MM-DD (e.g., "2026-02-12").
+    // Excel cells formatted as dates serialize to ISO YYYY-MM-DD via cellString();
+    // some PMs also typed first-of-month dates as a convenience. Both are valid.
+    const dateMatch = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(meetingMonth);
+    if (!dateMatch) {
       ctx.errors.push({
         sheet: SHEET,
         rowNumber,
-        reason: `Invalid Meeting Month "${meetingMonthRaw}" — use YYYY-MM (e.g., 2026-02).`,
+        reason: `Invalid Meeting Month "${meetingMonthRaw}" — use YYYY-MM (e.g., 2026-02) or YYYY-MM-DD.`,
       });
       continue;
     }
-    const year = parseInt(monthMatch[1]!, 10);
-    const monthNum = parseInt(monthMatch[2]!, 10);
+    const year = parseInt(dateMatch[1]!, 10);
+    const monthStr = dateMatch[2]!;
+    const monthNum = parseInt(monthStr, 10);
     // Derive quarter from month.
     const qNum = Math.ceil(monthNum / 3);
     const period = `${year}-Q${qNum}`;
-    // Use end-of-month as the canonical completedOn (the importer treats this
-    // as the recorded date of the attendance event).
-    const monthEndDays: Record<number, number> = { 1: 31, 2: 28, 3: 31, 4: 30, 5: 31, 6: 30, 7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31 };
-    const meetingDate = `${year}-${monthMatch[2]}-${String(monthEndDays[monthNum] ?? 28).padStart(2, '0')}`;
+    // If a full date was supplied, use it as the meetingDate. Otherwise, use
+    // end-of-month as the canonical completedOn (the importer treats this as
+    // the recorded date of the attendance event).
+    let meetingDate: string;
+    if (dateMatch[3]) {
+      meetingDate = `${year}-${monthStr}-${dateMatch[3]}`;
+    } else {
+      const monthEndDays: Record<number, number> = { 1: 31, 2: 28, 3: 31, 4: 30, 5: 31, 6: 30, 7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31 };
+      meetingDate = `${year}-${monthStr}-${String(monthEndDays[monthNum] ?? 28).padStart(2, '0')}`;
+    }
 
     const isAnnualForum = (meetingType ?? '').toLowerCase() === 'annual forum';
 
@@ -644,14 +654,29 @@ async function processDataSubmissions(ctx: ProcessContext, sheet: ExcelJS.Worksh
   // Sheet has a row-1 banner about Jan-Apr backfill defaults; header is row 2.
   const SHEET = 'Data Submissions';
   for (const { rowNumber, cells } of readRows(sheet, 2)) {
-    const [hospital, initiative, track, period, submittedDateRaw, statusRaw, notes] = cells;
+    const [hospital, initiative, track, periodRaw, submittedDateRaw, statusRaw, notes] = cells;
     if (isExampleRow(notes ?? '')) continue;
-    if (!period) {
+    if (!periodRaw) {
       ctx.errors.push({ sheet: SHEET, rowNumber, reason: `Missing period` });
       continue;
     }
     const basics = validateBasics(ctx, SHEET, rowNumber, initiative ?? '', track ?? '', hospital ?? '');
     if (!basics) continue;
+    // Normalize period: accept YYYY-MM, YYYY-Qx, or YYYY-MM-DD (Excel dates).
+    // TaskInstance periods are stored as YYYY-MM (monthly cadence) or YYYY-Qx
+    // (quarterly cadence) — a YYYY-MM-DD from an Excel date cell needs to be
+    // collapsed to its containing month.
+    let period: string;
+    const dateMatch = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(periodRaw);
+    const quarterMatch = /^(\d{4})-Q[1-4]$/.exec(periodRaw);
+    if (dateMatch) {
+      period = `${dateMatch[1]}-${dateMatch[2]}`;
+    } else if (quarterMatch) {
+      period = periodRaw;
+    } else {
+      ctx.errors.push({ sheet: SHEET, rowNumber, reason: `Period "${periodRaw}" malformed` });
+      continue;
+    }
     // Year = the period's leading 4 digits
     const yearMatch = /^(\d{4})-/.exec(period);
     if (!yearMatch) {
