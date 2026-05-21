@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+coverage
+.vitest-cache
+drizzle/migrations/meta/_journal.json.bak

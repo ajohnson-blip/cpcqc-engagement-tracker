@@ -1,0 +1,1674 @@
+{
+  "asOf": "2026",
+  "source": "CHA Master Hospital List (Hospitals.xlsx, Master Hospital List sheet)",
+  "taxonomy": "CHA",
+  "count": 49,
+  "hospitals": [
+    {
+      "chaHospitalId": "300.0",
+      "name": "AdventHealth Avista",
+      "cdpheName": "Advent Health Avista",
+      "tableauNickname": "adventhealth_avista",
+      "system": "Advent Health",
+      "address": "100 Health Park Dr",
+      "city": "Louisville",
+      "state": "CO",
+      "postalCode": "80027",
+      "county": "Boulder",
+      "cdpheId": "10316.0",
+      "aimId": "318.0",
+      "nicuLevel": "3.0",
+      "urbanicity": "Urban",
+      "birthVolume2025": 2063,
+      "rae": 6,
+      "hsr": 16,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": true
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "342.0",
+      "name": "AdventHealth Castle Rock",
+      "cdpheName": "AdventHealth Castle Rock",
+      "tableauNickname": "castle_rock",
+      "system": "Advent Health",
+      "address": "2350 Meadows Blvd",
+      "city": "Castle Rock",
+      "state": "CO",
+      "postalCode": "80109",
+      "county": "Douglas",
+      "cdpheId": "01L581",
+      "aimId": "618.0",
+      "nicuLevel": "2",
+      "urbanicity": "Urban",
+      "birthVolume2025": 865,
+      "rae": 3,
+      "hsr": 3,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "860.0",
+      "name": "AdventHealth Littleton",
+      "cdpheName": "AdventHealth Littleton",
+      "tableauNickname": "adventhealth_littleton",
+      "system": "Advent Health",
+      "address": "7700 S Broadway",
+      "city": "Littleton",
+      "state": "CO",
+      "postalCode": "80122",
+      "county": "Douglas",
+      "cdpheId": "10456.0",
+      "aimId": "131.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 1611,
+      "rae": 3,
+      "hsr": 15,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "306.0",
+      "name": "AdventHealth Parker",
+      "cdpheName": "Advent Health Parker",
+      "tableauNickname": "adventhealth_parker",
+      "system": "Advent Health",
+      "address": "9395 Crown Crest Blvd",
+      "city": "Parker",
+      "state": "CO",
+      "postalCode": "80138",
+      "county": "Douglas",
+      "cdpheId": "01J544",
+      "aimId": "542.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 1186,
+      "rae": 3,
+      "hsr": 3,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "708.0",
+      "name": "Aspen Valley Hospital",
+      "cdpheName": "Aspen Valley Hospital",
+      "tableauNickname": "aspenvalley",
+      "system": "Independent",
+      "address": "401 Castle Creek Rd",
+      "city": "Aspen",
+      "state": "CO",
+      "postalCode": "81611",
+      "county": "Pitkin",
+      "cdpheId": "10907",
+      "aimId": "218.0",
+      "nicuLevel": "2",
+      "urbanicity": "Rural",
+      "birthVolume2025": 141,
+      "rae": 1,
+      "hsr": 12,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "345.0",
+      "name": "Banner Fort Collins Medical Center",
+      "cdpheName": "Banner Fort Collins Medical Center",
+      "tableauNickname": "fortcollins",
+      "system": "Banner",
+      "address": "4700 Lady Moon Dr",
+      "city": "Fort Collins",
+      "state": "CO",
+      "postalCode": "80528",
+      "county": "Larimer",
+      "cdpheId": "01K608",
+      "aimId": "418.0",
+      "nicuLevel": "2",
+      "urbanicity": "Urban",
+      "birthVolume2025": 501,
+      "rae": 1,
+      "hsr": 2,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "548.0",
+      "name": "Banner North Colorado Medical Center",
+      "cdpheName": "Banner Health North Colorado Medical Center",
+      "tableauNickname": "banner_ncmc",
+      "system": "Banner",
+      "address": "1801 16TH St",
+      "city": "Greeley",
+      "state": "CO",
+      "postalCode": "80631",
+      "county": "Weld",
+      "cdpheId": "10386",
+      "aimId": "342.0",
+      "nicuLevel": "3.0",
+      "urbanicity": "Urban",
+      "birthVolume2025": 1421,
+      "rae": 2,
+      "hsr": 18,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "524.0",
+      "name": "Boulder Community Health",
+      "cdpheName": "Boulder Community Health",
+      "tableauNickname": "boulder_community",
+      "system": "Independent",
+      "address": "4747 Arapahoe Ave",
+      "city": "Boulder",
+      "state": "CO",
+      "postalCode": "80303",
+      "county": "Boulder",
+      "cdpheId": "10323.0",
+      "aimId": "518.0",
+      "nicuLevel": "2",
+      "urbanicity": "Urban",
+      "birthVolume2025": 1099,
+      "rae": 6,
+      "hsr": 16,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "412.0",
+      "name": "Children's Hospital Colorado",
+      "cdpheName": "Children's Hospital Colorado",
+      "tableauNickname": "childrens_anschutz",
+      "system": "Independent",
+      "address": "13123 E 16th Ave",
+      "city": "Aurora",
+      "state": "CO",
+      "postalCode": "80045",
+      "county": "Araphaoe",
+      "cdpheId": "10O533",
+      "aimId": "718.0",
+      "nicuLevel": "4",
+      "urbanicity": "Urban",
+      "birthVolume2025": 298,
+      "rae": null,
+      "hsr": null,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "540.0",
+      "name": "CommonSpirit - Longmont United Hospital",
+      "cdpheName": "Longmont United Hospital",
+      "tableauNickname": "longmont",
+      "system": "CommonSpirit",
+      "address": "1950 Mountain View Ave",
+      "city": "Longmont",
+      "state": "CO",
+      "postalCode": "80501",
+      "county": "Weld",
+      "cdpheId": "NA",
+      "aimId": "231.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 223,
+      "rae": 6,
+      "hsr": 16,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "748.0",
+      "name": "CommonSpirit - Mercy Hospital",
+      "cdpheName": "Mercy Hospital",
+      "tableauNickname": "NA",
+      "system": "CommonSpirit",
+      "address": "1010 Three Springs Blvd",
+      "city": "Durango",
+      "state": "CO",
+      "postalCode": "81301",
+      "county": "La Plata",
+      "cdpheId": "11213.0",
+      "aimId": "142.0",
+      "nicuLevel": "1",
+      "urbanicity": "Rural",
+      "birthVolume2025": 825,
+      "rae": 1,
+      "hsr": 9,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": true
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "496.0",
+      "name": "CommonSpirit - St. Anthony North Hospital",
+      "cdpheName": "Commonspirit St Anthony North Hospital",
+      "tableauNickname": "stanthony_north",
+      "system": "CommonSpirit",
+      "address": "14300 Orchard Pkwy",
+      "city": "Westminster",
+      "state": "CO",
+      "postalCode": "80023",
+      "county": "Jefferson",
+      "cdpheId": "10402.0",
+      "aimId": "553.0",
+      "nicuLevel": "2",
+      "urbanicity": "Urban",
+      "birthVolume2025": 1231,
+      "rae": 6,
+      "hsr": 16,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "312.0",
+      "name": "CommonSpirit - St. Anthony Summit Hospital",
+      "cdpheName": "St Anthony Summit Hospital",
+      "tableauNickname": "NA",
+      "system": "CommonSpirit",
+      "address": "340 Peak One Dr",
+      "city": "Frisco",
+      "state": "CO",
+      "postalCode": "80443",
+      "county": "Summit",
+      "cdpheId": "01I155",
+      "aimId": "653.0",
+      "nicuLevel": "2",
+      "urbanicity": "Rural",
+      "birthVolume2025": 467,
+      "rae": 1,
+      "hsr": 12,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": true
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "572.0",
+      "name": "CommonSpirit - St. Elizabeth Hospital",
+      "cdpheName": "Commonspirit St Elizabeth Hospital",
+      "tableauNickname": "stelizabeth",
+      "system": "CommonSpirit",
+      "address": "1000 Lincoln St",
+      "city": "Fort Morgan",
+      "state": "CO",
+      "postalCode": "80701",
+      "county": "Morgan",
+      "cdpheId": "10130.0",
+      "aimId": "875.0",
+      "nicuLevel": "3",
+      "urbanicity": "Rural",
+      "birthVolume2025": 189,
+      "rae": 2,
+      "hsr": 1,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "327.0",
+      "name": "CommonSpirit - St. Francis Hospital - Interquest",
+      "cdpheName": "St Francis Hospital",
+      "tableauNickname": "NA",
+      "system": "CommonSpirit",
+      "address": "6001 E Woodmen Rd",
+      "city": "Colorado Springs",
+      "state": "CO",
+      "postalCode": "80923",
+      "county": "El Paso",
+      "cdpheId": "01H523",
+      "aimId": "664.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 2947,
+      "rae": 7,
+      "hsr": 4,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": true
+        },
+        "NEST": {
+          "participating": true
+        }
+      }
+    },
+    {
+      "chaHospitalId": "676.0",
+      "name": "CommonSpirit - St. Thomas More Hospital",
+      "cdpheName": "St Thomas More Hospital",
+      "tableauNickname": "NA",
+      "system": "CommonSpirit",
+      "address": "1338 Phay Ave",
+      "city": "Canon City",
+      "state": "CO",
+      "postalCode": "81212",
+      "county": "Fremont",
+      "cdpheId": "10623.0",
+      "aimId": "164.0",
+      "nicuLevel": "1",
+      "urbanicity": "Rural",
+      "birthVolume2025": 207,
+      "rae": 4,
+      "hsr": 13,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": true
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "716.0",
+      "name": "Community Hospital",
+      "cdpheName": "Community Hospital",
+      "tableauNickname": "community_hospital",
+      "system": "Independent",
+      "address": "2351 'G' Rd",
+      "city": "Grand Junction",
+      "state": "CO",
+      "postalCode": "81505",
+      "county": "Mesa",
+      "cdpheId": "11119",
+      "aimId": "918.0",
+      "nicuLevel": "2",
+      "urbanicity": "Urban",
+      "birthVolume2025": 695,
+      "rae": 1,
+      "hsr": 19,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": true
+        }
+      }
+    },
+    {
+      "chaHospitalId": "428.0",
+      "name": "Denver Health Medical Center",
+      "cdpheName": "Denver Health Medical Center",
+      "tableauNickname": "denverhealth",
+      "system": "Independent",
+      "address": "777 Bannock St",
+      "city": "Denver",
+      "state": "CO",
+      "postalCode": "80204",
+      "county": "Denver",
+      "cdpheId": "10444",
+      "aimId": "229.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 4889,
+      "rae": 5,
+      "hsr": 20,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": true
+        },
+        "NEST": {
+          "participating": true
+        }
+      }
+    },
+    {
+      "chaHospitalId": "568.0",
+      "name": "East Morgan County Hospital",
+      "cdpheName": "East Morgan County Hospital",
+      "tableauNickname": "NA",
+      "system": "Banner",
+      "address": "2400 W Edison St",
+      "city": "Brush",
+      "state": "CO",
+      "postalCode": "80723",
+      "county": "Morgan",
+      "cdpheId": "25017J",
+      "aimId": "329.0",
+      "nicuLevel": "1",
+      "urbanicity": "Rural",
+      "birthVolume2025": 203,
+      "rae": 2,
+      "hsr": 1,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": true
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "724.0",
+      "name": "Gunnison Valley Health",
+      "cdpheName": "Gunnison Valley Hospital",
+      "tableauNickname": "gunnisonvalley",
+      "system": "Independent",
+      "address": "711 N Taylor St",
+      "city": "Gunnison",
+      "state": "CO",
+      "postalCode": "81230",
+      "county": "Gunnison",
+      "cdpheId": "NA",
+      "aimId": "729.0",
+      "nicuLevel": "1",
+      "urbanicity": "Rural",
+      "birthVolume2025": 109,
+      "rae": 1,
+      "hsr": 10,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "432.0",
+      "name": "HCA HealthONE Aurora",
+      "cdpheName": "Healthone Medical Center Of Aurora",
+      "tableauNickname": "medicalcenter_aurora",
+      "system": "HCA HealthOne",
+      "address": "1501 S Potomac St",
+      "city": "Aurora",
+      "state": "CO",
+      "postalCode": "80012",
+      "county": "Araphaoe",
+      "cdpheId": "10414.0",
+      "aimId": "631.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 701,
+      "rae": 3,
+      "hsr": 15,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "436.0",
+      "name": "HCA HealthONE Mountain Ridge",
+      "cdpheName": "HCA HealthOne Mountain Ridge",
+      "tableauNickname": "mountain_ridge",
+      "system": "HCA HealthOne",
+      "address": "9191 Grant St",
+      "city": "Thornton",
+      "state": "CO",
+      "postalCode": "80229",
+      "county": "Adams",
+      "cdpheId": "010441",
+      "aimId": "442.0",
+      "nicuLevel": "2.0",
+      "urbanicity": "Urban",
+      "birthVolume2025": 896,
+      "rae": 3,
+      "hsr": 14,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "472.0",
+      "name": "HCA HealthONE Presbyterian St. Luke\u2019s",
+      "cdpheName": "HCA Healthone Presbyterian St Luke's",
+      "tableauNickname": "healthone_psl",
+      "system": "HCA HealthOne",
+      "address": "1719 E 19Th Ave",
+      "city": "Denver",
+      "state": "CO",
+      "postalCode": "80218",
+      "county": "Denver",
+      "cdpheId": "10431.0",
+      "aimId": "153.0",
+      "nicuLevel": "4",
+      "urbanicity": "Urban",
+      "birthVolume2025": 1179,
+      "rae": 5,
+      "hsr": 20,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "488.0",
+      "name": "HCA HealthONE Rose",
+      "cdpheName": "HCA Healthone Rose",
+      "tableauNickname": "healthone_rose",
+      "system": "HCA HealthOne",
+      "address": "4567 E 9th Ave",
+      "city": "Denver",
+      "state": "CO",
+      "postalCode": "80220",
+      "county": "Araphaoe",
+      "cdpheId": "10428.0",
+      "aimId": "353.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 5210,
+      "rae": 5,
+      "hsr": 20,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "302.0",
+      "name": "HCA HealthONE Sky Ridge",
+      "cdpheName": "Hca Healthone Sky Ridge",
+      "tableauNickname": "skyridge",
+      "system": "HCA HealthOne",
+      "address": "10101 Ridgegate Pkwy",
+      "city": "Lone Tree",
+      "state": "CO",
+      "postalCode": "80124",
+      "county": "Douglas",
+      "cdpheId": "01D972",
+      "aimId": "464.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 3313,
+      "rae": 3,
+      "hsr": 3,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "508.0",
+      "name": "HCA HealthONE Swedish",
+      "cdpheName": "Healthone Swedish Medical Center",
+      "tableauNickname": "swedish_medical",
+      "system": "HCA HealthOne",
+      "address": "501 East Hampden Avenue",
+      "city": "Englewood",
+      "state": "CO",
+      "postalCode": "80113",
+      "county": "Jefferson",
+      "cdpheId": "010436",
+      "aimId": "864.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 1312,
+      "rae": 3,
+      "hsr": 15,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "680.0",
+      "name": "Heart of The Rockies Regional Medical Center",
+      "cdpheName": "Heart Of The Rockies Regional Medical Center",
+      "tableauNickname": "heart_rockies",
+      "system": "Independent",
+      "address": "1000 Rush Dr",
+      "city": "Salida",
+      "state": "CO",
+      "postalCode": "81201",
+      "county": "Chaffee",
+      "cdpheId": "10628",
+      "aimId": "829.0",
+      "nicuLevel": "1",
+      "urbanicity": "Rural",
+      "birthVolume2025": 131,
+      "rae": 4,
+      "hsr": 13,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "308.0",
+      "name": "Intermountain Health Good Samaritan Hospital",
+      "cdpheName": "Intermountain Health Good Samaritan Medical Center",
+      "tableauNickname": "intermountain_goodsamaritan",
+      "system": "Intermountain Health",
+      "address": "200 Exempla Cir",
+      "city": "Lafayette",
+      "state": "CO",
+      "postalCode": "80026",
+      "county": "Boulder",
+      "cdpheId": "01I529",
+      "aimId": "629.0",
+      "nicuLevel": "2",
+      "urbanicity": "Urban",
+      "birthVolume2025": 1307,
+      "rae": 6,
+      "hsr": 16,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": true
+        }
+      }
+    },
+    {
+      "chaHospitalId": "440.0",
+      "name": "Intermountain Health Lutheran Hospital",
+      "cdpheName": "Intermountain Health Lutheran Hospital",
+      "tableauNickname": "intermountain_lutheran",
+      "system": "Intermountain Health",
+      "address": "12911 W 40Th Ave",
+      "city": "Golden",
+      "state": "CO",
+      "postalCode": "80401",
+      "county": "Jefferson",
+      "cdpheId": "01L1WU",
+      "aimId": "431.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 1573,
+      "rae": 6,
+      "hsr": 21,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "552.0",
+      "name": "Intermountain Health Platte Valley Hospital",
+      "cdpheName": "Platte Valley Medical Center",
+      "tableauNickname": "intermountain_pvmc",
+      "system": "Intermountain Health",
+      "address": "1600 Prairie Center Pkwy",
+      "city": "Brighton",
+      "state": "CO",
+      "postalCode": "80601",
+      "county": "Adams",
+      "cdpheId": "10311.0",
+      "aimId": "842.0",
+      "nicuLevel": "2",
+      "urbanicity": "Urban",
+      "birthVolume2025": 939,
+      "rae": 3,
+      "hsr": 14,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": true
+        }
+      }
+    },
+    {
+      "chaHospitalId": "500.0",
+      "name": "Intermountain Health Saint Joseph Hospital",
+      "cdpheName": "Intermountain Health Saint Joseph Hospital",
+      "tableauNickname": "intermountain_stjoseph",
+      "system": "Intermountain Health",
+      "address": "1375 E 19th Ave",
+      "city": "Denver",
+      "state": "CO",
+      "postalCode": "80218",
+      "county": "Denver",
+      "cdpheId": "10430.0",
+      "aimId": "753.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 2814,
+      "rae": 5,
+      "hsr": 20,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "768.0",
+      "name": "Intermountain Health St. Mary\u2019s Regional Hospital",
+      "cdpheName": "St Marys Regional Hospital",
+      "tableauNickname": "intermountain_stmary",
+      "system": "Intermountain Health",
+      "address": "2635 N 7th St",
+      "city": "Grand Junction",
+      "state": "CO",
+      "postalCode": "81501",
+      "county": "Mesa",
+      "cdpheId": "11160.0",
+      "aimId": "953.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 1025,
+      "rae": 1,
+      "hsr": 19,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": true
+        }
+      }
+    },
+    {
+      "chaHospitalId": "752.0",
+      "name": "Montrose Regional Health",
+      "cdpheName": "Montrose Regional Health",
+      "tableauNickname": "montrose",
+      "system": "Independent",
+      "address": "800 S 3rd St",
+      "city": "Montrose",
+      "state": "CO",
+      "postalCode": "81401",
+      "county": "Montrose",
+      "cdpheId": "11165.0",
+      "aimId": "242.0",
+      "nicuLevel": "1.0",
+      "urbanicity": "Rural",
+      "birthVolume2025": 374,
+      "rae": 1,
+      "hsr": 10,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": true
+        },
+        "NEST": {
+          "participating": true
+        }
+      }
+    },
+    {
+      "chaHospitalId": "656.0",
+      "name": "Prowers Medical Center",
+      "cdpheName": "Prowers Medical Center",
+      "tableauNickname": "prowers_county",
+      "system": "Independent",
+      "address": "401 Kendall Dr",
+      "city": "Lamar",
+      "state": "CO",
+      "postalCode": "81052",
+      "county": "Prowers",
+      "cdpheId": "10217",
+      "aimId": "253.0",
+      "nicuLevel": "1",
+      "urbanicity": "Rural",
+      "birthVolume2025": 127,
+      "rae": 4,
+      "hsr": 6,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "684.0",
+      "name": "San Luis Valley Health",
+      "cdpheName": "San Luis Valley Regional Medical Center",
+      "tableauNickname": "sanluisvalley",
+      "system": "Independent",
+      "address": "106 Blanca Avenue",
+      "city": "Alamosa",
+      "state": "CO",
+      "postalCode": "81101",
+      "county": "Alamosa",
+      "cdpheId": "11001.0",
+      "aimId": "264.0",
+      "nicuLevel": "1",
+      "urbanicity": "Rural",
+      "birthVolume2025": 410,
+      "rae": 4,
+      "hsr": 8,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": true
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "776.0",
+      "name": "Southwest Health System, Inc.",
+      "cdpheName": "Southwest Memorial Hospital",
+      "tableauNickname": "southwest",
+      "system": "Independent",
+      "address": "1311 N Mildred Rd",
+      "city": "Cortez",
+      "state": "CO",
+      "postalCode": "81321",
+      "county": "Montezuma",
+      "cdpheId": "11206.0",
+      "aimId": "564.0",
+      "nicuLevel": "1",
+      "urbanicity": "Rural",
+      "birthVolume2025": 124,
+      "rae": 1,
+      "hsr": 9,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "588.0",
+      "name": "Sterling Regional MedCenter",
+      "cdpheName": "Banner Health Sterling Regional Medical Center",
+      "tableauNickname": "banner_srmc",
+      "system": "Banner",
+      "address": "615 Fairhurst St",
+      "city": "Sterling",
+      "state": "CO",
+      "postalCode": "80751",
+      "county": "Logan",
+      "cdpheId": "10140.0",
+      "aimId": "764.0",
+      "nicuLevel": "1",
+      "urbanicity": "Rural",
+      "birthVolume2025": 197,
+      "rae": 2,
+      "hsr": 1,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "374.0",
+      "name": "UCHealth Greeley Hospital",
+      "cdpheName": "Uchealth Greeley Hospital",
+      "tableauNickname": "uchealth_greeley",
+      "system": "UC Health",
+      "address": "6767 W 29Th St",
+      "city": "Greeley",
+      "state": "CO",
+      "postalCode": "80634",
+      "county": "Weld",
+      "cdpheId": "01F112",
+      "aimId": "175.0",
+      "nicuLevel": "2",
+      "urbanicity": "Urban",
+      "birthVolume2025": 735,
+      "rae": 2,
+      "hsr": 18,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "346.0",
+      "name": "UCHealth Highlands Ranch Hospital",
+      "cdpheName": "Uchealth Highlands Ranch Hospital",
+      "tableauNickname": "uchealth_highlands",
+      "system": "UC Health",
+      "address": "1500 Park Central Dr",
+      "city": "Highlands Ranch",
+      "state": "CO",
+      "postalCode": "80129",
+      "county": "Jefferson",
+      "cdpheId": "01G933",
+      "aimId": "275.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 1441,
+      "rae": 3,
+      "hsr": 3,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "502.0",
+      "name": "UCHealth Longs Peak Hospital",
+      "cdpheName": "UCHealth Longs Peak Hospital",
+      "tableauNickname": "uchealth_longspeak",
+      "system": "UC Health",
+      "address": "1750 E. Ken Pratt Boulevard",
+      "city": "Longmont",
+      "state": "CO",
+      "postalCode": "80504",
+      "county": "Boulder",
+      "cdpheId": "NA",
+      "aimId": "331.0",
+      "nicuLevel": "2",
+      "urbanicity": "Urban",
+      "birthVolume2025": 1118,
+      "rae": 6,
+      "hsr": 16,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "318.0",
+      "name": "UCHealth Medical Center Of The Rockies",
+      "cdpheName": "UCHealth Medical Center Of The Rockies",
+      "tableauNickname": "uchealth_mcr",
+      "system": "UC Health",
+      "address": "2500 Rocky Mountain Ave",
+      "city": "Loveland",
+      "state": "CO",
+      "postalCode": "80538",
+      "county": "Larimer",
+      "cdpheId": "NA",
+      "aimId": "731.0",
+      "nicuLevel": "2",
+      "urbanicity": "Urban",
+      "birthVolume2025": 1549,
+      "rae": 1,
+      "hsr": 2,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "632.0",
+      "name": "UCHealth Memorial Hospital Central/UCHealth Memorial Hospital North",
+      "cdpheName": "University Colo Health Memorial Hospital Central",
+      "tableauNickname": "uchealth_memorial_combined",
+      "system": "UC Health",
+      "address": "1400 E Boulder St",
+      "city": "Colorado Springs",
+      "state": "CO",
+      "postalCode": "80909",
+      "county": "El Paso",
+      "cdpheId": "10542.0",
+      "aimId": "931.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 5427,
+      "rae": 7,
+      "hsr": 4,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "644.0",
+      "name": "UCHealth Parkview Medical Center",
+      "cdpheName": "Parkview Medical Center, Inc",
+      "tableauNickname": "parkview_medical",
+      "system": "UC Health",
+      "address": "400 W 16Th St",
+      "city": "Pueblo",
+      "state": "CO",
+      "postalCode": "81003",
+      "county": "Pueblo",
+      "cdpheId": "10626.0",
+      "aimId": "642.0",
+      "nicuLevel": "2",
+      "urbanicity": "Urban",
+      "birthVolume2025": 1721,
+      "rae": 4,
+      "hsr": 7,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "556.0",
+      "name": "UCHealth Poudre Valley Hospital",
+      "cdpheName": "Uchealth Poudre Valley Hospital",
+      "tableauNickname": "uchealth_pvh",
+      "system": "UC Health",
+      "address": "1024 S Lemay Ave",
+      "city": "Fort Collins",
+      "state": "CO",
+      "postalCode": "80524",
+      "county": "Larimer",
+      "cdpheId": "NA",
+      "aimId": "942.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 2234,
+      "rae": 1,
+      "hsr": 2,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "512.0",
+      "name": "UCHealth University of Colorado Hospital",
+      "cdpheName": "?",
+      "tableauNickname": "uchealth_university",
+      "system": "UC Health",
+      "address": "12605 E. 16th Avenue",
+      "city": "Aurora",
+      "state": "CO",
+      "postalCode": "80045",
+      "county": "Araphaoe",
+      "cdpheId": "NA",
+      "aimId": "375.0",
+      "nicuLevel": "3",
+      "urbanicity": "Urban",
+      "birthVolume2025": 3959,
+      "rae": 3,
+      "hsr": 14,
+      "participation": {
+        "SOAR": {
+          "participating": false,
+          "status2026": "Not participating"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "764.0",
+      "name": "UCHealth Yampa Valley Medical Center",
+      "cdpheName": "Uchealth Yampa Valley Medical Center",
+      "tableauNickname": "uchealth_yampa_val",
+      "system": "UC Health",
+      "address": "1024 Central Park Dr",
+      "city": "Steamboat Springs",
+      "state": "CO",
+      "postalCode": "80487",
+      "county": "Routt",
+      "cdpheId": "10860.0",
+      "aimId": "775.0",
+      "nicuLevel": "2",
+      "urbanicity": "Rural",
+      "birthVolume2025": 364,
+      "rae": 1,
+      "hsr": 11,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "780.0",
+      "name": "Vail Health",
+      "cdpheName": "Vail Health Hospital",
+      "tableauNickname": "vailhealth",
+      "system": "Independent",
+      "address": "181 W Meadow Dr",
+      "city": "Vail",
+      "state": "CO",
+      "postalCode": "81657",
+      "county": "Eagle",
+      "cdpheId": "10911.0",
+      "aimId": "475.0",
+      "nicuLevel": "2",
+      "urbanicity": "Rural",
+      "birthVolume2025": 349,
+      "rae": 1,
+      "hsr": 12,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": false
+        },
+        "NEST": {
+          "participating": false
+        }
+      }
+    },
+    {
+      "chaHospitalId": "868.0",
+      "name": "Valley View Hospital",
+      "cdpheName": "Valley View Hospital",
+      "tableauNickname": "valleyview",
+      "system": "Independent",
+      "address": "1906 Blake Ave",
+      "city": "Glenwood Springs",
+      "state": "CO",
+      "postalCode": "81601",
+      "county": "Garfield",
+      "cdpheId": "10810.0",
+      "aimId": "575.0",
+      "nicuLevel": "2",
+      "urbanicity": "Rural",
+      "birthVolume2025": 738,
+      "rae": 1,
+      "hsr": 12,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Sustainable"
+        },
+        "TTT": {
+          "participating": true
+        },
+        "SPARK": {
+          "participating": true
+        },
+        "NEST": {
+          "participating": true
+        }
+      }
+    },
+    {
+      "chaHospitalId": "604.0",
+      "name": "Wray Community District Hospital",
+      "cdpheName": "Wray Community District Hospital",
+      "tableauNickname": "wray",
+      "system": "Banner",
+      "address": "1017 W 7th St",
+      "city": "Wray",
+      "state": "CO",
+      "postalCode": "80758",
+      "county": "Yuma",
+      "cdpheId": "10160",
+      "aimId": "675.0",
+      "nicuLevel": "1",
+      "urbanicity": "Rural",
+      "birthVolume2025": 12,
+      "rae": 2,
+      "hsr": 1,
+      "participation": {
+        "SOAR": {
+          "participating": true,
+          "status2026": "Active"
+        },
+        "TTT": {
+          "participating": false
+        },
+        "SPARK": {
+          "participating": true
+        },
+        "NEST": {
+          "participating": true
+        }
+      }
+    }
+  ]
+}

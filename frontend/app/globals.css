@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-page-bg: #faf6ee;
+  --color-text: #2a2536;
+  --color-text-muted: #6a6587;
+}
+
+html {
+  background-color: var(--color-page-bg);
+  color: var(--color-text);
+}
+
+body {
+  font-family: var(--font-nunito-sans), system-ui, -apple-system, sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+@layer components {
+  /* Coral accent strip echoing the screenshots */
+  .cpcqc-content-strip {
+    position: relative;
+  }
+  .cpcqc-content-strip::before {
+    content: '';
+    display: block;
+    height: 6px;
+    width: 100%;
+    background: #ce7672;
+    border-top-left-radius: 0.75rem;
+    border-top-right-radius: 0.75rem;
+  }
+}
+
+/* Form controls — keep this minimal; per-field styles live in components */
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  font: inherit;
+}
+
+/* Focus ring matching brand palette */
+:focus-visible {
+  outline: 2px solid #6b529b;
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}

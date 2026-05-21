@@ -1,0 +1,55 @@
+# --- Dependencies ---
+node_modules/
+
+# --- Build outputs ---
+.next/
+dist/
+build/
+out/
+coverage/
+*.tsbuildinfo
+
+# --- Environment files (NEVER commit real secrets) ---
+.env
+.env.*
+# but keep the example templates tracked
+!.env.example
+!.env.example.*
+
+# --- Logs ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.cursor/
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+
+# --- Python (build/seed scripts in /outputs etc.) ---
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# --- Local data files with real CPCQC staff PII ---
+# Generated/populated PM engagement workbooks live outside source control.
+# The build_pm_data_entry.py script can regenerate the empty template.
+pm_engagement_data_*.xlsx
+
+# --- Database dumps / backups ---
+*.sql.gz
+*.dump
+*.bak
+
+# --- Misc ---
+*.tmp
+.cache/

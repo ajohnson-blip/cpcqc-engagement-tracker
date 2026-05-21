@@ -1,0 +1,335 @@
+/**
+ * TypeScript shapes mirroring the backend's JSON responses.
+ * Keep these in sync with src/modules/*.ts on the backend.
+ */
+
+export type UserRole = 'hospital_user' | 'hospital_admin' | 'cpcqc_staff' | 'cpcqc_admin';
+
+export interface AuthUser {
+  userId: string;
+  role: UserRole;
+  hospitalId: string | null;
+}
+
+export interface LoginResponse {
+  accessToken: string;
+  user: AuthUser;
+}
+
+export interface MeResponse {
+  user: {
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+    role: UserRole;
+    hospitalId: string | null;
+  };
+  hospital: { id: string; name: string; region: string | null } | null;
+}
+
+export type RequirementStatus = 'on_track' | 'at_risk' | 'met' | 'not_met';
+
+export interface RequirementResult {
+  status: RequirementStatus;
+  current: number;
+  required: number;
+  expected: number;
+  reason?: string;
+}
+
+export interface ProgramYearCompliance {
+  enrollment: RequirementResult;
+  meetings: RequirementResult;
+  advising: RequirementResult;
+  dataSubmissions: RequirementResult;
+  assessments?: RequirementResult;
+  overall: RequirementStatus;
+}
+
+export interface ComplianceForProgramYear {
+  programYearId: string;
+  programYear: number;
+  enrollmentId: string;
+  cohortLabel: string;
+  initiativeCode: string;
+  track: 'active' | 'sustainability';
+  thresholds: {
+    requiredMeetings: number;
+    requiredAdvising: number;
+    requiredDataPeriods: number;
+    dataSubmissionsMin: number;
+    requiredAssessments: number;
+  };
+  progress: {
+    meetingsAttended: number;
+    advisingCompleted: number;
+    dataSubmissionsCompleted: number;
+    assessmentsCompleted: number;
+    enrollmentStatus: string;
+  };
+  result: ProgramYearCompliance;
+}
+
+export interface RequirementBenchmark {
+  peerMedian: number;
+  peerP25: number;
+  peerP75: number;
+  peersMet: number;
+  peersTotal: number;
+  myPercentile: number;
+}
+
+export interface CohortBenchmark {
+  cohortId: string;
+  cohortLabel: string;
+  peersTotal: number;
+  meetings: RequirementBenchmark;
+  advising: RequirementBenchmark;
+  dataSubmissions: RequirementBenchmark;
+  assessments: RequirementBenchmark | null;
+}
+
+export interface InitiativeTeamMember {
+  userId: string;
+  fullName: string;
+  email: string;
+  staffRole: 'program_manager' | 'qi_advisor';
+}
+
+export interface InitiativeTeam {
+  initiativeId: string;
+  initiativeCode: string;
+  programManagers: InitiativeTeamMember[];
+  qiAdvisors: InitiativeTeamMember[];
+}
+
+export interface MyEnrollment {
+  enrollmentId: string;
+  status: string;
+  enrolledOn: string;
+  cohort: {
+    id: string;
+    label: string;
+    track: 'active' | 'sustainability';
+    startDate: string;
+    endDate: string;
+  } | null;
+  initiative: {
+    id: string;
+    code: string;
+    name: string;
+    brandColor: string | null;
+    emoji: string | null;
+  } | null;
+  currentStage: {
+    id: string;
+    code: string;
+    name: string;
+    sequence: number;
+  } | null;
+  currentProgramYear: ComplianceForProgramYear | null;
+  allProgramYears: ComplianceForProgramYear[];
+  cohortBenchmark: CohortBenchmark | null;
+  team: InitiativeTeam | null;
+}
+
+export type TaskType =
+  | 'enrollment_form'
+  | 'meeting_attendance'
+  | 'qi_advising'
+  | 'data_submission'
+  | 'readiness_assessment'
+  | 'other';
+
+export type TaskStatus = 'not_started' | 'current_activities' | 'complete' | 'needs_revision';
+
+export interface TaskRow {
+  id: string;
+  enrollmentId: string;
+  programYear: number;
+  stage: { id: string; code: string; name: string; sequence: number };
+  template: {
+    id: string;
+    name: string;
+    taskType: TaskType;
+    period: string;
+    periodLabel: string | null;
+    knowledgeCenterUrl: string | null;
+    countsTowardRequirement: boolean;
+  };
+  period: string;
+  dueOn: string | null;
+  status: TaskStatus;
+  completedOn: string | null;
+  staffNote: string | null;
+  attachmentUrl: string | null;
+  payload: Record<string, unknown> | null;
+  updatedAt: string;
+}
+
+// ---------- Staff dashboard ----------
+
+export interface StaffOverviewInitiative {
+  initiativeId: string;
+  code: string;
+  name: string;
+  enrolled: number;
+  met: number;
+  onTrack: number;
+  atRisk: number;
+  notMet: number;
+}
+
+export interface NeedsAttentionRow {
+  hospitalId: string;
+  hospitalName: string;
+  initiativeId: string;
+  initiativeCode: string;
+  enrollmentId: string;
+  enrollmentStatus: string;
+  track: 'active' | 'sustainability';
+  compliance: ComplianceForProgramYear | null;
+}
+
+export interface PendingInterestForm {
+  id: string;
+  initiativeId: string;
+  hospitalId: string | null;
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: string;
+  facilityName: string;
+  status: 'submitted' | 'reviewed' | 'approved' | 'declined';
+  staffNotes: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StaffOverviewResponse {
+  initiatives: StaffOverviewInitiative[];
+  needsAttention: NeedsAttentionRow[];
+  pendingInterestForms: PendingInterestForm[];
+  totals: {
+    hospitalsEnrolled: number;
+    totalEnrollments: number;
+    pendingInterestForms: number;
+  };
+}
+
+export interface HospitalSummary {
+  id: string;
+  name: string;
+  region: string | null;
+  defaultContactName: string | null;
+  defaultContactEmail: string | null;
+}
+
+export interface InitiativeHospitalsResponse {
+  initiative: {
+    id: string;
+    code: string;
+    name: string;
+    brandColor: string | null;
+    emoji: string | null;
+  };
+  hospitals: Array<{
+    hospital: HospitalSummary;
+    enrollmentId: string;
+    enrollmentStatus: string;
+    cohort: { id: string; label: string; track: 'active' | 'sustainability' } | null;
+    currentStage: { id: string; code: string; name: string; sequence: number } | null;
+    compliance: ComplianceForProgramYear | null;
+  }>;
+}
+
+export interface HospitalStaffMember {
+  id: string;
+  hospitalId: string;
+  initiativeId: string | null;
+  name: string;
+  role: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
+export interface AuditEntry {
+  id: string;
+  actorUserId: string | null;
+  actorRole: string | null;
+  action: string;
+  entityType: string;
+  entityId: string;
+  diff: unknown;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface HospitalDetailEnrollment {
+  enrollmentId: string;
+  status: string;
+  enrolledOn: string;
+  withdrawnOn: string | null;
+  cohort: {
+    id: string;
+    label: string;
+    track: 'active' | 'sustainability';
+    startDate: string;
+    endDate: string;
+  } | null;
+  initiative: {
+    id: string;
+    code: string;
+    name: string;
+    brandColor: string | null;
+    emoji: string | null;
+  } | null;
+  currentStage: { id: string; code: string; name: string; sequence: number } | null;
+  programYears: ComplianceForProgramYear[];
+}
+
+export interface HospitalDetailResponse {
+  hospital: {
+    id: string;
+    name: string;
+    cmsId: string | null;
+    npi: string | null;
+    region: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+    defaultContactName: string | null;
+    defaultContactEmail: string | null;
+    inGoodStanding: boolean;
+    notes: string | null;
+  };
+  enrollments: HospitalDetailEnrollment[];
+  staffMembers: HospitalStaffMember[];
+  recentAudit: AuditEntry[];
+}
+
+// ---------- /me/tasks ----------
+
+export interface MyTasksResponse {
+  tasks: Array<{
+    id: string;
+    enrollmentId: string;
+    programYear: number;
+    initiative: { code: string; name: string };
+    stage: { code: string; name: string };
+    template: {
+      name: string;
+      taskType: TaskType;
+      knowledgeCenterUrl: string | null;
+    };
+    period: string;
+    dueOn: string | null;
+    status: TaskStatus;
+    completedOn: string | null;
+  }>;
+}

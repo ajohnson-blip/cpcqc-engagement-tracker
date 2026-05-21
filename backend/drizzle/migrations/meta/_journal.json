@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1778508479932,
+      "tag": "0000_wooden_tinkerer",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778538278881,
+      "tag": "0001_dapper_talon",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779132021380,
+      "tag": "0002_fluffy_morph",
+      "breakpoints": true
+    }
+  ]
+}
