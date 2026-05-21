@@ -32,10 +32,12 @@ services:
     plan: starter
     region: oregon
     rootDir: backend
-    # `npm ci` for reproducible installs, `build` compiles TS → dist/,
-    # `db:migrate` applies any pending Drizzle migrations against the
-    # freshly-attached database before the new version goes live.
-    buildCommand: npm ci && npm run build && npm run db:migrate
+    # `npm ci --include=dev` forces install of devDependencies even though
+    # NODE_ENV=production (tsc, tsx, drizzle-kit live in devDeps and are
+    # needed at build/migrate time). `build` compiles TS → dist/. `db:migrate`
+    # applies any pending Drizzle migrations against the freshly-attached
+    # database before the new version goes live.
+    buildCommand: npm ci --include=dev && npm run build && npm run db:migrate
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true
@@ -90,7 +92,10 @@ services:
     plan: starter
     region: oregon
     rootDir: frontend
-    buildCommand: npm ci && npm run build
+    # --include=dev because tailwindcss, postcss, autoprefixer, and
+    # typescript live in devDependencies but are needed by `next build`.
+    # NODE_ENV=production would otherwise skip them.
+    buildCommand: npm ci --include=dev && npm run build
     # Override package.json's hardcoded -p 3000 so Next listens on Render's $PORT.
     startCommand: npx next start -p $PORT
     autoDeploy: true
