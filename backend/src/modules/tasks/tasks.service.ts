@@ -69,9 +69,28 @@ export async function listTasksForEnrollment(
     .where(and(...conds))
     .orderBy(schema.stages.sequence, schema.taskInstances.dueOn);
 
-  const filtered = params.programYear
+  let filtered = params.programYear
     ? rows.filter((r) => r.programYear.year === params.programYear)
     : rows;
+
+  // Hide future-year tasks until that year's Enrollment Form is submitted.
+  // For multi-year cohorts like TTT (2026 → 2027), the 2027 enrollment form
+  // is shown right away (so it's clear the hospital can re-enroll), but the
+  // rest of the 2027 tasks stay hidden until the 2027 EF is marked complete.
+  // Once submitted, all that year's tasks become visible automatically.
+  const currentYear = new Date().getUTCFullYear();
+  // For each future year, find whether its enrollment_form task is complete.
+  const futureYearEfComplete = new Map<number, boolean>();
+  for (const r of rows) {
+    if (r.programYear.year <= currentYear) continue;
+    if (r.template.taskType !== 'enrollment_form') continue;
+    futureYearEfComplete.set(r.programYear.year, r.task.status === 'complete');
+  }
+  filtered = filtered.filter((r) => {
+    if (r.programYear.year <= currentYear) return true;
+    if (r.template.taskType === 'enrollment_form') return true;
+    return futureYearEfComplete.get(r.programYear.year) === true;
+  });
 
   return filtered.map((r) => ({
     id: r.task.id,

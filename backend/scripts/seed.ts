@@ -107,7 +107,10 @@ const INITIATIVES = [
   },
 ];
 
-const ACTIVE_DEFAULTS = { requiredMeetings: 9, requiredAdvising: 4, requiredAssessments: 0 };
+// HRA = Hospital Readiness Assessment. Two per year for both tracks (typically
+// Q1 + Q4; SPARK 2026 is Q2 + Q4 — a 2026-only exception baked into the
+// templates, not into the threshold count).
+const ACTIVE_DEFAULTS = { requiredMeetings: 9, requiredAdvising: 4, requiredAssessments: 2 };
 const SUSTAINABILITY_DEFAULTS = { requiredMeetings: 4, requiredAdvising: 2, requiredAssessments: 2 };
 
 const STAGES_DEF: Array<{

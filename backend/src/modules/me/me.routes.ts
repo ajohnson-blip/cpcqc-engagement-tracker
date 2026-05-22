@@ -172,7 +172,26 @@ router.get('/tasks', requireAuth, async (req, res) => {
     .where(inArray(schema.taskInstances.enrollmentId, enrollmentIds))
     .orderBy(asc(schema.taskInstances.dueOn));
 
-  let tasks = rows.map((r) => ({
+  // Hide future-year tasks until that year's Enrollment Form is submitted.
+  // See the matching filter in tasks.service.ts listTasksForEnrollment for
+  // rationale. Builds a (enrollmentId, year) → ef-complete map across all rows.
+  const currentYear = new Date().getUTCFullYear();
+  const futureEfComplete = new Map<string, boolean>();
+  for (const r of rows) {
+    if (r.programYear.year <= currentYear) continue;
+    if (r.template.taskType !== 'enrollment_form') continue;
+    futureEfComplete.set(
+      `${r.task.enrollmentId}::${r.programYear.year}`,
+      r.task.status === 'complete',
+    );
+  }
+  const visibleRows = rows.filter((r) => {
+    if (r.programYear.year <= currentYear) return true;
+    if (r.template.taskType === 'enrollment_form') return true;
+    return futureEfComplete.get(`${r.task.enrollmentId}::${r.programYear.year}`) === true;
+  });
+
+  let tasks = visibleRows.map((r) => ({
     id: r.task.id,
     enrollmentId: r.task.enrollmentId,
     programYear: r.programYear.year,
