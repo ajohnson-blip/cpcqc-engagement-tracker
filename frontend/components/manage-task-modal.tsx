@@ -25,21 +25,19 @@ function optionsForTaskType(taskType: TaskRow['template']['taskType']): {
   label: string;
 }[] {
   switch (taskType) {
+    // Binary outcomes only — no "in progress" or "needs revision" for submissions.
     case 'data_submission':
     case 'readiness_assessment':
       return [
         { value: 'submitted_on_time', label: 'Submitted on time' },
         { value: 'submitted_late', label: 'Submitted late' },
-        { value: 'current_activities', label: 'In progress' },
-        { value: 'needs_revision', label: 'Needs revision' },
       ];
+    // Binary outcomes only — no "in progress" or "needs revision" for attendance.
     case 'meeting_attendance':
     case 'qi_advising':
       return [
         { value: 'attended', label: 'Attended' },
         { value: 'did_not_attend', label: 'Did not attend' },
-        { value: 'current_activities', label: 'In progress' },
-        { value: 'needs_revision', label: 'Needs revision' },
       ];
     // enrollment_form and 'other' keep the legacy options.
     default:

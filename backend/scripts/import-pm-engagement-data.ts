@@ -178,6 +178,7 @@ async function updateTaskInstance(
   ti: typeof schema.taskInstances.$inferSelect,
   patch: {
     status?: 'complete' | 'current_activities' | 'needs_revision';
+    outcome?: 'on_time' | 'late' | 'attended' | 'missed' | null;
     completedOn?: string | null;
     payload?: Record<string, unknown>;
     attachmentUrl?: string | null;
@@ -190,6 +191,7 @@ async function updateTaskInstance(
     .update(schema.taskInstances)
     .set({
       ...(patch.status !== undefined && { status: patch.status }),
+      ...(patch.outcome !== undefined && { outcome: patch.outcome }),
       ...(patch.completedOn !== undefined && { completedOn: patch.completedOn }),
       ...(patch.payload !== undefined && { payload: patch.payload }),
       ...(patch.attachmentUrl !== undefined && { attachmentUrl: patch.attachmentUrl }),
@@ -486,9 +488,11 @@ async function processMeetingAttendance(ctx: ProcessContext, sheet: ExcelJS.Work
     const year = parseInt(dateMatch[1]!, 10);
     const monthStr = dateMatch[2]!;
     const monthNum = parseInt(monthStr, 10);
-    // Derive quarter from month.
+    // Derive both periods. Active cohorts use monthly templates ("2026-01");
+    // SOAR sustainability still uses quarterly ("2026-Q1").
     const qNum = Math.ceil(monthNum / 3);
-    const period = `${year}-Q${qNum}`;
+    const monthlyPeriod = `${year}-${monthStr}`;
+    const quarterlyPeriod = `${year}-Q${qNum}`;
     // If a full date was supplied, use it as the meetingDate. Otherwise, use
     // end-of-month as the canonical completedOn (the importer treats this as
     // the recorded date of the attendance event).
@@ -548,6 +552,12 @@ async function processMeetingAttendance(ctx: ProcessContext, sheet: ExcelJS.Work
     }
 
     for (const enrollment of targetEnrollments) {
+      // Active cohorts use monthly templates; sustainability still uses quarterly.
+      const cohortForTrack = await db.query.cohorts.findFirst({
+        where: eq(schema.cohorts.id, enrollment.cohortId),
+      });
+      const period = cohortForTrack?.track === 'sustainability' ? quarterlyPeriod : monthlyPeriod;
+
       const ti = await findTaskInstance(enrollment.id, 'meeting_attendance', period);
       if (!ti) {
         ctx.errors.push({
@@ -557,22 +567,37 @@ async function processMeetingAttendance(ctx: ProcessContext, sheet: ExcelJS.Work
         });
         continue;
       }
-      const existingPayload = (ti.payload as Record<string, unknown> | null) ?? {};
-      const previousAttendances = Array.isArray(existingPayload['attendances'])
-        ? (existingPayload['attendances'] as unknown[])
-        : [];
-      const newPayload = {
-        ...existingPayload,
-        attendances: [
-          ...previousAttendances,
-          {
-            meetingDate,
-            type: meetingType || 'Monthly Cohort',
-            ...(notes ? { notes } : {}),
-            source: 'pm-backfill',
-          },
-        ],
-      };
+
+      // Monthly active model: one task per month, status='complete' + outcome='attended'
+      // when the hospital attended any meeting that month. Sustainability still uses
+      // the legacy "attendances array" structure since multiple per quarter are possible.
+      const isMonthly = cohortForTrack?.track !== 'sustainability';
+      let newPayload: Record<string, unknown>;
+      if (isMonthly) {
+        newPayload = {
+          meetingDate,
+          type: meetingType || 'Monthly Cohort',
+          ...(notes ? { notes } : {}),
+          source: 'pm-backfill',
+        };
+      } else {
+        const existingPayload = (ti.payload as Record<string, unknown> | null) ?? {};
+        const previousAttendances = Array.isArray(existingPayload['attendances'])
+          ? (existingPayload['attendances'] as unknown[])
+          : [];
+        newPayload = {
+          ...existingPayload,
+          attendances: [
+            ...previousAttendances,
+            {
+              meetingDate,
+              type: meetingType || 'Monthly Cohort',
+              ...(notes ? { notes } : {}),
+              source: 'pm-backfill',
+            },
+          ],
+        };
+      }
 
       if (ctx.dryRun) {
         ctx.counts.applied += 1;
@@ -582,6 +607,7 @@ async function processMeetingAttendance(ctx: ProcessContext, sheet: ExcelJS.Work
         ti,
         {
           status: 'complete',
+          outcome: isMonthly ? 'attended' : undefined,
           completedOn: meetingDate,
           payload: newPayload,
         },
