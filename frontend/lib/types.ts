@@ -338,6 +338,7 @@ export interface MyTasksResponse {
     period: string;
     dueOn: string | null;
     status: TaskStatus;
+    outcome: TaskOutcome;
     completedOn: string | null;
   }>;
 }

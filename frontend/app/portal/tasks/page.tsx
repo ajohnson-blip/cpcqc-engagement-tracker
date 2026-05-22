@@ -54,6 +54,7 @@ export default function PortalTasksPage() {
       period: t.period,
       dueOn: t.dueOn,
       status: t.status,
+      outcome: t.outcome,
       completedOn: t.completedOn,
       staffNote: null,
       attachmentUrl: null,
