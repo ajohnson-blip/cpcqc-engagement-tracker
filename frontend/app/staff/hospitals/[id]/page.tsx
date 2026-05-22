@@ -3,17 +3,50 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ChevronLeft, Mail, Phone, MapPin, FileText } from 'lucide-react';
+import { ChevronLeft, Mail, Phone, MapPin, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { HospitalDetailResponse } from '@/lib/types';
+import type { HospitalDetailResponse, TaskRow } from '@/lib/types';
 import { ComplianceTile } from '@/components/compliance-tile';
 import { RequirementStatusPill } from '@/components/status-pill';
+import { TaskTable } from '@/components/task-table';
 import { fmtDate } from '@/lib/format';
 
 export default function StaffHospitalDetailPage() {
   const params = useParams<{ id: string }>();
   const [data, setData] = useState<HospitalDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Lazy-loaded task lists, keyed by enrollmentId. Loaded on first expand;
+  // cached after that. Null = not loaded yet; [] = loaded, no tasks.
+  const [tasksByEnrollment, setTasksByEnrollment] = useState<Record<string, TaskRow[] | null>>({});
+  const [expandedEnrollment, setExpandedEnrollment] = useState<string | null>(null);
+
+  function toggleEnrollmentTasks(enrollmentId: string) {
+    if (expandedEnrollment === enrollmentId) {
+      setExpandedEnrollment(null);
+      return;
+    }
+    setExpandedEnrollment(enrollmentId);
+    if (tasksByEnrollment[enrollmentId] !== undefined) return; // already loading/loaded
+    setTasksByEnrollment((prev) => ({ ...prev, [enrollmentId]: null }));
+    api
+      .get<{ tasks: TaskRow[] }>(`/tasks/enrollment/${enrollmentId}`)
+      .then((res) =>
+        setTasksByEnrollment((prev) => ({ ...prev, [enrollmentId]: res.tasks })),
+      )
+      .catch((err: Error) => setError(err.message));
+  }
+
+  function handleTaskUpdated(enrollmentId: string, updated: TaskRow) {
+    setTasksByEnrollment((prev) => {
+      const list = prev[enrollmentId];
+      if (!list) return prev;
+      return { ...prev, [enrollmentId]: list.map((t) => (t.id === updated.id ? updated : t)) };
+    });
+    // Refresh hospital detail so the compliance tiles reflect the new state.
+    void api
+      .get<HospitalDetailResponse>(`/staff/hospitals/${params.id}`)
+      .then((d) => setData(d));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -182,6 +215,45 @@ export default function StaffHospitalDetailPage() {
                       </div>
                     </div>
                   ))}
+                </div>
+
+                {/* Tasks (lazy-loaded inline expand) */}
+                <div className="mt-5">
+                  <button
+                    type="button"
+                    onClick={() => toggleEnrollmentTasks(e.enrollmentId)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-cpcqc-purple/30 px-3.5 py-1.5 font-rounded text-xs font-bold uppercase tracking-wide text-cpcqc-purple hover:bg-cpcqc-purple hover:text-white"
+                  >
+                    {expandedEnrollment === e.enrollmentId ? (
+                      <>
+                        <ChevronUp size={14} aria-hidden /> Hide tasks
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown size={14} aria-hidden /> Manage tasks
+                      </>
+                    )}
+                  </button>
+
+                  {expandedEnrollment === e.enrollmentId && (
+                    <div className="mt-4">
+                      {tasksByEnrollment[e.enrollmentId] === null ? (
+                        <div className="rounded-xl bg-white p-6 text-center text-sm text-cpcqc-purple-dark/60 shadow-sm">
+                          Loading tasks…
+                        </div>
+                      ) : tasksByEnrollment[e.enrollmentId]?.length === 0 ? (
+                        <div className="rounded-xl bg-white p-6 text-center text-sm text-cpcqc-purple-dark/60 shadow-sm">
+                          No tasks for this enrollment yet.
+                        </div>
+                      ) : (
+                        <TaskTable
+                          tasks={tasksByEnrollment[e.enrollmentId] ?? []}
+                          onTaskUpdated={(updated) => handleTaskUpdated(e.enrollmentId, updated)}
+                          groupByStage
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
