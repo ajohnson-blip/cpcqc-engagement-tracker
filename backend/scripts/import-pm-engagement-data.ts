@@ -740,20 +740,23 @@ async function processHraCompletions(ctx: ProcessContext, sheet: ExcelJS.Workshe
   // Sheet has a row-1 banner about Q1/Q4 + optional date; header is row 2.
   const SHEET = 'HRA Completions';
   for (const { rowNumber, cells } of readRows(sheet, 2)) {
-    const [hospital, initiative, track, period, completedDateRaw, notes] = cells;
+    const [hospital, initiative, track, periodRaw, completedDateRaw, notes] = cells;
     if (isExampleRow(notes ?? '')) continue;
-    if (!period) {
+    if (!periodRaw) {
       ctx.errors.push({ sheet: SHEET, rowNumber, reason: `Missing period` });
       continue;
     }
-    if (track !== 'sustainability') {
-      ctx.errors.push({
-        sheet: SHEET,
-        rowNumber,
-        reason: `HRA tasks only exist on sustainability track; got "${track}"`,
-      });
-      continue;
+    // SPARK 2026 HRA schedule is Q2 + Q4 (not the standard Q1 + Q4). A PM
+    // occasionally enters a SPARK row under Q1 by mistake — treat it as the
+    // Q2 milestone since the HRA was completed. See task_templates_starter.xlsx
+    // notes on the SPARK active readiness_assessment rows.
+    let period = periodRaw ?? '';
+    if (initiative === 'SPARK' && track === 'active' && period === '2026-Q1') {
+      period = '2026-Q2';
     }
+    // HRAs now exist on all tracks: SOAR sustainability (Q1+Q4) was the original;
+    // TTT/NEST/SOAR active have Q1+Q4 templates; SPARK active has Q2+Q4 in 2026.
+    // Rely on TaskInstance lookup below to flag any unknown combinations.
     const basics = validateBasics(ctx, SHEET, rowNumber, initiative ?? '', track ?? '', hospital ?? '');
     if (!basics) continue;
     const yearMatch = /^(\d{4})-/.exec(period);
@@ -767,7 +770,7 @@ async function processHraCompletions(ctx: ProcessContext, sheet: ExcelJS.Workshe
       ctx.errors.push({
         sheet: SHEET,
         rowNumber,
-        reason: `No sustainability enrollment for ${hospital} × ${initiative}`,
+        reason: `No ${track} enrollment for ${hospital} × ${initiative}`,
       });
       continue;
     }
