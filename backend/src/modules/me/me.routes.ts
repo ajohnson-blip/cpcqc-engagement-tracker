@@ -186,6 +186,7 @@ router.get('/tasks', requireAuth, async (req, res) => {
     period: r.task.period,
     dueOn: r.task.dueOn,
     status: r.task.status,
+    outcome: r.task.outcome,
     completedOn: r.task.completedOn,
   }));
 

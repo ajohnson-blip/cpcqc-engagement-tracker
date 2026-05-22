@@ -57,6 +57,9 @@ export async function evaluateProgramYearById(
   if (!initiative) throw new HttpError(500, 'Cohort references missing initiative');
 
   // Count completed task instances by task type, scoped to this program year.
+  // Excludes 'late' and 'missed' outcomes: those are recorded for the audit
+  // trail but do not satisfy the compliance threshold. NULL outcome (legacy
+  // imports + pre-outcome-field rows) is still counted, preserving back-compat.
   const completedCountsRaw = await db
     .select({
       taskType: schema.taskTemplates.taskType,
@@ -71,6 +74,7 @@ export async function evaluateProgramYearById(
       and(
         eq(schema.taskInstances.programYearId, programYearId),
         eq(schema.taskInstances.status, 'complete'),
+        sql`(${schema.taskInstances.outcome} IS NULL OR ${schema.taskInstances.outcome} IN ('on_time', 'attended'))`,
       ),
     )
     .groupBy(schema.taskTemplates.taskType);

@@ -67,6 +67,14 @@ export const otherPayload = z.object({
 
 export const manageTaskBody = z.object({
   status: z.enum(['complete', 'current_activities', 'needs_revision']).default('complete'),
+  /**
+   * Qualifies the completion. Only meaningful when status='complete'.
+   *   data_submission / readiness_assessment → 'on_time' | 'late'
+   *   meeting_attendance / qi_advising       → 'attended' | 'missed'
+   * 'late' and 'missed' are recorded but do NOT count toward compliance.
+   * NULL/omitted = legacy / unspecified (counts toward compliance for back-compat).
+   */
+  outcome: z.enum(['on_time', 'late', 'attended', 'missed']).nullable().optional(),
   staffNote: z.string().max(2000).optional(),
   /** Type-specific payload — validated against the matching schema in the service. */
   payload: z

@@ -62,6 +62,20 @@ export const taskStatus = pgEnum('task_status', [
   'needs_revision',
 ]);
 
+// How a completion was qualified, for tasks where on-time vs late or
+// attended vs missed matters. NULL = legacy/unspecified (treat as compliant
+// when status='complete' for backwards compatibility). Used for:
+//   data_submission, readiness_assessment → on_time | late
+//   meeting_attendance, qi_advising        → attended | missed
+// "missed" / "late" outcomes are recorded (the task is status='complete')
+// but they do NOT count toward compliance thresholds.
+export const taskOutcome = pgEnum('task_outcome', [
+  'on_time',
+  'late',
+  'attended',
+  'missed',
+]);
+
 export const meetingType = pgEnum('meeting_type', ['monthly_cohort', 'annual_forum']);
 
 export const interestFormStatus = pgEnum('interest_form_status', [
@@ -303,6 +317,9 @@ export const taskInstances = pgTable(
     period: text('period').notNull(), // concrete period like "2026-Q1", "2026-03"
     dueOn: date('due_on'),
     status: taskStatus('status').notNull().default('not_started'),
+    // Qualifies the completion. NULL = unspecified (legacy / backwards-compatible);
+    // when set, drives compliance counting (on_time/attended = compliant; late/missed = documented but not counted).
+    outcome: taskOutcome('outcome'),
     completedOn: date('completed_on'),
     staffNote: text('staff_note'),
     attachmentUrl: text('attachment_url'),

@@ -144,6 +144,13 @@ export type TaskType =
 
 export type TaskStatus = 'not_started' | 'current_activities' | 'complete' | 'needs_revision';
 
+/**
+ * Qualifies a 'complete' status. NULL = unspecified (counts as compliant
+ * for back-compat). 'on_time' / 'attended' = compliant. 'late' / 'missed' =
+ * documented but does NOT count toward thresholds.
+ */
+export type TaskOutcome = 'on_time' | 'late' | 'attended' | 'missed' | null;
+
 export interface TaskRow {
   id: string;
   enrollmentId: string;
@@ -161,6 +168,7 @@ export interface TaskRow {
   period: string;
   dueOn: string | null;
   status: TaskStatus;
+  outcome: TaskOutcome;
   completedOn: string | null;
   staffNote: string | null;
   attachmentUrl: string | null;

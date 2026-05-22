@@ -4,7 +4,109 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { X } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { TASK_TYPE_LABEL, fmtPeriod } from '@/lib/format';
-import type { TaskRow, TaskStatus } from '@/lib/types';
+import type { TaskRow, TaskStatus, TaskOutcome } from '@/lib/types';
+
+/**
+ * Composite UI value combining task status + outcome. Each option maps to a
+ * (status, outcome) pair sent to the backend. The available options depend on
+ * task type — see optionsForTaskType below.
+ */
+type OutcomeOption =
+  | 'submitted_on_time'
+  | 'submitted_late'
+  | 'attended'
+  | 'did_not_attend'
+  | 'complete'
+  | 'current_activities'
+  | 'needs_revision';
+
+function optionsForTaskType(taskType: TaskRow['template']['taskType']): {
+  value: OutcomeOption;
+  label: string;
+}[] {
+  switch (taskType) {
+    case 'data_submission':
+    case 'readiness_assessment':
+      return [
+        { value: 'submitted_on_time', label: 'Submitted on time' },
+        { value: 'submitted_late', label: 'Submitted late' },
+        { value: 'current_activities', label: 'In progress' },
+        { value: 'needs_revision', label: 'Needs revision' },
+      ];
+    case 'meeting_attendance':
+    case 'qi_advising':
+      return [
+        { value: 'attended', label: 'Attended' },
+        { value: 'did_not_attend', label: 'Did not attend' },
+        { value: 'current_activities', label: 'In progress' },
+        { value: 'needs_revision', label: 'Needs revision' },
+      ];
+    // enrollment_form and 'other' keep the legacy options.
+    default:
+      return [
+        { value: 'complete', label: 'Complete' },
+        { value: 'current_activities', label: 'In progress' },
+        { value: 'needs_revision', label: 'Needs revision' },
+      ];
+  }
+}
+
+function outcomeOptionToWire(value: OutcomeOption): {
+  status: TaskStatus;
+  outcome: TaskOutcome;
+} {
+  switch (value) {
+    case 'submitted_on_time':
+      return { status: 'complete', outcome: 'on_time' };
+    case 'submitted_late':
+      return { status: 'complete', outcome: 'late' };
+    case 'attended':
+      return { status: 'complete', outcome: 'attended' };
+    case 'did_not_attend':
+      return { status: 'complete', outcome: 'missed' };
+    case 'complete':
+      return { status: 'complete', outcome: null };
+    case 'current_activities':
+      return { status: 'current_activities', outcome: null };
+    case 'needs_revision':
+      return { status: 'needs_revision', outcome: null };
+  }
+}
+
+function defaultOutcomeOption(task: TaskRow): OutcomeOption {
+  // Derive a sensible default for the dropdown based on current state.
+  if (task.status === 'complete') {
+    if (task.outcome === 'on_time') return 'submitted_on_time';
+    if (task.outcome === 'late') return 'submitted_late';
+    if (task.outcome === 'attended') return 'attended';
+    if (task.outcome === 'missed') return 'did_not_attend';
+    // status complete with no outcome — pick the on_time/attended option
+    // for the type if applicable, else generic complete.
+    switch (task.template.taskType) {
+      case 'data_submission':
+      case 'readiness_assessment':
+        return 'submitted_on_time';
+      case 'meeting_attendance':
+      case 'qi_advising':
+        return 'attended';
+      default:
+        return 'complete';
+    }
+  }
+  if (task.status === 'current_activities') return 'current_activities';
+  if (task.status === 'needs_revision') return 'needs_revision';
+  // 'not_started' — pick the type-default "compliant" option as a hint.
+  switch (task.template.taskType) {
+    case 'data_submission':
+    case 'readiness_assessment':
+      return 'submitted_on_time';
+    case 'meeting_attendance':
+    case 'qi_advising':
+      return 'attended';
+    default:
+      return 'complete';
+  }
+}
 
 interface ManageTaskModalProps {
   task: TaskRow;
@@ -13,7 +115,7 @@ interface ManageTaskModalProps {
 }
 
 export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalProps) {
-  const [status, setStatus] = useState<TaskStatus>('complete');
+  const [outcomeChoice, setOutcomeChoice] = useState<OutcomeOption>(defaultOutcomeOption(task));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,8 +211,10 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
     setError(null);
     setSubmitting(true);
     try {
+      const { status, outcome } = outcomeOptionToWire(outcomeChoice);
       const res = await api.post<{ task: TaskRow }>(`/tasks/${task.id}/manage`, {
         status,
+        outcome,
         payload: buildPayload(),
       });
       onUpdated(res.task);
@@ -292,8 +396,9 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
             <>
               <div className="rounded-lg bg-cpcqc-cream-dark/40 p-3 text-sm text-cpcqc-purple-dark/80">
                 <p>
-                  QI data for this period is entered directly in REDCap. Confirm submission here
-                  by marking the task complete; the responses themselves live in REDCap.
+                  QI data for this period is entered directly in REDCap. Once submitted, record
+                  whether it was on time using the dropdown below; late submissions are tracked
+                  but do not count toward your data submission requirement.
                 </p>
               </div>
               <Field label="Period covered (optional)">
@@ -311,9 +416,9 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
           {task.template.taskType === 'readiness_assessment' && (
             <div className="rounded-lg bg-cpcqc-cream-dark/40 p-3 text-sm text-cpcqc-purple-dark/80">
               <p>
-                Hospital Readiness Assessments are entered in REDCap. Confirm completion here by
-                marking the task complete; the survey responses themselves live in REDCap. Add
-                anything we should note below.
+                Hospital Readiness Assessments are entered in REDCap. Once submitted, record
+                whether it was on time using the dropdown below; late submissions are tracked
+                but do not count toward your HRA requirement.
               </p>
             </div>
           )}
@@ -340,14 +445,23 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
 
           <Field label="Mark as">
             <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as TaskStatus)}
+              value={outcomeChoice}
+              onChange={(e) => setOutcomeChoice(e.target.value as OutcomeOption)}
               className="modal-input"
             >
-              <option value="complete">Complete</option>
-              <option value="current_activities">In progress</option>
-              <option value="needs_revision">Needs revision</option>
+              {optionsForTaskType(task.template.taskType).map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
+            {(outcomeChoice === 'submitted_late' || outcomeChoice === 'did_not_attend') && (
+              <p className="mt-1.5 text-xs text-cpcqc-purple-dark/65">
+                {outcomeChoice === 'submitted_late'
+                  ? 'Will be recorded but does not count toward the data submission requirement.'
+                  : 'Will be recorded but does not count toward the attendance requirement.'}
+              </p>
+            )}
           </Field>
 
           {error && (

@@ -90,6 +90,7 @@ export async function listTasksForEnrollment(
     period: r.task.period,
     dueOn: r.task.dueOn,
     status: r.task.status,
+    outcome: r.task.outcome,
     completedOn: r.task.completedOn,
     staffNote: r.task.staffNote,
     attachmentUrl: r.task.attachmentUrl,
@@ -148,10 +149,20 @@ export async function manageTask(taskId: string, body: unknown, ctx: AuthContext
 
   await db.transaction(async (tx) => {
     // Update the task instance
+    // Clear outcome when status is no longer 'complete' (e.g. resetting to
+    // current_activities or needs_revision shouldn't carry the old outcome).
+    const nextOutcome =
+      parsed.status === 'complete'
+        ? parsed.outcome === undefined
+          ? task.outcome
+          : parsed.outcome
+        : null;
+
     await tx
       .update(schema.taskInstances)
       .set({
         status: parsed.status,
+        outcome: nextOutcome,
         completedOn,
         payload: validatedPayload ?? task.payload,
         staffNote: parsed.staffNote ?? task.staffNote,
