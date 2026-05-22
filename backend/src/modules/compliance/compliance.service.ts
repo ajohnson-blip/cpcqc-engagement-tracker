@@ -154,9 +154,20 @@ export function evaluateProgramYear(
   const yearFraction = yearProgressFraction(ctx.programYear, ctx.asOf);
   const yearEnded = yearFraction >= 1;
 
+  // Whether this program year hasn't started yet (e.g., evaluating 2027 while
+  // we're still in 2026). Future years should never surface as at-risk — the
+  // hospital may not be re-enrolled until late in the prior year, and we don't
+  // want to alarm staff about tracking that isn't active yet.
+  const yearNotStarted = ctx.asOf.getUTCFullYear() < ctx.programYear;
+
   const enrollment: RequirementResult = (() => {
     if (progress.enrollmentStatus === 'enrolled' || progress.enrollmentStatus === 'completed') {
       return { status: 'met', current: 1, required: 1, expected: 1 };
+    }
+    if (yearNotStarted) {
+      // Future year; re-enrollment hasn't happened yet. Show as on_track until
+      // the new program year begins (then standard at-risk logic resumes).
+      return { status: 'on_track', current: 0, required: 1, expected: 1 };
     }
     return {
       status: yearEnded ? 'not_met' : 'at_risk',

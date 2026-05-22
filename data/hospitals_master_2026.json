@@ -946,7 +946,7 @@
           "status2026": "Active"
         },
         "TTT": {
-          "participating": true
+          "participating": false
         },
         "SPARK": {
           "participating": false
@@ -1215,7 +1215,7 @@
       "participation": {
         "SOAR": {
           "participating": true,
-          "status2026": "Sustainable"
+          "status2026": "Active"
         },
         "TTT": {
           "participating": true
@@ -1623,7 +1623,7 @@
       "participation": {
         "SOAR": {
           "participating": true,
-          "status2026": "Sustainable"
+          "status2026": "Active"
         },
         "TTT": {
           "participating": true
