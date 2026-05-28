@@ -20,7 +20,7 @@
  */
 import { Router } from 'express';
 import { z } from 'zod';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db, schema } from '@/db/index.js';
 import { requireAuth, requireStaff } from '@/middleware/auth.js';
 import { HttpError } from '@/middleware/errors.js';
@@ -31,6 +31,7 @@ import {
   type ComplianceForProgramYear,
 } from '@/modules/compliance/compliance.repository.js';
 import type { RequirementStatus } from '@/modules/compliance/compliance.service.js';
+import { selectInitiativeHospitals, selectOverviewRollup } from './staff.rollup.js';
 import { getTeamForInitiativeId } from './staff-team.service.js';
 
 const router = Router();
@@ -49,15 +50,16 @@ function compareByCompliance(a: RequirementStatus, b: RequirementStatus): number
 // -------- /staff/overview --------
 
 router.get('/overview', requireAuth, requireStaff, async (_req, res) => {
+  const asOf = new Date();
   const initiatives = await db.select().from(schema.initiatives);
   const cohorts = await db.select().from(schema.cohorts);
   const cohortById = new Map(cohorts.map((c) => [c.id, c]));
 
-  // All active (non-withdrawn) enrollments
-  const enrollments = await db
-    .select()
-    .from(schema.enrollments)
-    .where(isNull(schema.enrollments.withdrawnOn));
+  // Pull the same set of enrollments the initiative roster does (every
+  // enrollment, withdrawn included), then let isExcludedFromRollup decide what
+  // to drop — so the two dashboards can never disagree on the roster.
+  const allEnrollments = await db.select().from(schema.enrollments);
+  const enrollments = selectOverviewRollup(allEnrollments, asOf);
 
   const hospitalIds = Array.from(new Set(enrollments.map((e) => e.hospitalId)));
   const hospitals = hospitalIds.length
@@ -81,8 +83,8 @@ router.get('/overview', requireAuth, requireStaff, async (_req, res) => {
   for (const e of enrollments) {
     const cohort = cohortById.get(e.cohortId);
     if (!cohort) continue;
-    const evaluations = await evaluateEnrollment(e.id);
-    const current = pickCurrentProgramYear(evaluations);
+    const evaluations = await evaluateEnrollment(e.id, asOf);
+    const current = pickCurrentProgramYear(evaluations, asOf);
     rows.push({
       hospitalId: e.hospitalId,
       hospitalName: hospitalById.get(e.hospitalId)?.name ?? '(unknown)',
@@ -166,12 +168,20 @@ router.get('/overview', requireAuth, requireStaff, async (_req, res) => {
 // -------- /staff/initiatives/:code/hospitals --------
 
 router.get('/initiatives/:code/hospitals', requireAuth, requireStaff, async (req, res) => {
+  const asOf = new Date();
   const code = z.enum(['TTT', 'SPARK', 'SOAR', 'NEST']).parse(req.params.code);
   const query = z
     .object({
       track: z.enum(['active', 'sustainability']).optional(),
       sort: z.enum(['compliance', 'name']).default('compliance'),
       search: z.string().optional(),
+      // Withdrawn-before-this-program-year enrollments are hidden by default so
+      // this roster matches the /overview rollup; pass includeWithdrawn=true to
+      // see them.
+      includeWithdrawn: z
+        .enum(['true', 'false'])
+        .optional()
+        .transform((v) => v === 'true'),
     })
     .parse(req.query);
 
@@ -189,10 +199,11 @@ router.get('/initiatives/:code/hospitals', requireAuth, requireStaff, async (req
     return;
   }
 
-  const enrollments = await db
+  const allEnrollments = await db
     .select()
     .from(schema.enrollments)
     .where(inArray(schema.enrollments.cohortId, cohortIds));
+  const enrollments = selectInitiativeHospitals(allEnrollments, query.includeWithdrawn, asOf);
 
   const hospitalIds = Array.from(new Set(enrollments.map((e) => e.hospitalId)));
   const hospitals = hospitalIds.length
@@ -220,8 +231,8 @@ router.get('/initiatives/:code/hospitals', requireAuth, requireStaff, async (req
         const hospital = filteredHospitals.find((h) => h.id === e.hospitalId)!;
         const cohort = cohortById.get(e.cohortId);
         const stage = e.currentStageId ? stageById.get(e.currentStageId) : null;
-        const evaluations = await evaluateEnrollment(e.id);
-        const current = pickCurrentProgramYear(evaluations);
+        const evaluations = await evaluateEnrollment(e.id, asOf);
+        const current = pickCurrentProgramYear(evaluations, asOf);
         return {
           hospital: {
             id: hospital.id,
