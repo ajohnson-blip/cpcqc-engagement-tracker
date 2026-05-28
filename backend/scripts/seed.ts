@@ -19,6 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { v4 as uuid } from 'uuid';
 import { db, schema, pool } from '../src/db/index.js';
+import { REQUIRED_ASSESSMENTS_PER_YEAR } from '../src/modules/compliance/hra.js';
 import { eq, and } from 'drizzle-orm';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -107,11 +108,20 @@ const INITIATIVES = [
   },
 ];
 
-// HRA = Hospital Readiness Assessment. Two per year for both tracks (typically
-// Q1 + Q4; SPARK 2026 is Q2 + Q4 — a 2026-only exception baked into the
-// templates, not into the threshold count).
-const ACTIVE_DEFAULTS = { requiredMeetings: 9, requiredAdvising: 4, requiredAssessments: 2 };
-const SUSTAINABILITY_DEFAULTS = { requiredMeetings: 4, requiredAdvising: 2, requiredAssessments: 2 };
+// HRA = Hospital Readiness Assessment. Required bi-annually for every initiative
+// and both tracks, so requiredAssessments is the same for all. The two HRAs are
+// normally due Q1 + Q4; the SPARK 2026 Q3 + Q4 exception is a per-program-year
+// schedule (program_years.hra_schedule), not a change to this count.
+const ACTIVE_DEFAULTS = {
+  requiredMeetings: 9,
+  requiredAdvising: 4,
+  requiredAssessments: REQUIRED_ASSESSMENTS_PER_YEAR,
+};
+const SUSTAINABILITY_DEFAULTS = {
+  requiredMeetings: 4,
+  requiredAdvising: 2,
+  requiredAssessments: REQUIRED_ASSESSMENTS_PER_YEAR,
+};
 
 const STAGES_DEF: Array<{
   code: string;

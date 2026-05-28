@@ -23,7 +23,7 @@ const activeThresholds: ProgramYearThresholds = {
   requiredAdvising: 4,
   requiredDataPeriods: 12,
   dataSubmissionsMin: 12,
-  requiredAssessments: 0,
+  requiredAssessments: 2,
 };
 
 interface Fixture {

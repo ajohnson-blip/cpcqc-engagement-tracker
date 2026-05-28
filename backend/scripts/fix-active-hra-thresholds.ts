@@ -2,8 +2,9 @@
  * One-off cleanup: set required_assessments = 2 for active-track cohorts.
  *
  * Originally seeded as 0 (we assumed HRAs were sustainability-only); we've
- * since learned that all four initiatives track HRAs (Q1 + Q4, except SPARK
- * 2026 which is Q2 + Q4). The hospital portal dashboard renders the Readiness
+ * since learned that all four initiatives track HRAs (two per year, normally
+ * Q1 + Q4; SPARK 2026's Q3 + Q4 timing lives in program_years.hra_schedule and
+ * does not affect this count). The hospital portal dashboard renders the Readiness
  * Assessments tile only when thresholds.requiredAssessments > 0, so this
  * needs to flip to 2 across (a) the config table (for future enrollments)
  * and (b) every existing active-track program_year row (so already-enrolled

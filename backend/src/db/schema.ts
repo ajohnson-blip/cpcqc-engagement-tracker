@@ -263,6 +263,10 @@ export const programYears = pgTable(
     requiredDataPeriods: integer('required_data_periods').notNull(),
     dataSubmissionsMin: integer('data_submissions_min').notNull(),
     requiredAssessments: integer('required_assessments').notNull().default(0),
+    // Ordered HRA due quarters for this program year, e.g. ["Q1","Q4"] or, for
+    // SPARK 2026, ["Q3","Q4"]. NULL means use the default (Q1 + Q4). Snapshotted
+    // at creation so historical schedules are stable if the rule later changes.
+    hraSchedule: jsonb('hra_schedule').$type<string[]>(),
     ...timestamps,
   },
   (t) => ({

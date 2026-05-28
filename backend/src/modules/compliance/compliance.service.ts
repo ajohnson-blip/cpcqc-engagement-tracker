@@ -12,8 +12,12 @@
  *   4. Data submission        — count of completed data tasks ≥ data_submissions_min
  *      (SPARK's "≥3 of 4 quarters" is expressed as data_submissions_min = 3.)
  *
- * Plus, for sustainability hospitals:
- *   5. Hospital Readiness Assessment — count of completed HRA tasks ≥ required
+ * Plus, for every initiative and track:
+ *   5. Hospital Readiness Assessment — count of completed HRA tasks ≥ required.
+ *      HRAs are required bi-annually (requiredAssessments = 2) across all
+ *      initiatives and both tracks. The two HRAs are normally due Q1 + Q4; a
+ *      per-program-year override can shift them (e.g., SPARK 2026 is Q3 + Q4).
+ *      Scheduling is handled upstream — the engine only checks the count.
  *
  * Annual-forum credit propagation: any in-period MeetingAttendance row counts toward
  * the meeting requirement of *any* of that hospital's active enrollments. Callers
@@ -31,7 +35,7 @@ export interface ProgramYearThresholds {
   requiredDataPeriods: number;
   /** Minimum required to be in compliance. Equals requiredDataPeriods normally; for SPARK = 3. */
   dataSubmissionsMin: number;
-  /** From program_years.required_assessments (0 for active track; 2 for sustainability) */
+  /** From program_years.required_assessments (2 for every initiative and track; HRAs are bi-annual) */
   requiredAssessments: number;
 }
 

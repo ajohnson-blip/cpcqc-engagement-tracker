@@ -7,12 +7,14 @@ import {
   type EvaluationContext,
 } from './compliance.service.js';
 
+// HRAs are required bi-annually for every initiative and track, so active and
+// SPARK configs carry requiredAssessments: 2 just like sustainability.
 const activeThresholds: ProgramYearThresholds = {
   requiredMeetings: 9,
   requiredAdvising: 4,
   requiredDataPeriods: 12,
   dataSubmissionsMin: 12,
-  requiredAssessments: 0,
+  requiredAssessments: 2,
 };
 
 const sparkThresholds: ProgramYearThresholds = {
@@ -20,7 +22,7 @@ const sparkThresholds: ProgramYearThresholds = {
   requiredAdvising: 4,
   requiredDataPeriods: 4,
   dataSubmissionsMin: 3, // ≥3 of 4 quarters
-  requiredAssessments: 0,
+  requiredAssessments: 2,
 };
 
 const sustainabilityThresholds: ProgramYearThresholds = {
@@ -75,12 +77,18 @@ describe('active track — happy path', () => {
   it('completing all requirements early returns met for each', () => {
     const result = evaluateProgramYear(
       activeThresholds,
-      enrolled({ meetingsAttended: 9, advisingCompleted: 4, dataSubmissionsCompleted: 12 }),
+      enrolled({
+        meetingsAttended: 9,
+        advisingCompleted: 4,
+        dataSubmissionsCompleted: 12,
+        assessmentsCompleted: 2,
+      }),
       midYear(),
     );
     expect(result.meetings.status).toBe('met');
     expect(result.advising.status).toBe('met');
     expect(result.dataSubmissions.status).toBe('met');
+    expect(result.assessments?.status).toBe('met');
     expect(result.overall).toBe('met');
   });
 });
@@ -178,9 +186,12 @@ describe('sustainability track (SOAR 2026)', () => {
     expect(result.overall).toBe('not_met');
   });
 
-  it('does not produce an assessments result for active track', () => {
+  it('does not produce an assessments result when requiredAssessments is 0', () => {
+    // The engine only evaluates HRAs when requiredAssessments > 0. (In production
+    // every track now requires 2; this guards the zero branch directly.)
+    const noHraThresholds: ProgramYearThresholds = { ...activeThresholds, requiredAssessments: 0 };
     const result = evaluateProgramYear(
-      activeThresholds,
+      noHraThresholds,
       enrolled({ meetingsAttended: 9, advisingCompleted: 4, dataSubmissionsCompleted: 12 }),
       afterYear(),
     );

@@ -23,6 +23,7 @@ import {
   computePeriodString,
   type TemplatePeriod,
 } from '@/utils/period.js';
+import { hraScheduleOverrideFor, scheduleHraInstances } from '@/modules/compliance/hra.js';
 
 export interface CreateEnrollmentInput {
   hospitalId: string;
@@ -87,6 +88,14 @@ export async function createEnrollment(input: CreateEnrollmentInput): Promise<Cr
     throw new HttpError(500, 'No threshold configuration for this initiative/track');
   }
 
+  // Initiative code drives the per-year HRA schedule (e.g., SPARK 2026 → Q3+Q4).
+  const initiative = await db.query.initiatives.findFirst({
+    where: eq(schema.initiatives.id, cohort.initiativeId),
+  });
+  if (!initiative) {
+    throw new HttpError(500, 'Cohort references missing initiative');
+  }
+
   // Determine the years covered by this cohort
   const startYear = new Date(cohort.startDate).getUTCFullYear();
   const endYear = new Date(cohort.endDate).getUTCFullYear();
@@ -121,6 +130,7 @@ export async function createEnrollment(input: CreateEnrollmentInput): Promise<Cr
 
     for (const year of years) {
       const programYearId = uuid();
+      const hraSchedule = hraScheduleOverrideFor(initiative.code, year);
       await tx.insert(schema.programYears).values({
         id: programYearId,
         enrollmentId,
@@ -130,20 +140,35 @@ export async function createEnrollment(input: CreateEnrollmentInput): Promise<Cr
         requiredDataPeriods: config.requiredDataPeriods,
         dataSubmissionsMin: config.dataSubmissionsMin,
         requiredAssessments: config.requiredAssessments,
+        hraSchedule,
       });
       programYearIds.push(programYearId);
+
+      // HRA due dates come from the program year's schedule (default Q1+Q4, or an
+      // override like SPARK 2026's Q3+Q4) — not the template's own period label.
+      const hraTemplates = templates.filter((t) => t.taskType === 'readiness_assessment');
+      const hraByTemplate = new Map(
+        scheduleHraInstances(hraTemplates, year, hraSchedule).map((s) => [s.templateId, s]),
+      );
 
       // Generate task instances
       for (const template of templates) {
         let period: string;
         let dueOn: string;
         try {
-          period = computePeriodString(
-            template.period as TemplatePeriod,
-            template.periodLabel,
-            year,
-          );
-          dueOn = computeDueDate(template.period as TemplatePeriod, template.periodLabel, year);
+          if (template.taskType === 'readiness_assessment') {
+            const scheduled = hraByTemplate.get(template.id);
+            if (!scheduled) throw new Error('HRA template missing from computed schedule');
+            period = scheduled.period;
+            dueOn = scheduled.dueOn;
+          } else {
+            period = computePeriodString(
+              template.period as TemplatePeriod,
+              template.periodLabel,
+              year,
+            );
+            dueOn = computeDueDate(template.period as TemplatePeriod, template.periodLabel, year);
+          }
         } catch (err) {
           // Skip malformed template rows but log them; do not fail the whole enrollment
           // eslint-disable-next-line no-console
