@@ -63,9 +63,17 @@ describe('yearProgressFraction', () => {
 
 describe('active track — happy path', () => {
   it('fully on-track hospital is on_track or met at mid-year', () => {
+    // The Q1 HRA deadline (Mar 31) has passed by mid-year, so a hospital that
+    // is "fully on track" must have at least the Q1 HRA done — otherwise the
+    // schedule-aware HRA evaluator (correctly) flips assessments to at_risk.
     const result = evaluateProgramYear(
       activeThresholds,
-      enrolled({ meetingsAttended: 5, advisingCompleted: 2, dataSubmissionsCompleted: 6 }),
+      enrolled({
+        meetingsAttended: 5,
+        advisingCompleted: 2,
+        dataSubmissionsCompleted: 6,
+        assessmentsCompleted: 1,
+      }),
       midYear(),
     );
     expect(result.meetings.status).toBe('on_track');

@@ -98,6 +98,7 @@ export async function evaluateProgramYearById(
     requiredDataPeriods: py.requiredDataPeriods,
     dataSubmissionsMin: py.dataSubmissionsMin,
     requiredAssessments: py.requiredAssessments,
+    hraSchedule: py.hraSchedule ?? null,
   };
 
   const result = evaluateProgramYear(thresholds, progress, {

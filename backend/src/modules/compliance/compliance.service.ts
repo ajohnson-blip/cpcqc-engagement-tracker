@@ -24,6 +24,8 @@
  * provide a pre-filtered list of in-scope attended meetings.
  */
 
+import { evaluateHraSchedule } from './hra.js';
+
 export type RequirementStatus = 'on_track' | 'at_risk' | 'met' | 'not_met';
 
 export interface ProgramYearThresholds {
@@ -37,6 +39,13 @@ export interface ProgramYearThresholds {
   dataSubmissionsMin: number;
   /** From program_years.required_assessments (2 for every initiative and track; HRAs are bi-annual) */
   requiredAssessments: number;
+  /**
+   * Ordered HRA due quarters for this program year (e.g., ["Q1","Q4"] or, for
+   * SPARK 2026, ["Q2","Q4"]). When omitted or null, the evaluator uses the
+   * default schedule. Drives milestone-aware HRA verdicts so a missed Q1
+   * deadline surfaces immediately, not at mid-year.
+   */
+  hraSchedule?: readonly string[] | null;
 }
 
 export interface ProgramYearProgress {
@@ -207,14 +216,17 @@ export function evaluateProgramYear(
     'data submissions',
   );
 
+  // HRAs are milestone-scheduled (one per scheduled quarter), not an annual
+  // threshold — a missed Q1 deadline should surface immediately, not wait
+  // for the mid-year cutover. Delegate to the schedule-aware evaluator when
+  // any HRAs are required.
   let assessments: RequirementResult | undefined;
   if (thresholds.requiredAssessments > 0) {
-    assessments = evaluateThreshold(
+    assessments = evaluateHraSchedule(
+      thresholds.hraSchedule,
       progress.assessmentsCompleted,
-      thresholds.requiredAssessments,
-      yearFraction,
-      yearEnded,
-      'readiness assessments',
+      ctx.programYear,
+      ctx.asOf,
     );
   }
 

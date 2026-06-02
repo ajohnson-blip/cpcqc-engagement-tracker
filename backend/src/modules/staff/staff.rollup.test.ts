@@ -34,13 +34,20 @@ interface Fixture {
 }
 
 // Build a fixture by running it through the SAME compliance engine both
-// dashboards use, with zero task progress. This is what makes the test
-// meaningful: the engine is identical across paths, so any disagreement in the
-// at-risk count can only come from which rows each path feeds in.
+// dashboards use. This is what makes the test meaningful: the engine is
+// identical across paths, so any disagreement in the at-risk count can only
+// come from which rows each path feeds in.
+//
+// The Q1 HRA deadline (Mar 31) has passed by ASOF (May 28), so to model a
+// genuinely on-track active enrollment the fixture sets assessmentsCompleted
+// per the caller — otherwise the schedule-aware HRA evaluator would (correctly)
+// flag it at_risk, which would muddy the at-risk-by-withdrawal accounting this
+// test is really checking.
 function makeFixture(
   id: string,
   status: ProgramYearProgress['enrollmentStatus'],
   withdrawnOn: string | null,
+  assessmentsCompleted = 0,
 ): Fixture {
   const result = evaluateProgramYear(
     activeThresholds,
@@ -48,7 +55,7 @@ function makeFixture(
       meetingsAttended: 0,
       advisingCompleted: 0,
       dataSubmissionsCompleted: 0,
-      assessmentsCompleted: 0,
+      assessmentsCompleted,
       enrollmentStatus: status,
     },
     { programYear: PROGRAM_YEAR, asOf: ASOF },
@@ -57,9 +64,10 @@ function makeFixture(
 }
 
 const enrollments: Fixture[] = [
-  makeFixture('active', 'enrolled', null), // healthy, on_track
-  makeFixture('withdrawn-prior-year', 'withdrawn', '2025-06-01'), // gone before PY 2026
-  makeFixture('withdrawn-data-drift', 'withdrawn', null), // status drift, no date
+  // Q1 HRA done → schedule-aware evaluator is satisfied → overall on_track.
+  makeFixture('active', 'enrolled', null, 1),
+  makeFixture('withdrawn-prior-year', 'withdrawn', '2025-06-01'),
+  makeFixture('withdrawn-data-drift', 'withdrawn', null),
 ];
 
 describe('isExcludedFromRollup', () => {

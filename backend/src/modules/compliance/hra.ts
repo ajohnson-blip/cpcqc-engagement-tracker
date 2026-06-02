@@ -15,6 +15,7 @@ import {
   computeDueDate,
   computePeriodString,
 } from '../../utils/period.js';
+import type { RequirementResult } from './compliance.service.js';
 
 export type Quarter = 'Q1' | 'Q2' | 'Q3' | 'Q4';
 
@@ -85,4 +86,82 @@ export function scheduleHraInstances(
       dueOn: computeDueDate('quarterly', q, year),
     };
   });
+}
+
+function quarterToNum(q: string): 1 | 2 | 3 | 4 | null {
+  if (q === 'Q1') return 1;
+  if (q === 'Q2') return 2;
+  if (q === 'Q3') return 3;
+  if (q === 'Q4') return 4;
+  return null;
+}
+
+/** Last instant of the named quarter's end day, in UTC milliseconds. */
+function quarterEndMs(year: number, quarter: 1 | 2 | 3 | 4): number {
+  // Start of the month AFTER the quarter ends, minus 1 ms.
+  const startNextQuarter = [
+    Date.UTC(year, 3, 1), // Q1 → April 1
+    Date.UTC(year, 6, 1), // Q2 → July 1
+    Date.UTC(year, 9, 1), // Q3 → October 1
+    Date.UTC(year + 1, 0, 1), // Q4 → next January 1
+  ];
+  return startNextQuarter[quarter - 1]! - 1;
+}
+
+/**
+ * Evaluates HRA compliance as a milestone schedule rather than an annual
+ * threshold. Each scheduled quarter is a hard deadline: if a quarter's end
+ * date has passed and the hospital is short by at least one HRA against the
+ * deadlines hit so far, the requirement is at-risk (or not-met after year end).
+ *
+ * Concretely, for the standard Q1+Q4 schedule:
+ *   asOf < Apr 1                 → 0 deadlines passed; 0 completions on_track.
+ *   asOf in Apr–Dec, 0 done      → Q1 missed → at_risk.
+ *   asOf in Apr–Dec, 1 done      → caught up to Q1 → on_track.
+ *   asOf >= next Jan 1, < 2 done → year ended → not_met.
+ *   completed >= required        → met.
+ *
+ * Replaces the previous threshold-based assessments verdict, which silently
+ * tolerated a missed Q1 HRA until July (yearFraction >= 0.5) — a hospital that
+ * skipped Q1 used to show on_track until mid-year.
+ */
+export function evaluateHraSchedule(
+  schedule: readonly string[] | null | undefined,
+  completed: number,
+  programYear: number,
+  asOf: Date,
+): RequirementResult {
+  const quarters = effectiveHraQuarters(schedule);
+  const required = quarters.length;
+  const nowMs = asOf.getTime();
+  let expected = 0;
+  for (const q of quarters) {
+    const qn = quarterToNum(q);
+    if (qn == null) continue; // skip unrecognized labels rather than crash
+    if (quarterEndMs(programYear, qn) < nowMs) expected += 1;
+  }
+  const yearEnded = expected === required;
+
+  if (completed >= required) {
+    return { status: 'met', current: completed, required, expected: required };
+  }
+  if (yearEnded) {
+    return {
+      status: 'not_met',
+      current: completed,
+      required,
+      expected: required,
+      reason: `Year ended with ${completed} of ${required} HRAs complete.`,
+    };
+  }
+  if (completed < expected) {
+    return {
+      status: 'at_risk',
+      current: completed,
+      required,
+      expected,
+      reason: `${expected} HRA deadline(s) have passed; ${completed} complete.`,
+    };
+  }
+  return { status: 'on_track', current: completed, required, expected };
 }

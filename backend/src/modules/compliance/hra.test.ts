@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   REQUIRED_ASSESSMENTS_PER_YEAR,
+  evaluateHraSchedule,
   hraScheduleOverrideFor,
   scheduleHraInstances,
 } from './hra.js';
@@ -68,6 +69,67 @@ describe('SPARK 2026 HRA schedule override', () => {
     expect(byId.get('hra-late')!.period).toBe('2026-Q4');
     expect(byId.get('hra-late')!.dueOn).toBe('2026-12-31');
     expect(quarterOf(new Date(byId.get('hra-late')!.dueOn))).toBe(4);
+  });
+
+  it('milestone-aware: 0/2 after Q1 deadline → at_risk (the AdventHealth Littleton case)', () => {
+    // TTT 2026, default Q1 + Q4 schedule, asOf 2026-06-01.
+    // Q1's deadline (Mar 31) has passed without a completion — the engine
+    // should flag at_risk for assessments rather than waiting until mid-year
+    // like the old yearFraction-based threshold did.
+    const result = evaluateHraSchedule(null, 0, 2026, new Date('2026-06-01T12:00:00Z'));
+    expect(result.status).toBe('at_risk');
+    expect(result.expected).toBe(1);
+    expect(result.current).toBe(0);
+    expect(result.required).toBe(2);
+  });
+
+  it('milestone-aware: 1/2 after Q1 deadline → on_track (caught up to the milestone)', () => {
+    const result = evaluateHraSchedule(null, 1, 2026, new Date('2026-06-01T12:00:00Z'));
+    expect(result.status).toBe('on_track');
+    expect(result.expected).toBe(1);
+  });
+
+  it('milestone-aware: before any deadline → on_track even with 0 completions', () => {
+    // Mid-February 2026 — Q1 ends March 31, no deadlines have passed yet.
+    const result = evaluateHraSchedule(null, 0, 2026, new Date('2026-02-15T12:00:00Z'));
+    expect(result.status).toBe('on_track');
+    expect(result.expected).toBe(0);
+  });
+
+  it('milestone-aware: SPARK 2026 stays on_track at 0/2 in June (Q2 deadline not yet passed)', () => {
+    // SPARK 2026's first HRA is due Q2 (June 30), not Q1. A 0/2 on June 1
+    // is genuinely not late yet — should stay on_track until the Q2 deadline.
+    const result = evaluateHraSchedule(
+      hraScheduleOverrideFor('SPARK', 2026),
+      0,
+      2026,
+      new Date('2026-06-01T12:00:00Z'),
+    );
+    expect(result.status).toBe('on_track');
+    expect(result.expected).toBe(0);
+  });
+
+  it('milestone-aware: SPARK 2026 flips to at_risk in July (Q2 deadline passed)', () => {
+    const result = evaluateHraSchedule(
+      hraScheduleOverrideFor('SPARK', 2026),
+      0,
+      2026,
+      new Date('2026-07-15T12:00:00Z'),
+    );
+    expect(result.status).toBe('at_risk');
+    expect(result.expected).toBe(1);
+  });
+
+  it('milestone-aware: 2/2 → met regardless of date', () => {
+    expect(
+      evaluateHraSchedule(null, 2, 2026, new Date('2026-04-15T12:00:00Z')).status,
+    ).toBe('met');
+  });
+
+  it('milestone-aware: incomplete at year-end → not_met', () => {
+    expect(
+      evaluateHraSchedule(null, 1, 2026, new Date('2027-01-15T12:00:00Z')).status,
+    ).toBe('not_met');
   });
 
   it('keeps the standard Q1 + Q4 for SPARK 2027 (no override — not hard-coded to SPARK)', () => {
