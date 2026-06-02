@@ -146,10 +146,16 @@ export type TaskStatus = 'not_started' | 'current_activities' | 'complete' | 'ne
 
 /**
  * Qualifies a 'complete' status. NULL = unspecified (counts as compliant
- * for back-compat). 'on_time' / 'attended' = compliant. 'late' / 'missed' =
- * documented but does NOT count toward thresholds.
+ * for back-compat). 'on_time' / 'attended' = compliant. 'late' / 'missed' /
+ * 'not_submitted' = documented but do NOT count toward thresholds.
  */
-export type TaskOutcome = 'on_time' | 'late' | 'attended' | 'missed' | null;
+export type TaskOutcome =
+  | 'on_time'
+  | 'late'
+  | 'attended'
+  | 'missed'
+  | 'not_submitted'
+  | null;
 
 export interface TaskRow {
   id: string;

@@ -43,6 +43,20 @@
       "when": 1779993600000,
       "tag": "0005_fix_spark_2026_hra_schedule",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780012800000,
+      "tag": "0006_enrolled_on_to_cohort_start",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780017600000,
+      "tag": "0007_task_outcome_not_submitted",
+      "breakpoints": true
     }
   ]
 }

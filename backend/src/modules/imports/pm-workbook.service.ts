@@ -315,6 +315,28 @@ function readCellByHeader(
   return cells[idx] || undefined;
 }
 
+/**
+ * Auto-detect which row is the header on PM-workbook data sheets. Some sheets
+ * (HRA Completions, Meeting Attendance, Data Submissions) ship with a row-1
+ * instruction banner from time to time — and the next workbook release will
+ * drop it again. Rather than flipping the header constant by hand, look for
+ * the first row in the top three that contains the `requiredColumn` cell.
+ */
+function detectHeaderRow(
+  sheet: ExcelJS.Worksheet,
+  requiredColumn = 'Hospital',
+): number {
+  for (let r = 1; r <= 3; r++) {
+    const row = sheet.getRow(r);
+    let found = false;
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      if (cellString(cell) === requiredColumn) found = true;
+    });
+    if (found) return r;
+  }
+  return 1;
+}
+
 function validateBasics(
   ctx: ProcessContext,
   sheet: string,
@@ -507,10 +529,10 @@ async function processEnrollmentForms(ctx: ProcessContext, sheet: ExcelJS.Worksh
 
 async function processMeetingAttendance(ctx: ProcessContext, sheet: ExcelJS.Worksheet) {
   const SHEET = 'Meeting Attendance';
-  // Header is row 1, data from row 2. (Earlier workbook versions had a row-1
-  // instruction banner; the current workbooks do not — reading with
-  // headerRow=2 silently dropped the first data row.)
-  for (const { rowNumber, cells } of readRows(sheet, 1)) {
+  // Autodetect header row — workbook releases sometimes prepend an instruction
+  // banner (row 1 = banner, row 2 = header); other releases ship just the
+  // header on row 1.
+  for (const { rowNumber, cells } of readRows(sheet, detectHeaderRow(sheet))) {
     // Columns (6): Hospital, Initiative, Track, Meeting Month (YYYY-MM),
     // Meeting Type, Notes.
     const [hospital, initiative, track, meetingMonthRaw, meetingType, notes] = cells;
@@ -720,11 +742,10 @@ async function processQiAdvising(ctx: ProcessContext, sheet: ExcelJS.Worksheet) 
 async function processDataSubmissions(ctx: ProcessContext, sheet: ExcelJS.Worksheet) {
   // Data is captured in REDCap, so the workbook only tracks that the survey
   // was submitted for the given period — no attachment URL is collected here.
-  // Header is row 1, data from row 2. (Earlier workbook versions had a row-1
-  // banner about Jan-Apr backfill defaults; the current workbooks do not —
-  // reading with headerRow=2 silently dropped the first data row.)
+  // Header row is autodetected because workbook releases vary on whether a
+  // row-1 instruction banner is included.
   const SHEET = 'Data Submissions';
-  for (const { rowNumber, cells } of readRows(sheet, 1)) {
+  for (const { rowNumber, cells } of readRows(sheet, detectHeaderRow(sheet))) {
     const [hospital, initiative, track, periodRaw, submittedDateRaw, statusRaw, notes] = cells;
     if (isExampleRow(notes ?? '')) continue;
     if (!periodRaw) {
@@ -808,11 +829,11 @@ async function processDataSubmissions(ctx: ProcessContext, sheet: ExcelJS.Worksh
 
 async function processHraCompletions(ctx: ProcessContext, sheet: ExcelJS.Worksheet) {
   // HRA responses are captured in REDCap; the workbook only tracks completion.
-  // Header is row 1, data from row 2. (Earlier workbook versions had a row-1
-  // banner; the current PM workbooks do not, and reading with headerRow=2
-  // silently dropped the first data row.)
+  // Header row is autodetected because some workbook releases include a row-1
+  // instruction banner ("SOAR sustainability hospitals only ...") and others
+  // ship the header on row 1 with no banner.
   const SHEET = 'HRA Completions';
-  for (const { rowNumber, cells } of readRows(sheet, 1)) {
+  for (const { rowNumber, cells } of readRows(sheet, detectHeaderRow(sheet))) {
     const [hospital, initiative, track, periodRaw, completedDateRaw, notes] = cells;
     if (isExampleRow(notes ?? '')) continue;
     if (!periodRaw) {

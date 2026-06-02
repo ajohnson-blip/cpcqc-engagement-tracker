@@ -52,35 +52,14 @@ export function EnrollmentCard({ enrollment }: { enrollment: MyEnrollment }) {
 
         {compliance ? (
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <ComplianceTile
-              label="Enrollment"
-              result={compliance.result.enrollment}
-              boolean
-              // Enrollment is a yes/no — surface "X of Y peers complete" via the meetings
-              // benchmark's peersTotal field would be misleading; instead reuse the same
-              // benchmark numerics if available.
-              benchmark={enrollment.cohortBenchmark?.meetings ?? null}
-            />
-            <ComplianceTile
-              label="Meetings"
-              result={compliance.result.meetings}
-              benchmark={enrollment.cohortBenchmark?.meetings ?? null}
-            />
-            <ComplianceTile
-              label="QI Advising"
-              result={compliance.result.advising}
-              benchmark={enrollment.cohortBenchmark?.advising ?? null}
-            />
-            <ComplianceTile
-              label="Data Submissions"
-              result={compliance.result.dataSubmissions}
-              benchmark={enrollment.cohortBenchmark?.dataSubmissions ?? null}
-            />
+            <ComplianceTile label="Enrollment" result={compliance.result.enrollment} boolean />
+            <ComplianceTile label="Meetings" result={compliance.result.meetings} />
+            <ComplianceTile label="QI Advising" result={compliance.result.advising} />
+            <ComplianceTile label="Data Submissions" result={compliance.result.dataSubmissions} />
             {compliance.result.assessments && (
               <ComplianceTile
                 label="Readiness Assessments"
                 result={compliance.result.assessments}
-                benchmark={enrollment.cohortBenchmark?.assessments ?? null}
               />
             )}
           </div>

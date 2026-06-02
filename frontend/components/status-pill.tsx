@@ -78,6 +78,19 @@ export function TaskStatusPill({
       </span>
     );
   }
+  if (status === 'complete' && outcome === 'not_submitted') {
+    return (
+      <span
+        className={clsx(
+          'inline-flex items-center rounded-full bg-cpcqc-pink-dark/15 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-cpcqc-pink-dark',
+          className,
+        )}
+        title="Not submitted — recorded but does not count toward compliance"
+      >
+        Not submitted
+      </span>
+    );
+  }
   const { bg, fg, label } = TASK_STATUS_STYLES[status];
   return (
     <span

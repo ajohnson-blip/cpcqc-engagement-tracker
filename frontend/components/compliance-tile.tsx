@@ -1,9 +1,5 @@
 import clsx from 'clsx';
-import type {
-  RequirementBenchmark,
-  RequirementResult,
-  RequirementStatus,
-} from '@/lib/types';
+import type { RequirementResult, RequirementStatus } from '@/lib/types';
 
 const BAR_COLOR: Record<RequirementStatus, string> = {
   met: 'bg-cpcqc-teal-dark',
@@ -24,11 +20,9 @@ interface ComplianceTileProps {
   result: RequirementResult;
   /** Boolean-style requirements (like Annual Enrollment) hide the X/Y count. */
   boolean?: boolean;
-  /** Cohort benchmark for this requirement; renders a "vs peers" footer. */
-  benchmark?: RequirementBenchmark | null;
 }
 
-export function ComplianceTile({ label, result, boolean, benchmark }: ComplianceTileProps) {
+export function ComplianceTile({ label, result, boolean }: ComplianceTileProps) {
   const pct = Math.min(100, Math.round((result.current / Math.max(result.required, 1)) * 100));
   return (
     <div className="flex flex-col rounded-xl bg-white p-4 shadow-sm ring-1 ring-cpcqc-purple-dark/5">
@@ -67,46 +61,6 @@ export function ComplianceTile({ label, result, boolean, benchmark }: Compliance
       {result.reason && (
         <p className="mt-2 text-xs text-cpcqc-purple-dark/70">{result.reason}</p>
       )}
-      {benchmark && benchmark.peersTotal > 0 && (
-        <BenchmarkFooter result={result} benchmark={benchmark} boolean={!!boolean} />
-      )}
-    </div>
-  );
-}
-
-function BenchmarkFooter({
-  result,
-  benchmark,
-  boolean,
-}: {
-  result: RequirementResult;
-  benchmark: RequirementBenchmark;
-  boolean: boolean;
-}) {
-  const { peerMedian, peersMet, peersTotal, myPercentile } = benchmark;
-  // For boolean requirements (Enrollment), median isn't meaningful — just show peers-met.
-  const detail = boolean
-    ? `${peersMet} of ${peersTotal} peers complete`
-    : `Cohort median ${peerMedian} · ${peersMet} of ${peersTotal} peers met`;
-
-  const rank = myPercentile;
-  const rankLabel =
-    rank >= 75 ? 'Top quartile' : rank >= 50 ? 'Above median' : rank >= 25 ? 'Below median' : 'Bottom quartile';
-  const rankColor =
-    rank >= 75
-      ? 'text-cpcqc-teal-dark'
-      : rank >= 50
-        ? 'text-cpcqc-purple'
-        : rank >= 25
-          ? 'text-cpcqc-orange-dark'
-          : 'text-cpcqc-pink-dark';
-
-  return (
-    <div className="mt-3 border-t border-cpcqc-purple-dark/10 pt-2 text-xs text-cpcqc-purple-dark/70">
-      <div className="flex items-center justify-between gap-2">
-        <span>{detail}</span>
-        <span className={clsx('font-bold uppercase tracking-wide', rankColor)}>{rankLabel}</span>
-      </div>
     </div>
   );
 }

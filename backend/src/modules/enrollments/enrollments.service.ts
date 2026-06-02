@@ -114,7 +114,12 @@ export async function createEnrollment(input: CreateEnrollmentInput): Promise<Cr
     );
 
   const enrollmentId = uuid();
-  const enrolledOn = input.enrolledOn ?? new Date().toISOString().slice(0, 10);
+  // "Enrolled on" should be the date the hospital joined the cohort, not the
+  // moment the row was inserted in the DB. Default to the cohort start date so
+  // a PM running the auto-enroll script in May doesn't end up stamping every
+  // hospital with "enrolled May 21, 2026". Callers can still pass an explicit
+  // enrolledOn if they want (e.g., approving an interest form mid-year).
+  const enrolledOn = input.enrolledOn ?? cohort.startDate;
   const programYearIds: string[] = [];
   let taskInstanceCount = 0;
 

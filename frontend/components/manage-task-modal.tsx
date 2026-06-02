@@ -14,6 +14,7 @@ import type { TaskRow, TaskStatus, TaskOutcome } from '@/lib/types';
 type OutcomeOption =
   | 'submitted_on_time'
   | 'submitted_late'
+  | 'not_submitted'
   | 'attended'
   | 'did_not_attend'
   | 'complete'
@@ -25,12 +26,14 @@ function optionsForTaskType(taskType: TaskRow['template']['taskType']): {
   label: string;
 }[] {
   switch (taskType) {
-    // Binary outcomes only — no "in progress" or "needs revision" for submissions.
+    // Three-way outcome — PMs need to record "didn't submit at all" alongside
+    // on-time / late.
     case 'data_submission':
     case 'readiness_assessment':
       return [
         { value: 'submitted_on_time', label: 'Submitted on time' },
         { value: 'submitted_late', label: 'Submitted late' },
+        { value: 'not_submitted', label: 'Not submitted' },
       ];
     // Binary outcomes only — no "in progress" or "needs revision" for attendance.
     case 'meeting_attendance':
@@ -58,6 +61,8 @@ function outcomeOptionToWire(value: OutcomeOption): {
       return { status: 'complete', outcome: 'on_time' };
     case 'submitted_late':
       return { status: 'complete', outcome: 'late' };
+    case 'not_submitted':
+      return { status: 'complete', outcome: 'not_submitted' };
     case 'attended':
       return { status: 'complete', outcome: 'attended' };
     case 'did_not_attend':
@@ -76,6 +81,7 @@ function defaultOutcomeOption(task: TaskRow): OutcomeOption {
   if (task.status === 'complete') {
     if (task.outcome === 'on_time') return 'submitted_on_time';
     if (task.outcome === 'late') return 'submitted_late';
+    if (task.outcome === 'not_submitted') return 'not_submitted';
     if (task.outcome === 'attended') return 'attended';
     if (task.outcome === 'missed') return 'did_not_attend';
     // status complete with no outcome — pick the on_time/attended option
@@ -453,11 +459,15 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
                 </option>
               ))}
             </select>
-            {(outcomeChoice === 'submitted_late' || outcomeChoice === 'did_not_attend') && (
+            {(outcomeChoice === 'submitted_late' ||
+              outcomeChoice === 'not_submitted' ||
+              outcomeChoice === 'did_not_attend') && (
               <p className="mt-1.5 text-xs text-cpcqc-purple-dark/65">
                 {outcomeChoice === 'submitted_late'
                   ? 'Will be recorded but does not count toward the data submission requirement.'
-                  : 'Will be recorded but does not count toward the attendance requirement.'}
+                  : outcomeChoice === 'not_submitted'
+                    ? 'Will be recorded but does not count toward the requirement.'
+                    : 'Will be recorded but does not count toward the attendance requirement.'}
               </p>
             )}
           </Field>

@@ -65,15 +65,16 @@ export const taskStatus = pgEnum('task_status', [
 // How a completion was qualified, for tasks where on-time vs late or
 // attended vs missed matters. NULL = legacy/unspecified (treat as compliant
 // when status='complete' for backwards compatibility). Used for:
-//   data_submission, readiness_assessment → on_time | late
+//   data_submission, readiness_assessment → on_time | late | not_submitted
 //   meeting_attendance, qi_advising        → attended | missed
-// "missed" / "late" outcomes are recorded (the task is status='complete')
-// but they do NOT count toward compliance thresholds.
+// "missed" / "late" / "not_submitted" outcomes are recorded (the task is
+// status='complete') but they do NOT count toward compliance thresholds.
 export const taskOutcome = pgEnum('task_outcome', [
   'on_time',
   'late',
   'attended',
   'missed',
+  'not_submitted',
 ]);
 
 export const meetingType = pgEnum('meeting_type', ['monthly_cohort', 'annual_forum']);
