@@ -40,7 +40,7 @@ services:
     # creates any missing TaskInstance rows when new task templates have been
     # added (idempotent — re-runs only insert what's missing), so existing
     # enrollments pick up new templates without a manual operator step.
-    buildCommand: npm ci --include=dev && npm run build && npm run db:migrate && tsx scripts/backfill-task-instances.ts
+    buildCommand: npm ci --include=dev && npm run build && npm run db:migrate && npm run db:backfill-task-instances
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true

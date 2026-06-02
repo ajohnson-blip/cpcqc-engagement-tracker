@@ -20,6 +20,7 @@
     "db:import-templates": "tsx scripts/import-task-templates.ts",
     "db:enroll": "tsx scripts/auto-enroll.ts",
     "db:import-pm-data": "tsx scripts/import-pm-engagement-data.ts",
+    "db:backfill-task-instances": "tsx scripts/backfill-task-instances.ts",
     "db:recompute-stages": "tsx scripts/recompute-stages.ts",
     "create-cpcqc-staff": "tsx scripts/create-cpcqc-staff.ts",
     "create-user": "tsx scripts/create-user.ts",
