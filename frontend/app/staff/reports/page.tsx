@@ -7,6 +7,11 @@ import type { InitiativeHospitalsResponse } from '@/lib/types';
 
 const INITIATIVES = ['TTT', 'SPARK', 'SOAR', 'NEST'] as const;
 
+// Earliest program year worth offering in the reports picker. No engagement
+// backfill data exists for years before this, so a report for an earlier year
+// would render an empty document. Lower this when prior-year backfill lands.
+const EARLIEST_PROGRAM_YEAR = 2026;
+
 interface HospitalLite {
   id: string;
   name: string;
@@ -14,7 +19,7 @@ interface HospitalLite {
 
 export default function StaffReportsPage() {
   const currentYear = new Date().getUTCFullYear();
-  const [programYear, setProgramYear] = useState(currentYear);
+  const [programYear, setProgramYear] = useState(Math.max(currentYear, EARLIEST_PROGRAM_YEAR));
   const [hospitals, setHospitals] = useState<HospitalLite[]>([]);
   const [selectedHospitalId, setSelectedHospitalId] = useState<string>('');
 
@@ -60,11 +65,13 @@ export default function StaffReportsPage() {
           onChange={(e) => setProgramYear(parseInt(e.target.value, 10))}
           className="rounded-full border border-cpcqc-purple-dark/15 bg-white px-3 py-1.5 text-sm font-semibold text-cpcqc-purple-dark"
         >
-          {[currentYear - 1, currentYear, currentYear + 1].map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
+          {[currentYear - 1, currentYear, currentYear + 1]
+            .filter((y) => y >= EARLIEST_PROGRAM_YEAR)
+            .map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
         </select>
       </div>
 
