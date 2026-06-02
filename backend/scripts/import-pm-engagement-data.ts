@@ -461,9 +461,17 @@ async function processEnrollmentForms(ctx: ProcessContext, sheet: ExcelJS.Worksh
       if (!headerMap.has(slot.nameHeader)) continue;
       const name = readCellByHeader(cells, headerMap, slot.nameHeader);
       if (!name) continue;
-      const email = slot.emailHeader ? readCellByHeader(cells, headerMap, slot.emailHeader) ?? null : null;
-      const role =
+      let email = slot.emailHeader ? readCellByHeader(cells, headerMap, slot.emailHeader) ?? null : null;
+      let role =
         slot.fixedRole ?? (slot.roleHeader ? readCellByHeader(cells, headerMap, slot.roleHeader) ?? null : null);
+      // Defensive: when a PM enters the email into an Other Champion's Role
+      // column and leaves Email blank, recover the email rather than store it
+      // as the role. Only fires for cell-sourced roles (fixed-role slots like
+      // Clinical Lead have role pre-set and are unaffected).
+      if (slot.roleHeader && !email && role && role.includes('@')) {
+        email = role;
+        role = null;
+      }
       champions.push({ name, role, email, payloadKey: slot.payloadKey });
     }
 
