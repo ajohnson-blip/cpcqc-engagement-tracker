@@ -467,8 +467,10 @@ async function processEnrollmentForms(ctx: ProcessContext, sheet: ExcelJS.Worksh
 
 async function processMeetingAttendance(ctx: ProcessContext, sheet: ExcelJS.Worksheet) {
   const SHEET = 'Meeting Attendance';
-  // Sheet has a row-1 instruction banner; real header is on row 2.
-  for (const { rowNumber, cells } of readRows(sheet, 2)) {
+  // Header is row 1, data from row 2. (Earlier workbook versions had a row-1
+  // instruction banner; the current workbooks do not — reading with
+  // headerRow=2 silently dropped the first data row.)
+  for (const { rowNumber, cells } of readRows(sheet, 1)) {
     // Columns (6): Hospital, Initiative, Track, Meeting Month (YYYY-MM),
     // Meeting Type, Notes.
     const [hospital, initiative, track, meetingMonthRaw, meetingType, notes] = cells;
@@ -678,9 +680,11 @@ async function processQiAdvising(ctx: ProcessContext, sheet: ExcelJS.Worksheet) 
 async function processDataSubmissions(ctx: ProcessContext, sheet: ExcelJS.Worksheet) {
   // Data is captured in REDCap, so the workbook only tracks that the survey
   // was submitted for the given period — no attachment URL is collected here.
-  // Sheet has a row-1 banner about Jan-Apr backfill defaults; header is row 2.
+  // Header is row 1, data from row 2. (Earlier workbook versions had a row-1
+  // banner about Jan-Apr backfill defaults; the current workbooks do not —
+  // reading with headerRow=2 silently dropped the first data row.)
   const SHEET = 'Data Submissions';
-  for (const { rowNumber, cells } of readRows(sheet, 2)) {
+  for (const { rowNumber, cells } of readRows(sheet, 1)) {
     const [hospital, initiative, track, periodRaw, submittedDateRaw, statusRaw, notes] = cells;
     if (isExampleRow(notes ?? '')) continue;
     if (!periodRaw) {
@@ -764,9 +768,11 @@ async function processDataSubmissions(ctx: ProcessContext, sheet: ExcelJS.Worksh
 
 async function processHraCompletions(ctx: ProcessContext, sheet: ExcelJS.Worksheet) {
   // HRA responses are captured in REDCap; the workbook only tracks completion.
-  // Sheet has a row-1 banner about Q1/Q4 + optional date; header is row 2.
+  // Header is row 1, data from row 2. (Earlier workbook versions had a row-1
+  // banner; the current PM workbooks do not, and reading with headerRow=2
+  // silently dropped the first data row.)
   const SHEET = 'HRA Completions';
-  for (const { rowNumber, cells } of readRows(sheet, 2)) {
+  for (const { rowNumber, cells } of readRows(sheet, 1)) {
     const [hospital, initiative, track, periodRaw, completedDateRaw, notes] = cells;
     if (isExampleRow(notes ?? '')) continue;
     if (!periodRaw) {
