@@ -32,6 +32,7 @@ import { v4 as uuid } from 'uuid';
 import { and, eq, sql } from 'drizzle-orm';
 import { db, schema, pool } from '../src/db/index.js';
 import { quarterOf } from '../src/utils/period.js';
+import { effectiveHraQuarters, hraScheduleOverrideFor } from '../src/modules/compliance/hra.js';
 import { computeCurrentStageForEnrollment } from '../src/modules/stages/stage-resolver.js';
 
 // ---------- CLI ----------
@@ -772,17 +773,20 @@ async function processHraCompletions(ctx: ProcessContext, sheet: ExcelJS.Workshe
       ctx.errors.push({ sheet: SHEET, rowNumber, reason: `Missing period` });
       continue;
     }
-    // SPARK 2026 HRA schedule is Q2 + Q4 (not the standard Q1 + Q4). A PM
-    // occasionally enters a SPARK row under Q1 by mistake — treat it as the
-    // Q2 milestone since the HRA was completed. See task_templates_starter.xlsx
-    // notes on the SPARK active readiness_assessment rows.
+    // SPARK 2026's first HRA is due in Q3, not the standard Q1 (see the
+    // program_years.hra_schedule override). A PM occasionally enters that HRA
+    // under an earlier quarter by mistake — remap any pre-Q3 SPARK 2026 entry to
+    // the first scheduled HRA quarter so it matches the generated TaskInstance.
     let period = periodRaw ?? '';
-    if (initiative === 'SPARK' && track === 'active' && period === '2026-Q1') {
-      period = '2026-Q2';
+    if (initiative === 'SPARK' && track === 'active') {
+      const [firstHraQuarter] = effectiveHraQuarters(hraScheduleOverrideFor('SPARK', 2026));
+      if (period === '2026-Q1' || period === '2026-Q2') {
+        period = `2026-${firstHraQuarter}`;
+      }
     }
     // HRAs now exist on all tracks: SOAR sustainability (Q1+Q4) was the original;
-    // TTT/NEST/SOAR active have Q1+Q4 templates; SPARK active has Q2+Q4 in 2026.
-    // Rely on TaskInstance lookup below to flag any unknown combinations.
+    // every initiative/track has two HRAs (default Q1+Q4); SPARK active is Q3+Q4
+    // in 2026. Rely on the TaskInstance lookup below to flag unknown combinations.
     const basics = validateBasics(ctx, SHEET, rowNumber, initiative ?? '', track ?? '', hospital ?? '');
     if (!basics) continue;
     const yearMatch = /^(\d{4})-/.exec(period);

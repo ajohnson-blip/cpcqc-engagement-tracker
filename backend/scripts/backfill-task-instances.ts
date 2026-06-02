@@ -28,6 +28,10 @@ import {
   computePeriodString,
   type TemplatePeriod,
 } from '../src/utils/period.js';
+import {
+  hraScheduleOverrideFor,
+  scheduleHraInstances,
+} from '../src/modules/compliance/hra.js';
 
 const dryRun = process.argv.includes('--dry-run');
 
@@ -58,6 +62,12 @@ async function main() {
     });
     if (!cohort) continue;
 
+    // Initiative code drives the per-year HRA schedule fallback.
+    const init = await db.query.initiatives.findFirst({
+      where: eq(schema.initiatives.id, cohort.initiativeId),
+    });
+    if (!init) continue;
+
     // Templates that should apply to this enrollment
     const templates = await db
       .select()
@@ -68,6 +78,7 @@ async function main() {
           eq(schema.taskTemplates.track, cohort.track),
         ),
       );
+    const hraTemplates = templates.filter((t) => t.taskType === 'readiness_assessment');
 
     // Program years already created for this enrollment
     const programYears = await db
@@ -88,6 +99,13 @@ async function main() {
     const toInsert: Array<typeof schema.taskInstances.$inferInsert> = [];
 
     for (const py of programYears) {
+      // HRA due dates come from the program year's stored schedule (default Q1+Q4,
+      // or an override like SPARK 2026's Q3+Q4), falling back to the per-year rule
+      // for rows predating the hra_schedule column.
+      const hraSchedule = py.hraSchedule ?? hraScheduleOverrideFor(init.code, py.year);
+      const hraByTemplate = new Map(
+        scheduleHraInstances(hraTemplates, py.year, hraSchedule).map((s) => [s.templateId, s]),
+      );
       for (const template of templates) {
         const key = `${template.id}::${py.id}`;
         if (existingKeys.has(key)) {
@@ -97,12 +115,19 @@ async function main() {
         let period: string;
         let dueOn: string;
         try {
-          period = computePeriodString(
-            template.period as TemplatePeriod,
-            template.periodLabel,
-            py.year,
-          );
-          dueOn = computeDueDate(template.period as TemplatePeriod, template.periodLabel, py.year);
+          if (template.taskType === 'readiness_assessment') {
+            const scheduled = hraByTemplate.get(template.id);
+            if (!scheduled) throw new Error('HRA template missing from computed schedule');
+            period = scheduled.period;
+            dueOn = scheduled.dueOn;
+          } else {
+            period = computePeriodString(
+              template.period as TemplatePeriod,
+              template.periodLabel,
+              py.year,
+            );
+            dueOn = computeDueDate(template.period as TemplatePeriod, template.periodLabel, py.year);
+          }
         } catch {
           stats.skippedMalformedTemplate += 1;
           continue;
@@ -124,12 +149,9 @@ async function main() {
     const hospital = await db.query.hospitals.findFirst({
       where: eq(schema.hospitals.id, enrollment.hospitalId),
     });
-    const init = await db.query.initiatives.findFirst({
-      where: eq(schema.initiatives.id, cohort.initiativeId),
-    });
     // eslint-disable-next-line no-console
     console.log(
-      `  + ${toInsert.length.toString().padStart(3, ' ')} for ${hospital?.name ?? '?'} / ${init?.code ?? '?'} ${cohort.track}`,
+      `  + ${toInsert.length.toString().padStart(3, ' ')} for ${hospital?.name ?? '?'} / ${init.code} ${cohort.track}`,
     );
 
     stats.taskInstancesCreated += toInsert.length;

@@ -29,6 +29,13 @@
       "when": 1779832800000,
       "tag": "0003_task_outcome",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779988647265,
+      "tag": "0004_program_year_hra_schedule",
+      "breakpoints": true
     }
   ]
 }
