@@ -15,7 +15,7 @@ const TRACK_OPTIONS = [
 ] as const;
 
 const SORT_OPTIONS = [
-  { value: 'compliance', label: 'By status (worst first)' },
+  { value: 'compliance', label: 'By status (at-risk hospitals first)' },
   { value: 'name', label: 'Alphabetical' },
 ] as const;
 
