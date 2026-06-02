@@ -82,6 +82,17 @@ export function StaffHeader() {
           >
             Reports
           </Link>
+          <Link
+            href="/staff/imports"
+            className={clsx(
+              'rounded-full px-3 py-1.5 font-rounded text-xs font-bold uppercase tracking-wide transition',
+              activeMatch('/staff/imports')
+                ? 'bg-cpcqc-purple text-white'
+                : 'text-cpcqc-purple-dark hover:bg-cpcqc-purple/10',
+            )}
+          >
+            Imports
+          </Link>
         </nav>
 
         <div className="flex items-center gap-3 text-sm">

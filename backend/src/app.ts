@@ -14,6 +14,7 @@ import interestFormsRoutes from '@/modules/interest-forms/interest-forms.routes.
 import tasksRoutes from '@/modules/tasks/tasks.routes.js';
 import meRoutes from '@/modules/me/me.routes.js';
 import staffRoutes from '@/modules/staff/staff.routes.js';
+import importsRoutes from '@/modules/imports/imports.routes.js';
 import reportsRoutes from '@/modules/reports/reports.routes.js';
 
 export function createApp() {
@@ -50,6 +51,10 @@ export function createApp() {
   app.use('/tasks', tasksRoutes);
   app.use('/me', meRoutes);
   app.use('/staff', staffRoutes);
+  // /staff/imports handles xlsx uploads with a route-scoped raw body parser;
+  // the global json() parser above ignores non-JSON content types so they
+  // coexist cleanly.
+  app.use('/staff/imports', importsRoutes);
   app.use('/reports', reportsRoutes);
 
   // TODO: mount other module routes as they're built
