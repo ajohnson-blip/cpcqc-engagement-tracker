@@ -64,21 +64,33 @@ function parseArgs(): Args {
 
 // ---------- Cell helpers ----------
 
+/**
+ * Recursively unwrap an ExcelJS cell value to a plain string. Handles strings,
+ * numbers, dates, rich-text runs ({ richText: [{ text, ... }] }), hyperlinks
+ * ({ text, hyperlink }), formula results ({ result, ... }), AND the nested
+ * shape produced when a hyperlink's display text is itself rich-text
+ * (e.g. mailto: cells in the PM workbooks).
+ */
+function extractText(v: unknown): string {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number') return String(v);
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === 'object') {
+    const obj = v as Record<string, unknown>;
+    if (Array.isArray(obj['richText'])) {
+      return (obj['richText'] as Array<{ text?: unknown }>)
+        .map((r) => extractText(r.text))
+        .join('');
+    }
+    if ('text' in obj) return extractText(obj['text']);
+    if ('result' in obj) return extractText(obj['result']);
+  }
+  return String(v);
+}
+
 function cellString(cell: ExcelJS.Cell): string {
-  if (cell.value == null) return '';
-  if (typeof cell.value === 'string') return cell.value.trim();
-  if (typeof cell.value === 'number') return String(cell.value);
-  if (cell.value instanceof Date) {
-    // Render as ISO date (no time)
-    return cell.value.toISOString().slice(0, 10);
-  }
-  if (typeof cell.value === 'object' && 'text' in cell.value) {
-    return String((cell.value as { text: unknown }).text).trim();
-  }
-  if (typeof cell.value === 'object' && 'result' in (cell.value as object)) {
-    return String((cell.value as { result: unknown }).result ?? '').trim();
-  }
-  return String(cell.value).trim();
+  return extractText(cell.value).trim();
 }
 
 function isExampleRow(notes: string): boolean {
@@ -298,6 +310,31 @@ function readRows(
   return rows;
 }
 
+/**
+ * Map of "Header Cell Text" → 0-based column index for the cells[] array. Lets
+ * processors look up fields by header name instead of by hard-coded position,
+ * which is what we need because the two PM workbooks (TTT vs. SOAR/SPARK/NEST)
+ * use different Enrollment Forms column layouts.
+ */
+function buildHeaderMap(sheet: ExcelJS.Worksheet, headerRow = 1): Map<string, number> {
+  const map = new Map<string, number>();
+  sheet.getRow(headerRow).eachCell({ includeEmpty: false }, (cell, col) => {
+    const v = cellString(cell);
+    if (v) map.set(v, col - 1);
+  });
+  return map;
+}
+
+function readCellByHeader(
+  cells: string[],
+  headerMap: Map<string, number>,
+  header: string,
+): string | undefined {
+  const idx = headerMap.get(header);
+  if (idx === undefined) return undefined;
+  return cells[idx] || undefined;
+}
+
 function validateBasics(
   ctx: ProcessContext,
   sheet: string,
@@ -335,39 +372,58 @@ function validateBasics(
   return { initiativeId, track: track as 'active' | 'sustainability', hospitalId };
 }
 
+/**
+ * Per-workbook champion-slot definitions. Each slot describes one possible
+ * staff-roster entry on the Enrollment Forms sheet. We use header-driven lookup
+ * so a single processor handles both PM workbook layouts:
+ *  - TTT workbook (14 cols): Clinical Lead, QI Champion, Primary Contact
+ *  - SOAR/SPARK/NEST workbook (19 cols): L&D, Data, Provider + 2 Other Champions
+ *
+ * Only slots whose nameHeader is present in the actual workbook's row-1 header
+ * are considered; other slots silently skip. New roles can be added by listing
+ * another entry here — no positional-destructuring update needed.
+ */
+interface ChampionSlotDef {
+  nameHeader: string;
+  emailHeader?: string;
+  /** For Other Champion slots — read the role string from this header's cell. */
+  roleHeader?: string;
+  /** For named slots — fixed role string. */
+  fixedRole?: string;
+  /** Key under task_instances.payload. */
+  payloadKey: string;
+}
+
+const ENROLLMENT_CHAMPION_SLOTS: ChampionSlotDef[] = [
+  // TTT workbook layout
+  { nameHeader: 'Clinical Lead Name', emailHeader: 'Clinical Lead Email', fixedRole: 'Clinical Lead', payloadKey: 'clinicalLead' },
+  { nameHeader: 'QI Champion Name', emailHeader: 'QI Champion Email', fixedRole: 'QI Champion', payloadKey: 'qiChampion' },
+  { nameHeader: 'Primary Contact Name', emailHeader: 'Primary Contact Email', fixedRole: 'Primary Contact', payloadKey: 'primaryContact' },
+  // SOAR/SPARK/NEST workbook layout
+  { nameHeader: 'L&D Champion Name', emailHeader: 'L&D Champion Email', fixedRole: 'L&D Champion', payloadKey: 'ldChampion' },
+  { nameHeader: 'Data Champion Name', emailHeader: 'Data Champion Email', fixedRole: 'Data Champion', payloadKey: 'dataChampion' },
+  { nameHeader: 'Provider Champion Name', emailHeader: 'Provider Champion Email', fixedRole: 'Provider Champion', payloadKey: 'providerChampion' },
+  { nameHeader: 'Other Champion #1 Name', emailHeader: 'Other Champion #1 Email', roleHeader: 'Other Champion #1 Role', payloadKey: 'otherChampion1' },
+  { nameHeader: 'Other Champion #2 Name', emailHeader: 'Other Champion #2 Email', roleHeader: 'Other Champion #2 Role', payloadKey: 'otherChampion2' },
+];
+
 async function processEnrollmentForms(ctx: ProcessContext, sheet: ExcelJS.Worksheet) {
   const SHEET = 'Enrollment Forms';
+  // Look up every field by header name so the same processor works for both
+  // the TTT (Clinical Lead / QI Champion / Primary Contact) and the
+  // SOAR/SPARK/NEST (L&D / Data / Provider / Other Champion ×2) layouts.
+  const headerMap = buildHeaderMap(sheet);
   for (const { rowNumber, cells } of readRows(sheet)) {
-    // Columns (19) — no Submitted Date this year:
-    //   Hospital, Initiative, Track, Program Year,
-    //   L&D Champion Name, L&D Champion Email,
-    //   Data Champion Name, Data Champion Email,
-    //   Provider Champion Name, Provider Champion Email,
-    //   Other Champion #1 Name, Role, Email,
-    //   Other Champion #2 Name, Role, Email,
-    //   EHR System, Implementation Site, Notes
-    const [
-      hospital,
-      initiative,
-      track,
-      programYearStr,
-      ldChampionName,
-      ldChampionEmail,
-      dataChampionName,
-      dataChampionEmail,
-      providerChampionName,
-      providerChampionEmail,
-      other1Name,
-      other1Role,
-      other1Email,
-      other2Name,
-      other2Role,
-      other2Email,
-      ehrSystem,
-      implementationSite,
-      notes,
-    ] = cells;
-    const submittedDateRaw = ''; // No column in 2026 workbook — treat as today.
+    const get = (h: string) => readCellByHeader(cells, headerMap, h);
+    const hospital = get('Hospital');
+    const initiative = get('Initiative');
+    const track = get('Track');
+    const programYearStr = get('Program Year');
+    const submittedDateRaw = get('Submitted Date');
+    const ehrSystem = get('EHR System');
+    const implementationSite = get('Implementation Site');
+    const notes = get('Notes');
+
     if (isExampleRow(notes ?? '')) continue;
     const basics = validateBasics(ctx, SHEET, rowNumber, initiative ?? '', track ?? '', hospital ?? '');
     if (!basics) continue;
@@ -397,26 +453,30 @@ async function processEnrollmentForms(ctx: ProcessContext, sheet: ExcelJS.Worksh
     }
     const submittedDate = normalizeDate(submittedDateRaw ?? '');
 
-    const championPayload = (name?: string, email?: string) =>
-      name ? { name, ...(email ? { email } : {}) } : undefined;
-    const otherChampionPayload = (name?: string, role?: string, email?: string) =>
-      name
-        ? { name, ...(role ? { role } : {}), ...(email ? { email } : {}) }
-        : undefined;
+    // Gather champions: walk every defined slot and pick up the ones the
+    // workbook actually has a column for and a non-empty name in this row.
+    interface Champion { name: string; role: string | null; email: string | null; payloadKey: string }
+    const champions: Champion[] = [];
+    for (const slot of ENROLLMENT_CHAMPION_SLOTS) {
+      if (!headerMap.has(slot.nameHeader)) continue;
+      const name = readCellByHeader(cells, headerMap, slot.nameHeader);
+      if (!name) continue;
+      const email = slot.emailHeader ? readCellByHeader(cells, headerMap, slot.emailHeader) ?? null : null;
+      const role =
+        slot.fixedRole ?? (slot.roleHeader ? readCellByHeader(cells, headerMap, slot.roleHeader) ?? null : null);
+      champions.push({ name, role, email, payloadKey: slot.payloadKey });
+    }
 
     const payload: Record<string, unknown> = {};
     if (implementationSite) payload['implementationSite'] = implementationSite;
     if (ehrSystem) payload['ehrSystem'] = ehrSystem;
-    const ld = championPayload(ldChampionName, ldChampionEmail);
-    if (ld) payload['ldChampion'] = ld;
-    const dc = championPayload(dataChampionName, dataChampionEmail);
-    if (dc) payload['dataChampion'] = dc;
-    const pc = championPayload(providerChampionName, providerChampionEmail);
-    if (pc) payload['providerChampion'] = pc;
-    const o1 = otherChampionPayload(other1Name, other1Role, other1Email);
-    if (o1) payload['otherChampion1'] = o1;
-    const o2 = otherChampionPayload(other2Name, other2Role, other2Email);
-    if (o2) payload['otherChampion2'] = o2;
+    for (const c of champions) {
+      payload[c.payloadKey] = {
+        name: c.name,
+        ...(c.role ? { role: c.role } : {}),
+        ...(c.email ? { email: c.email } : {}),
+      };
+    }
     if (notes && !isExampleRow(notes)) payload['notes'] = notes;
 
     if (ctx.dryRun) {
@@ -443,22 +503,14 @@ async function processEnrollmentForms(ctx: ProcessContext, sheet: ExcelJS.Worksh
         .set({ status: 'enrolled', updatedAt: new Date() })
         .where(eq(schema.enrollments.id, enrollment.id));
     }
-    // Upsert hospital staff roster from the five champion slots.
-    const champions: Array<[string | undefined, string, string | undefined]> = [
-      [ldChampionName, 'L&D Champion', ldChampionEmail],
-      [dataChampionName, 'Data Champion', dataChampionEmail],
-      [providerChampionName, 'Provider Champion', providerChampionEmail],
-      [other1Name, other1Role || 'Other Champion #1', other1Email],
-      [other2Name, other2Role || 'Other Champion #2', other2Email],
-    ];
-    for (const [name, role, email] of champions) {
-      if (!name) continue;
+    // Upsert hospital staff roster from whichever champions this workbook supplied.
+    for (const c of champions) {
       await upsertHospitalStaffMember(
         basics.hospitalId,
         basics.initiativeId,
-        name,
-        role,
-        email || null,
+        c.name,
+        c.role,
+        c.email,
       );
     }
     ctx.counts.applied += 1;
