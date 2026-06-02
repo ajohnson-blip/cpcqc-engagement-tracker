@@ -66,15 +66,21 @@ export const otherPayload = z.object({
 });
 
 export const manageTaskBody = z.object({
-  status: z.enum(['complete', 'current_activities', 'needs_revision']).default('complete'),
+  // 'not_started' is included so the UI can UNDO a mistaken completion — a
+  // common request after PMs accidentally mark the wrong task. The service
+  // clears completedOn/outcome when status is reset to not_started.
+  status: z
+    .enum(['not_started', 'complete', 'current_activities', 'needs_revision'])
+    .default('complete'),
   /**
    * Qualifies the completion. Only meaningful when status='complete'.
-   *   data_submission / readiness_assessment → 'on_time' | 'late'
+   *   data_submission / readiness_assessment → 'on_time' | 'late' | 'not_submitted'
    *   meeting_attendance / qi_advising       → 'attended' | 'missed'
-   * 'late' and 'missed' are recorded but do NOT count toward compliance.
-   * NULL/omitted = legacy / unspecified (counts toward compliance for back-compat).
+   * 'late', 'missed', and 'not_submitted' are recorded but do NOT count toward
+   * compliance. NULL/omitted = legacy / unspecified (counts toward compliance
+   * for back-compat).
    */
-  outcome: z.enum(['on_time', 'late', 'attended', 'missed']).nullable().optional(),
+  outcome: z.enum(['on_time', 'late', 'attended', 'missed', 'not_submitted']).nullable().optional(),
   staffNote: z.string().max(2000).optional(),
   /** Type-specific payload — validated against the matching schema in the service. */
   payload: z

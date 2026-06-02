@@ -19,7 +19,12 @@ type OutcomeOption =
   | 'did_not_attend'
   | 'complete'
   | 'current_activities'
-  | 'needs_revision';
+  | 'needs_revision'
+  | 'reset_not_started';
+
+// "Reset (not started)" is appended to every task type so a PM can undo a
+// mistaken completion. Clears completedOn + outcome on the server.
+const RESET_OPTION = { value: 'reset_not_started' as const, label: 'Reset to not started' };
 
 function optionsForTaskType(taskType: TaskRow['template']['taskType']): {
   value: OutcomeOption;
@@ -34,6 +39,7 @@ function optionsForTaskType(taskType: TaskRow['template']['taskType']): {
         { value: 'submitted_on_time', label: 'Submitted on time' },
         { value: 'submitted_late', label: 'Submitted late' },
         { value: 'not_submitted', label: 'Not submitted' },
+        RESET_OPTION,
       ];
     // Binary outcomes only — no "in progress" or "needs revision" for attendance.
     case 'meeting_attendance':
@@ -41,6 +47,7 @@ function optionsForTaskType(taskType: TaskRow['template']['taskType']): {
       return [
         { value: 'attended', label: 'Attended' },
         { value: 'did_not_attend', label: 'Did not attend' },
+        RESET_OPTION,
       ];
     // enrollment_form and 'other' keep the legacy options.
     default:
@@ -48,6 +55,7 @@ function optionsForTaskType(taskType: TaskRow['template']['taskType']): {
         { value: 'complete', label: 'Complete' },
         { value: 'current_activities', label: 'In progress' },
         { value: 'needs_revision', label: 'Needs revision' },
+        RESET_OPTION,
       ];
   }
 }
@@ -73,6 +81,8 @@ function outcomeOptionToWire(value: OutcomeOption): {
       return { status: 'current_activities', outcome: null };
     case 'needs_revision':
       return { status: 'needs_revision', outcome: null };
+    case 'reset_not_started':
+      return { status: 'not_started', outcome: null };
   }
 }
 
@@ -468,6 +478,13 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
                   : outcomeChoice === 'not_submitted'
                     ? 'Will be recorded but does not count toward the requirement.'
                     : 'Will be recorded but does not count toward the attendance requirement.'}
+              </p>
+            )}
+            {outcomeChoice === 'reset_not_started' && (
+              <p className="mt-1.5 text-xs text-cpcqc-pink-dark">
+                This will clear the completion date and outcome on this task, returning
+                it to &ldquo;not started&rdquo;. Use this to undo a mistaken completion.
+                The change is audited.
               </p>
             )}
           </Field>
