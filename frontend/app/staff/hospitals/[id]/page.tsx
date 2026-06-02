@@ -19,6 +19,7 @@ export default function StaffHospitalDetailPage() {
   // cached after that. Null = not loaded yet; [] = loaded, no tasks.
   const [tasksByEnrollment, setTasksByEnrollment] = useState<Record<string, TaskRow[] | null>>({});
   const [expandedEnrollment, setExpandedEnrollment] = useState<string | null>(null);
+  const [showWithdrawn, setShowWithdrawn] = useState(false);
 
   function toggleEnrollmentTasks(enrollmentId: string) {
     if (expandedEnrollment === enrollmentId) {
@@ -141,17 +142,41 @@ export default function StaffHospitalDetailPage() {
         </div>
       </header>
 
-      {/* Enrollments */}
+      {/* Enrollments — withdrawn ones hidden by default so historical or
+          mis-classified records don't clutter the current view (e.g., a
+          hospital reclassified from SOAR sustainability to SOAR active still
+          carries the old withdrawn enrollment for the audit trail). */}
+      {(() => {
+        const visibleEnrollments = showWithdrawn
+          ? enrollments
+          : enrollments.filter((e) => e.status !== 'withdrawn');
+        const withdrawnCount = enrollments.length - enrollments.filter((e) => e.status !== 'withdrawn').length;
+        return (
       <section className="space-y-6">
-        <h2 className="font-rounded text-lg font-bold uppercase tracking-wide text-cpcqc-purple-dark/80">
-          Enrollments
-        </h2>
-        {enrollments.length === 0 ? (
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-rounded text-lg font-bold uppercase tracking-wide text-cpcqc-purple-dark/80">
+            Enrollments
+          </h2>
+          {withdrawnCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowWithdrawn((v) => !v)}
+              className="rounded-full border border-cpcqc-purple-dark/15 px-3 py-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5"
+            >
+              {showWithdrawn
+                ? `Hide ${withdrawnCount} withdrawn`
+                : `Show ${withdrawnCount} withdrawn`}
+            </button>
+          )}
+        </div>
+        {visibleEnrollments.length === 0 ? (
           <div className="rounded-2xl bg-white p-6 text-center text-cpcqc-purple-dark/70 shadow-sm">
-            No enrollments yet.
+            {enrollments.length === 0
+              ? 'No enrollments yet.'
+              : 'No active enrollments. Click "Show withdrawn" above to see historical ones.'}
           </div>
         ) : (
-          enrollments.map((e) => (
+          visibleEnrollments.map((e) => (
             <div
               key={e.enrollmentId}
               className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-cpcqc-purple-dark/5"
@@ -260,6 +285,8 @@ export default function StaffHospitalDetailPage() {
           ))
         )}
       </section>
+        );
+      })()}
 
       {/* Staff roster */}
       {staffMembers.length > 0 && (
