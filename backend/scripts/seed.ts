@@ -110,7 +110,7 @@ const INITIATIVES = [
 
 // HRA = Hospital Readiness Assessment. Required bi-annually for every initiative
 // and both tracks, so requiredAssessments is the same for all. The two HRAs are
-// normally due Q1 + Q4; the SPARK 2026 Q3 + Q4 exception is a per-program-year
+// normally due Q1 + Q4; the SPARK 2026 Q2 + Q4 exception is a per-program-year
 // schedule (program_years.hra_schedule), not a change to this count.
 const ACTIVE_DEFAULTS = {
   requiredMeetings: 9,

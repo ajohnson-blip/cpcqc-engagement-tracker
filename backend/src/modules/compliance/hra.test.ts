@@ -53,7 +53,7 @@ describe('SPARK 2026 HRA schedule override', () => {
     { id: 'hra-late', periodLabel: 'Q4' },
   ];
 
-  it('schedules SPARK 2026 HRAs in Q3 and Q4', () => {
+  it('schedules SPARK 2026 HRAs in Q2 and Q4', () => {
     const scheduled = scheduleHraInstances(
       hraTemplates,
       2026,
@@ -61,9 +61,9 @@ describe('SPARK 2026 HRA schedule override', () => {
     );
     const byId = new Map(scheduled.map((s) => [s.templateId, s]));
 
-    expect(byId.get('hra-early')!.period).toBe('2026-Q3');
-    expect(byId.get('hra-early')!.dueOn).toBe('2026-09-30');
-    expect(quarterOf(new Date(byId.get('hra-early')!.dueOn))).toBe(3);
+    expect(byId.get('hra-early')!.period).toBe('2026-Q2');
+    expect(byId.get('hra-early')!.dueOn).toBe('2026-06-30');
+    expect(quarterOf(new Date(byId.get('hra-early')!.dueOn))).toBe(2);
 
     expect(byId.get('hra-late')!.period).toBe('2026-Q4');
     expect(byId.get('hra-late')!.dueOn).toBe('2026-12-31');

@@ -100,7 +100,7 @@ async function main() {
 
     for (const py of programYears) {
       // HRA due dates come from the program year's stored schedule (default Q1+Q4,
-      // or an override like SPARK 2026's Q3+Q4), falling back to the per-year rule
+      // or an override like SPARK 2026's Q2+Q4), falling back to the per-year rule
       // for rows predating the hra_schedule column.
       const hraSchedule = py.hraSchedule ?? hraScheduleOverrideFor(init.code, py.year);
       const hraByTemplate = new Map(

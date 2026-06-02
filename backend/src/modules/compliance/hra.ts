@@ -5,7 +5,7 @@
  * and both tracks (active and sustainability) — two per program year. The two
  * HRAs are normally due in Q1 and Q4, but a program year can carry a one-off
  * schedule shift (stored on program_years.hra_schedule). For Program Year 2026
- * only, SPARK's HRAs are due in Q3 and Q4.
+ * only, SPARK's HRAs are due in Q2 and Q4.
  *
  * Kept free of DB/IO imports so the rules can be unit-tested without a database;
  * imports the due-date math from utils/period via a relative path so it resolves
@@ -34,7 +34,7 @@ export function hraScheduleOverrideFor(
   initiativeCode: string,
   year: number,
 ): Quarter[] | null {
-  if (initiativeCode === 'SPARK' && year === 2026) return ['Q3', 'Q4'];
+  if (initiativeCode === 'SPARK' && year === 2026) return ['Q2', 'Q4'];
   return null;
 }
 
@@ -66,7 +66,7 @@ export interface HraInstanceSchedule {
  * Computes the concrete period + due date for each HRA task instance of a
  * program year. The HRA templates are ordered by their default quarter and
  * mapped onto the effective quarters in order, so the i-th HRA lands in the
- * i-th scheduled quarter (Q1,Q4 by default; Q3,Q4 for SPARK 2026).
+ * i-th scheduled quarter (Q1,Q4 by default; Q2,Q4 for SPARK 2026).
  */
 export function scheduleHraInstances(
   hraTemplates: ReadonlyArray<HraTemplateRef>,

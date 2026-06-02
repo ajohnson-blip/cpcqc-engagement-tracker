@@ -88,7 +88,7 @@ export async function createEnrollment(input: CreateEnrollmentInput): Promise<Cr
     throw new HttpError(500, 'No threshold configuration for this initiative/track');
   }
 
-  // Initiative code drives the per-year HRA schedule (e.g., SPARK 2026 → Q3+Q4).
+  // Initiative code drives the per-year HRA schedule (e.g., SPARK 2026 → Q2+Q4).
   const initiative = await db.query.initiatives.findFirst({
     where: eq(schema.initiatives.id, cohort.initiativeId),
   });
@@ -145,7 +145,7 @@ export async function createEnrollment(input: CreateEnrollmentInput): Promise<Cr
       programYearIds.push(programYearId);
 
       // HRA due dates come from the program year's schedule (default Q1+Q4, or an
-      // override like SPARK 2026's Q3+Q4) — not the template's own period label.
+      // override like SPARK 2026's Q2+Q4) — not the template's own period label.
       const hraTemplates = templates.filter((t) => t.taskType === 'readiness_assessment');
       const hraByTemplate = new Map(
         scheduleHraInstances(hraTemplates, year, hraSchedule).map((s) => [s.templateId, s]),

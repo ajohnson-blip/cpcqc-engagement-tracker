@@ -3,7 +3,7 @@
  *
  * Originally seeded as 0 (we assumed HRAs were sustainability-only); we've
  * since learned that all four initiatives track HRAs (two per year, normally
- * Q1 + Q4; SPARK 2026's Q3 + Q4 timing lives in program_years.hra_schedule and
+ * Q1 + Q4; SPARK 2026's Q2 + Q4 timing lives in program_years.hra_schedule and
  * does not affect this count). The hospital portal dashboard renders the Readiness
  * Assessments tile only when thresholds.requiredAssessments > 0, so this
  * needs to flip to 2 across (a) the config table (for future enrollments)

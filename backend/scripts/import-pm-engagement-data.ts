@@ -773,19 +773,19 @@ async function processHraCompletions(ctx: ProcessContext, sheet: ExcelJS.Workshe
       ctx.errors.push({ sheet: SHEET, rowNumber, reason: `Missing period` });
       continue;
     }
-    // SPARK 2026's first HRA is due in Q3, not the standard Q1 (see the
+    // SPARK 2026's first HRA is due in Q2, not the standard Q1 (see the
     // program_years.hra_schedule override). A PM occasionally enters that HRA
-    // under an earlier quarter by mistake — remap any pre-Q3 SPARK 2026 entry to
-    // the first scheduled HRA quarter so it matches the generated TaskInstance.
+    // under Q1 by mistake — remap to the first scheduled HRA quarter so it
+    // matches the generated TaskInstance.
     let period = periodRaw ?? '';
     if (initiative === 'SPARK' && track === 'active') {
       const [firstHraQuarter] = effectiveHraQuarters(hraScheduleOverrideFor('SPARK', 2026));
-      if (period === '2026-Q1' || period === '2026-Q2') {
+      if (period === '2026-Q1') {
         period = `2026-${firstHraQuarter}`;
       }
     }
     // HRAs now exist on all tracks: SOAR sustainability (Q1+Q4) was the original;
-    // every initiative/track has two HRAs (default Q1+Q4); SPARK active is Q3+Q4
+    // every initiative/track has two HRAs (default Q1+Q4); SPARK active is Q2+Q4
     // in 2026. Rely on the TaskInstance lookup below to flag unknown combinations.
     const basics = validateBasics(ctx, SHEET, rowNumber, initiative ?? '', track ?? '', hospital ?? '');
     if (!basics) continue;
