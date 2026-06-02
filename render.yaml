@@ -36,8 +36,11 @@ services:
     # NODE_ENV=production (tsc, tsx, drizzle-kit live in devDeps and are
     # needed at build/migrate time). `build` compiles TS → dist/. `db:migrate`
     # applies any pending Drizzle migrations against the freshly-attached
-    # database before the new version goes live.
-    buildCommand: npm ci --include=dev && npm run build && npm run db:migrate
+    # database before the new version goes live. `backfill-task-instances`
+    # creates any missing TaskInstance rows when new task templates have been
+    # added (idempotent — re-runs only insert what's missing), so existing
+    # enrollments pick up new templates without a manual operator step.
+    buildCommand: npm ci --include=dev && npm run build && npm run db:migrate && tsx scripts/backfill-task-instances.ts
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true
