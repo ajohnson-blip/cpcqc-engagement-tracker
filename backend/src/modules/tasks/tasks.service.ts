@@ -92,7 +92,23 @@ export async function listTasksForEnrollment(
     return futureYearEfComplete.get(r.programYear.year) === true;
   });
 
-  return filtered.map((r) => ({
+  return filtered.map(shapeTaskRow);
+}
+
+/**
+ * Shape a (taskInstance, template, stage, programYear) join into the TaskRow
+ * the frontend expects. Centralised so both list and manage endpoints return
+ * the same shape — manageTask used to return the raw taskInstance row, which
+ * crashed any list/table component that expected nested stage / template
+ * objects ("Cannot read properties of undefined (reading 'sequence')").
+ */
+function shapeTaskRow(r: {
+  task: typeof schema.taskInstances.$inferSelect;
+  template: typeof schema.taskTemplates.$inferSelect;
+  stage: typeof schema.stages.$inferSelect;
+  programYear: typeof schema.programYears.$inferSelect;
+}) {
+  return {
     id: r.task.id,
     enrollmentId: r.task.enrollmentId,
     programYear: r.programYear.year,
@@ -115,7 +131,32 @@ export async function listTasksForEnrollment(
     attachmentUrl: r.task.attachmentUrl,
     payload: r.task.payload,
     updatedAt: r.task.updatedAt,
-  }));
+  };
+}
+
+/** Load a single task by id and shape it the same way the list endpoint does. */
+async function fetchShapedTaskRow(taskId: string) {
+  const rows = await db
+    .select({
+      task: schema.taskInstances,
+      template: schema.taskTemplates,
+      stage: schema.stages,
+      programYear: schema.programYears,
+    })
+    .from(schema.taskInstances)
+    .innerJoin(
+      schema.taskTemplates,
+      eq(schema.taskTemplates.id, schema.taskInstances.taskTemplateId),
+    )
+    .innerJoin(schema.stages, eq(schema.stages.id, schema.taskTemplates.stageId))
+    .innerJoin(
+      schema.programYears,
+      eq(schema.programYears.id, schema.taskInstances.programYearId),
+    )
+    .where(eq(schema.taskInstances.id, taskId))
+    .limit(1);
+  const first = rows[0];
+  return first ? shapeTaskRow(first) : null;
 }
 
 export async function getTaskInstance(id: string, ctx: AuthContext) {
@@ -281,9 +322,10 @@ export async function manageTask(taskId: string, body: unknown, ctx: AuthContext
     }
   });
 
-  return await db.query.taskInstances.findFirst({
-    where: eq(schema.taskInstances.id, taskId),
-  });
+  // Return the same shape the list endpoint returns (with joined stage,
+  // template, programYear) so the frontend's task-table grouping doesn't
+  // crash on undefined stage.sequence when the modal merges the updated row.
+  return await fetchShapedTaskRow(taskId);
 }
 
 // -------- Helpers --------
