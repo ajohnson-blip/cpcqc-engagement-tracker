@@ -55,18 +55,31 @@ async function main() {
     process.exit(1);
   }
 
-  // SQL pre-filter for rows with '@' in name; final filter in JS against the
-  // email regex keeps the SQL portable and the matching explicit.
+  // SQL pre-filter for rows whose name is suspicious (contains '@' or is
+  // literally '[object Object]' from a pre-fix stringify bug); final filter
+  // in JS against the email regex keeps the SQL portable and the matching
+  // explicit. Also catches role/email cells that hold '[object Object]'.
   const candidates = await db
     .select()
     .from(schema.hospitalStaffMembers)
     .where(
       and(
         eq(schema.hospitalStaffMembers.initiativeId, ttt.id),
-        sql`${schema.hospitalStaffMembers.name} LIKE '%@%'`,
+        sql`(
+          ${schema.hospitalStaffMembers.name} LIKE '%@%'
+          OR ${schema.hospitalStaffMembers.name} = '[object Object]'
+          OR ${schema.hospitalStaffMembers.role} = '[object Object]'
+          OR ${schema.hospitalStaffMembers.email} = '[object Object]'
+        )`,
       ),
     );
-  const targets = candidates.filter((r) => EMAIL_RE.test(r.name));
+  const targets = candidates.filter(
+    (r) =>
+      r.name === '[object Object]' ||
+      r.role === '[object Object]' ||
+      r.email === '[object Object]' ||
+      EMAIL_RE.test(r.name),
+  );
 
   if (targets.length === 0) {
     // eslint-disable-next-line no-console

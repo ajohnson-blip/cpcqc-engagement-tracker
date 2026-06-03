@@ -92,6 +92,13 @@
       "when": 1780358400000,
       "tag": "0012_issue_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1780444800000,
+      "tag": "0013_cleanup_broken_staff_roster_rows",
+      "breakpoints": true
     }
   ]
 }
