@@ -20,6 +20,16 @@ export default function StaffHospitalDetailPage() {
   const [tasksByEnrollment, setTasksByEnrollment] = useState<Record<string, TaskRow[] | null>>({});
   const [expandedEnrollment, setExpandedEnrollment] = useState<string | null>(null);
   const [showWithdrawn, setShowWithdrawn] = useState(false);
+  const [collapsedRosterGroups, setCollapsedRosterGroups] = useState<Set<string>>(new Set());
+
+  function toggleRosterGroup(id: string) {
+    setCollapsedRosterGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function toggleEnrollmentTasks(enrollmentId: string) {
     if (expandedEnrollment === enrollmentId) {
@@ -319,60 +329,75 @@ export default function StaffHospitalDetailPage() {
               Hospital roster
             </h2>
             <div className="space-y-4">
-              {orderedGroups.map((g) => (
+              {orderedGroups.map((g) => {
+                const collapsed = collapsedRosterGroups.has(g.id);
+                return (
                 <div
                   key={g.id}
                   className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-cpcqc-purple-dark/5"
                 >
-                  <div
-                    className="flex items-center gap-2 border-b border-cpcqc-purple-dark/10 px-4 py-2.5"
+                  <button
+                    type="button"
+                    onClick={() => toggleRosterGroup(g.id)}
+                    aria-expanded={!collapsed}
+                    className="flex w-full items-center justify-between gap-2 border-b border-cpcqc-purple-dark/10 px-4 py-2.5 text-left hover:bg-cpcqc-purple-dark/5"
                     style={
                       g.initiative?.brandColor
                         ? { backgroundColor: `${g.initiative.brandColor}15` }
                         : undefined
                     }
                   >
-                    <span className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
-                      {g.initiative ? `${g.initiative.code} · ${g.initiative.name}` : 'Unaffiliated'}
-                    </span>
-                    <span className="text-xs text-cpcqc-purple-dark/60">
-                      {g.members.length} {g.members.length === 1 ? 'person' : 'people'}
-                    </span>
-                  </div>
-                  <table className="w-full text-left">
-                    <thead className="bg-cpcqc-cream-dark/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
-                      <tr>
-                        <th className="px-4 py-2">Name</th>
-                        <th className="px-4 py-2">Role</th>
-                        <th className="px-4 py-2">Contact</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {g.members.map((s) => (
-                        <tr key={s.id} className="border-t border-cpcqc-purple-dark/10">
-                          <td className="px-4 py-2.5 font-semibold text-cpcqc-purple-dark">{s.name}</td>
-                          <td className="px-4 py-2.5 text-sm text-cpcqc-purple-dark/80">{s.role ?? '—'}</td>
-                          <td className="px-4 py-2.5 text-sm">
-                            {s.email && (
-                              <a
-                                href={`mailto:${s.email}`}
-                                className="inline-flex items-center gap-1 text-cpcqc-purple hover:underline"
-                              >
-                                <Mail size={12} aria-hidden /> {s.email}
-                              </a>
-                            )}
-                            {s.phone && (
-                              <span className="ml-3 inline-flex items-center gap-1 text-cpcqc-purple-dark/80">
-                                <Phone size={12} aria-hidden /> {s.phone}
-                              </span>
-                            )}
-                          </td>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
+                        {g.initiative ? `${g.initiative.code} · ${g.initiative.name}` : 'Unaffiliated'}
+                      </span>
+                      <span className="text-xs text-cpcqc-purple-dark/60">
+                        {g.members.length} {g.members.length === 1 ? 'person' : 'people'}
+                      </span>
+                    </div>
+                    {collapsed ? (
+                      <ChevronDown size={16} className="text-cpcqc-purple-dark/60" aria-hidden />
+                    ) : (
+                      <ChevronUp size={16} className="text-cpcqc-purple-dark/60" aria-hidden />
+                    )}
+                  </button>
+                  {!collapsed && (
+                    <table className="w-full text-left">
+                      <thead className="bg-cpcqc-cream-dark/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
+                        <tr>
+                          <th className="px-4 py-2">Name</th>
+                          <th className="px-4 py-2">Role</th>
+                          <th className="px-4 py-2">Contact</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {g.members.map((s) => (
+                          <tr key={s.id} className="border-t border-cpcqc-purple-dark/10">
+                            <td className="px-4 py-2.5 font-semibold text-cpcqc-purple-dark">{s.name}</td>
+                            <td className="px-4 py-2.5 text-sm text-cpcqc-purple-dark/80">{s.role ?? '—'}</td>
+                            <td className="px-4 py-2.5 text-sm">
+                              {s.email && (
+                                <a
+                                  href={`mailto:${s.email}`}
+                                  className="inline-flex items-center gap-1 text-cpcqc-purple hover:underline"
+                                >
+                                  <Mail size={12} aria-hidden /> {s.email}
+                                </a>
+                              )}
+                              {s.phone && (
+                                <span className="ml-3 inline-flex items-center gap-1 text-cpcqc-purple-dark/80">
+                                  <Phone size={12} aria-hidden /> {s.phone}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         );
