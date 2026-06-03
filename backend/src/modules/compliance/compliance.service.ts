@@ -211,13 +211,14 @@ export function evaluateProgramYear(
     };
   })();
 
-  // Meetings: active monthly cohorts (9 required) → monthly-pace milestones.
-  // Sustainability (4 required) → quarterly milestones, once per quarter.
-  // Anything else → fall back to threshold so unusual configs don't break.
+  // Meetings: active monthly cohorts must attend at least 9 of 12 available
+  // meetings (skip allowance = 3 months). Sustainability is quarterly (4
+  // required, once per quarter). Anything else falls back to threshold.
   const meetings = (() => {
     const meetingLabels = { itemLabel: 'meeting', itemLabelPlural: 'meetings' };
     if (thresholds.requiredMeetings === 9) {
       return evaluateMonthlyMilestones(
+        12,
         9,
         progress.meetingsAttended,
         ctx.programYear,
@@ -264,17 +265,17 @@ export function evaluateProgramYear(
         'advising sessions',
       );
 
-  // Data submissions: monthly cadence (12 required) → monthly-pace milestones.
-  // SPARK quarterly ("3 of any 4", configured as requiredDataPeriods=4,
-  // dataSubmissionsMin=3) and sustainability (1 required) stay on the legacy
-  // threshold evaluator — "min N of M" doesn't fit a strict per-quarter
-  // milestone model without special-casing, and the existing threshold logic
-  // already handles them correctly.
+  // Data submissions: monthly cadence ("min N of 12") → monthly-min
+  // milestones — for active that's 9 of 12, same rule as meetings. SPARK
+  // quarterly (3 of any 4) and sustainability (1 required) keep the
+  // threshold evaluator: small N quarterly works fine, and "min N of 4"
+  // doesn't need a milestone story.
   const dataLabels = { itemLabel: 'data submission', itemLabelPlural: 'data submissions' };
   const dataSubmissions =
-    thresholds.requiredDataPeriods === 12 && thresholds.dataSubmissionsMin === 12
+    thresholds.requiredDataPeriods === 12
       ? evaluateMonthlyMilestones(
           12,
+          thresholds.dataSubmissionsMin,
           progress.dataSubmissionsCompleted,
           ctx.programYear,
           ctx.asOf,

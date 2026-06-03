@@ -13,7 +13,8 @@ const activeThresholds: ProgramYearThresholds = {
   requiredMeetings: 9,
   requiredAdvising: 4,
   requiredDataPeriods: 12,
-  dataSubmissionsMin: 12,
+  // Active monthly: 9 of 12 data submissions (3-month skip allowance).
+  dataSubmissionsMin: 9,
   requiredAssessments: 2,
 };
 
@@ -111,9 +112,9 @@ describe('Meetings and data — monthly milestone pace', () => {
       enrolled({ advisingCompleted: 1, assessmentsCompleted: 1 }),
       { programYear: 2026, asOf: new Date('2026-06-02T12:00:00Z') },
     );
-    // 5 months ended (Jan–May) → floor(5 × 9 / 12) = 3 expected.
+    // 5 months ended (Jan–May), skip allowance = 3 → expected = max(0, 5-3) = 2.
     expect(result.meetings.status).toBe('at_risk');
-    expect(result.meetings.expected).toBe(3);
+    expect(result.meetings.expected).toBe(2);
   });
 
   it('active hospital exactly on pace for meetings stays on_track', () => {
@@ -137,14 +138,14 @@ describe('Meetings and data — monthly milestone pace', () => {
       enrolled({
         meetingsAttended: 3,
         advisingCompleted: 1,
-        dataSubmissionsCompleted: 2,
+        dataSubmissionsCompleted: 1,
         assessmentsCompleted: 1,
       }),
       { programYear: 2026, asOf: new Date('2026-06-02T12:00:00Z') },
     );
-    // 5 months ended → 5 data submissions expected, 2 complete.
+    // 5 months ended, skip allowance = 3 → expected = 2, completed = 1.
     expect(result.dataSubmissions.status).toBe('at_risk');
-    expect(result.dataSubmissions.expected).toBe(5);
+    expect(result.dataSubmissions.expected).toBe(2);
     expect(result.meetings.status).toBe('on_track');
   });
 
@@ -226,7 +227,8 @@ describe('active track — at risk / not met', () => {
   it('after year ends with incomplete requirements is not_met', () => {
     const result = evaluateProgramYear(
       activeThresholds,
-      enrolled({ meetingsAttended: 7, advisingCompleted: 3, dataSubmissionsCompleted: 10 }),
+      // data: 8 < 9 required (the 9-of-12 minimum).
+      enrolled({ meetingsAttended: 7, advisingCompleted: 3, dataSubmissionsCompleted: 8 }),
       afterYear(),
     );
     expect(result.meetings.status).toBe('not_met');

@@ -215,8 +215,10 @@ async function upsertConfig(
     requiredDataPeriods = 1;
     dataSubmissionsMin = 1;
   } else if (cadence === 'monthly') {
+    // Active monthly hospitals submit 9 of 12 months (matching the meeting
+    // attendance rule: "at least 9 of 12 available" per CPCQC).
     requiredDataPeriods = 12;
-    dataSubmissionsMin = 12;
+    dataSubmissionsMin = 9;
   } else {
     requiredDataPeriods = 4;
     dataSubmissionsMin = isSparkActive ? 3 : 4;

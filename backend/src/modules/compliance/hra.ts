@@ -159,17 +159,17 @@ export function evaluateQuarterlyMilestones(
 }
 
 /**
- * Linear monthly-pace milestone evaluator. Each month-end is a deadline.
- * Expected = floor(monthsEnded × required / 12), so a 9-meeting active cohort
- * expects ~4 by July 1 and a 12-submission monthly data cohort expects 6.
- *
- * Differs from evaluateQuarterlyMilestones in that the schedule is implicit
- * (every month is a checkpoint) rather than a list of named quarters — used
- * for requirements where the cadence is monthly and we don't have per-month
- * template metadata to point at specific schedule entries.
+ * Monthly "min N of M" milestone evaluator. The active cohort rule for both
+ * meetings and data submissions is "complete at least N of 12 months" — so
+ * the hospital can be missing up to (totalPeriods - minRequired) months
+ * without falling behind. Expected = max(0, monthsEnded - skipAllowance),
+ * so a 9-of-12 hospital is on_track at 0 done through end of March (months
+ * 1, 2, 3 are within the skip allowance) and only flips to at_risk if
+ * they're behind starting from month 4.
  */
 export function evaluateMonthlyMilestones(
-  required: number,
+  totalPeriods: number,
+  minRequired: number,
   completed: number,
   programYear: number,
   asOf: Date,
@@ -180,31 +180,32 @@ export function evaluateMonthlyMilestones(
     const monthEndMs = Date.UTC(programYear, m + 1, 1) - 1;
     if (monthEndMs < asOf.getTime()) monthsEnded += 1;
   }
-  const expected = Math.min(required, Math.floor((monthsEnded * required) / 12));
+  const skipAllowance = Math.max(0, totalPeriods - minRequired);
+  const expected = Math.max(0, Math.min(minRequired, monthsEnded - skipAllowance));
   const yearEnded = monthsEnded === 12;
 
-  if (completed >= required) {
-    return { status: 'met', current: completed, required, expected: required };
+  if (completed >= minRequired) {
+    return { status: 'met', current: completed, required: minRequired, expected: minRequired };
   }
   if (yearEnded) {
     return {
       status: 'not_met',
       current: completed,
-      required,
-      expected: required,
-      reason: `Year ended with ${completed} of ${required} ${options.itemLabelPlural} complete.`,
+      required: minRequired,
+      expected: minRequired,
+      reason: `Year ended with ${completed} of ${minRequired} ${options.itemLabelPlural} complete.`,
     };
   }
   if (completed < expected) {
     return {
       status: 'at_risk',
       current: completed,
-      required,
+      required: minRequired,
       expected,
       reason: `${expected} ${options.itemLabelPlural} expected by now; ${completed} complete.`,
     };
   }
-  return { status: 'on_track', current: completed, required, expected };
+  return { status: 'on_track', current: completed, required: minRequired, expected };
 }
 
 /**
