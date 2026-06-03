@@ -170,8 +170,8 @@ async function findTaskInstance(
 async function updateTaskInstance(
   ti: typeof schema.taskInstances.$inferSelect,
   patch: {
-    status?: 'complete' | 'current_activities' | 'needs_revision';
-    outcome?: 'on_time' | 'late' | 'attended' | 'missed' | null;
+    status?: 'not_started' | 'complete' | 'current_activities' | 'needs_revision';
+    outcome?: 'on_time' | 'late' | 'attended' | 'missed' | 'not_submitted' | null;
     completedOn?: string | null;
     payload?: Record<string, unknown>;
     attachmentUrl?: string | null;
@@ -498,6 +498,9 @@ async function processEnrollmentForms(ctx: ProcessContext, sheet: ExcelJS.Worksh
       ti,
       {
         status: 'complete',
+        // Enrollment forms don't carry a meaningful outcome — explicitly clear
+        // any stale value so re-imports are clean.
+        outcome: null,
         completedOn: submittedDate ?? new Date().toISOString().slice(0, 10),
         payload,
         staffNote: notes && !isExampleRow(notes) ? notes : null,
@@ -672,7 +675,10 @@ async function processMeetingAttendance(ctx: ProcessContext, sheet: ExcelJS.Work
         ti,
         {
           status: 'complete',
-          outcome: isMonthly ? 'attended' : undefined,
+          // Explicitly set 'attended' (rather than leaving the prior value)
+          // so a re-import clears any stale 'missed' outcome from manual
+          // edits or older importer versions.
+          outcome: 'attended',
           completedOn: meetingDate,
           payload: newPayload,
         },
@@ -731,7 +737,7 @@ async function processQiAdvising(ctx: ProcessContext, sheet: ExcelJS.Worksheet) 
     }
     await updateTaskInstance(
       ti,
-      { status: 'complete', completedOn: sessionDate, payload },
+      { status: 'complete', outcome: 'attended', completedOn: sessionDate, payload },
       `Backfilled from PM workbook (QI Advising row ${rowNumber})`,
     );
     ctx.touchedEnrollments.add(enrollment.id);
@@ -816,6 +822,13 @@ async function processDataSubmissions(ctx: ProcessContext, sheet: ExcelJS.Worksh
       ti,
       {
         status,
+        // Reset outcome on every import so a previously-set 'late' /
+        // 'not_submitted' (from a manual UI edit or older importer) doesn't
+        // linger after the workbook is re-uploaded. The workbook's banner
+        // treats blank-status Jan-Apr rows as on-time by default; future
+        // versions can refine to compute lateness from submittedDate vs the
+        // task's dueOn.
+        outcome: status === 'complete' ? 'on_time' : null,
         completedOn: status === 'complete' ? submittedDate ?? new Date().toISOString().slice(0, 10) : null,
         payload,
         attachmentUrl: null,
@@ -892,6 +905,9 @@ async function processHraCompletions(ctx: ProcessContext, sheet: ExcelJS.Workshe
       ti,
       {
         status: 'complete',
+        // Reset outcome so any stale 'late' / 'not_submitted' from manual
+        // edits clears on re-import — workbook is source of truth.
+        outcome: 'on_time',
         completedOn: completedDate ?? new Date().toISOString().slice(0, 10),
         payload,
         attachmentUrl: null,
