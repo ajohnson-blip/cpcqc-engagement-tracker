@@ -89,11 +89,11 @@ export default function StaffReportsPage() {
           title="By initiative"
           description="Scoped to a single initiative — useful for cohort reviews or initiative-specific check-ins."
           extra={
-            <p className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="mt-3 flex flex-col gap-2">
               {INITIATIVES.map((code) => (
                 <InitiativeButtonGroup key={code} code={code} year={programYear} />
               ))}
-            </p>
+            </div>
           }
         />
 
@@ -171,11 +171,11 @@ function ReportCard({
 
 function InitiativeButtonGroup({ code, year }: { code: string; year: number }) {
   return (
-    <div className="flex flex-col gap-1 rounded-xl border border-cpcqc-purple-dark/15 p-2">
-      <span className="text-center text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark">
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-cpcqc-purple-dark/15 px-3 py-2">
+      <span className="font-rounded text-sm font-bold uppercase tracking-wide text-cpcqc-purple-dark">
         {code}
       </span>
-      <div className="flex gap-1">
+      <div className="flex gap-1.5">
         <SmallDownload format="xlsx" href={`/api/reports/initiative/${code}?programYear=${year}&format=xlsx`} />
         <SmallDownload format="pdf" href={`/api/reports/initiative/${code}?programYear=${year}&format=pdf`} />
       </div>
@@ -208,12 +208,14 @@ function DownloadButton({
 }
 
 function SmallDownload({ format, href }: { format: 'xlsx' | 'pdf'; href: string }) {
+  const Icon = format === 'xlsx' ? FileSpreadsheet : FileText;
   return (
     <button
       type="button"
       onClick={() => triggerDownload(href)}
-      className="flex-1 rounded border border-cpcqc-purple-dark/15 px-2 py-1 text-xs font-bold uppercase text-cpcqc-purple-dark hover:bg-cpcqc-purple hover:text-white"
+      className="inline-flex items-center gap-1 rounded-full border border-cpcqc-purple-dark/20 px-3 py-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple hover:text-white hover:border-cpcqc-purple"
     >
+      <Icon size={12} aria-hidden />
       {format}
     </button>
   );
