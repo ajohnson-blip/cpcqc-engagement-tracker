@@ -66,8 +66,10 @@ export interface ReportInitiativeSummary {
   atRisk: number;
   notMet: number;
   /** Per-track breakdown for SOAR (where sustainability is meaningful) */
-  active: { total: number; met: number; notMet: number };
-  sustainability: { total: number; met: number; notMet: number } | null;
+  active: { total: number; met: number; onTrack: number; atRisk: number; notMet: number };
+  sustainability:
+    | { total: number; met: number; onTrack: number; atRisk: number; notMet: number }
+    | null;
 }
 
 export interface ReportTotals {
@@ -184,7 +186,7 @@ export async function assembleAnnualReport(
       onTrack: 0,
       atRisk: 0,
       notMet: 0,
-      active: { total: 0, met: 0, notMet: 0 },
+      active: { total: 0, met: 0, onTrack: 0, atRisk: 0, notMet: 0 },
       sustainability: null,
     });
   }
@@ -240,11 +242,17 @@ export async function assembleAnnualReport(
     if (cohort.track === 'active') {
       bucket.active.total += 1;
       if (py.result.overall === 'met') bucket.active.met += 1;
+      else if (py.result.overall === 'on_track') bucket.active.onTrack += 1;
+      else if (py.result.overall === 'at_risk') bucket.active.atRisk += 1;
       else if (py.result.overall === 'not_met') bucket.active.notMet += 1;
     } else {
-      if (!bucket.sustainability) bucket.sustainability = { total: 0, met: 0, notMet: 0 };
+      if (!bucket.sustainability) {
+        bucket.sustainability = { total: 0, met: 0, onTrack: 0, atRisk: 0, notMet: 0 };
+      }
       bucket.sustainability.total += 1;
       if (py.result.overall === 'met') bucket.sustainability.met += 1;
+      else if (py.result.overall === 'on_track') bucket.sustainability.onTrack += 1;
+      else if (py.result.overall === 'at_risk') bucket.sustainability.atRisk += 1;
       else if (py.result.overall === 'not_met') bucket.sustainability.notMet += 1;
     }
   }

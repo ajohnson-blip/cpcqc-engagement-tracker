@@ -188,8 +188,8 @@ export async function renderAnnualReportXlsx(data: AnnualReportData): Promise<Bu
       'active',
       init.active.total,
       init.active.met,
-      '',
-      '',
+      init.active.onTrack,
+      init.active.atRisk,
       init.active.notMet,
     ]);
     if (init.sustainability) {
@@ -198,8 +198,8 @@ export async function renderAnnualReportXlsx(data: AnnualReportData): Promise<Bu
         'sustainability',
         init.sustainability.total,
         init.sustainability.met,
-        '',
-        '',
+        init.sustainability.onTrack,
+        init.sustainability.atRisk,
         init.sustainability.notMet,
       ]);
     }
