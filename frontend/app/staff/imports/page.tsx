@@ -71,8 +71,10 @@ export default function StaffImportsPage() {
         <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
           Upload an updated PM engagement-data workbook (.xlsx) — Enrollment Forms,
           Meeting Attendance, QI Advising, Data Submissions, and HRA Completions sheets
-          all flow through in one pass. Idempotent: re-uploading the same workbook
-          updates existing TaskInstances; nothing is deleted.
+          all flow through in one pass. Safe to upload the same file more than once:
+          rows that already exist get updated to match the workbook, and nothing is
+          ever deleted. If you fix a typo in the workbook and re-upload, the tracker
+          will pick up the correction.
         </p>
       </header>
 
