@@ -289,47 +289,94 @@ export default function StaffHospitalDetailPage() {
       })()}
 
       {/* Staff roster */}
-      {staffMembers.length > 0 && (
-        <section>
-          <h2 className="mb-3 font-rounded text-lg font-bold uppercase tracking-wide text-cpcqc-purple-dark/80">
-            Hospital roster
-          </h2>
-          <div className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-cpcqc-purple-dark/5">
-            <table className="w-full text-left">
-              <thead className="bg-cpcqc-cream-dark/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
-                <tr>
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Role</th>
-                  <th className="px-4 py-3">Contact</th>
-                </tr>
-              </thead>
-              <tbody>
-                {staffMembers.map((s) => (
-                  <tr key={s.id} className="border-t border-cpcqc-purple-dark/10">
-                    <td className="px-4 py-3 font-semibold text-cpcqc-purple-dark">{s.name}</td>
-                    <td className="px-4 py-3 text-sm text-cpcqc-purple-dark/80">{s.role ?? '—'}</td>
-                    <td className="px-4 py-3 text-sm">
-                      {s.email && (
-                        <a
-                          href={`mailto:${s.email}`}
-                          className="inline-flex items-center gap-1 text-cpcqc-purple hover:underline"
-                        >
-                          <Mail size={12} aria-hidden /> {s.email}
-                        </a>
-                      )}
-                      {s.phone && (
-                        <span className="ml-3 inline-flex items-center gap-1 text-cpcqc-purple-dark/80">
-                          <Phone size={12} aria-hidden /> {s.phone}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+      {staffMembers.length > 0 && (() => {
+        // The same person can be a champion for multiple initiatives at a
+        // hospital, and each champion belongs to exactly one initiative. Group
+        // the roster by initiative so it's visually scannable on hospitals
+        // enrolled in 3-4 programs (instead of a single 12-row flat table
+        // where the affiliation is hidden).
+        const initiativeMeta = new Map<string, { code: string; name: string; brandColor: string | null }>();
+        for (const e of enrollments) {
+          if (e.initiative) initiativeMeta.set(e.initiative.id, e.initiative);
+        }
+        const groups = new Map<string, typeof staffMembers>();
+        for (const m of staffMembers) {
+          const key = m.initiativeId ?? '__unaffiliated__';
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key)!.push(m);
+        }
+        const orderedGroups = Array.from(groups.entries())
+          .map(([id, members]) => ({
+            id,
+            initiative: initiativeMeta.get(id),
+            members: [...members].sort((a, b) => a.name.localeCompare(b.name)),
+          }))
+          .sort((a, b) => (a.initiative?.code ?? 'ZZ').localeCompare(b.initiative?.code ?? 'ZZ'));
+
+        return (
+          <section>
+            <h2 className="mb-3 font-rounded text-lg font-bold uppercase tracking-wide text-cpcqc-purple-dark/80">
+              Hospital roster
+            </h2>
+            <div className="space-y-4">
+              {orderedGroups.map((g) => (
+                <div
+                  key={g.id}
+                  className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-cpcqc-purple-dark/5"
+                >
+                  <div
+                    className="flex items-center gap-2 border-b border-cpcqc-purple-dark/10 px-4 py-2.5"
+                    style={
+                      g.initiative?.brandColor
+                        ? { backgroundColor: `${g.initiative.brandColor}15` }
+                        : undefined
+                    }
+                  >
+                    <span className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
+                      {g.initiative ? `${g.initiative.code} · ${g.initiative.name}` : 'Unaffiliated'}
+                    </span>
+                    <span className="text-xs text-cpcqc-purple-dark/60">
+                      {g.members.length} {g.members.length === 1 ? 'person' : 'people'}
+                    </span>
+                  </div>
+                  <table className="w-full text-left">
+                    <thead className="bg-cpcqc-cream-dark/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
+                      <tr>
+                        <th className="px-4 py-2">Name</th>
+                        <th className="px-4 py-2">Role</th>
+                        <th className="px-4 py-2">Contact</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {g.members.map((s) => (
+                        <tr key={s.id} className="border-t border-cpcqc-purple-dark/10">
+                          <td className="px-4 py-2.5 font-semibold text-cpcqc-purple-dark">{s.name}</td>
+                          <td className="px-4 py-2.5 text-sm text-cpcqc-purple-dark/80">{s.role ?? '—'}</td>
+                          <td className="px-4 py-2.5 text-sm">
+                            {s.email && (
+                              <a
+                                href={`mailto:${s.email}`}
+                                className="inline-flex items-center gap-1 text-cpcqc-purple hover:underline"
+                              >
+                                <Mail size={12} aria-hidden /> {s.email}
+                              </a>
+                            )}
+                            {s.phone && (
+                              <span className="ml-3 inline-flex items-center gap-1 text-cpcqc-purple-dark/80">
+                                <Phone size={12} aria-hidden /> {s.phone}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* Recent audit log */}
       {recentAudit.length > 0 && (
