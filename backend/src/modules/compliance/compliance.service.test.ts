@@ -101,6 +101,59 @@ describe('active track — happy path', () => {
   });
 });
 
+describe('QI advising — quarterly milestone schedule', () => {
+  // Active hospitals attend one advising session per quarter (Q1, Q2, Q3, Q4).
+  // The engine now flags at_risk when a quarter's deadline has passed without
+  // a session, matching the policy and matching how HRAs are judged.
+  it('active hospital with 0 sessions after Q1 deadline → at_risk (Wray case)', () => {
+    // June 2, 2026 — Q1 ended Mar 31, no advising recorded.
+    const result = evaluateProgramYear(
+      activeThresholds,
+      enrolled({ advisingCompleted: 0 }),
+      { programYear: 2026, asOf: new Date('2026-06-02T12:00:00Z') },
+    );
+    expect(result.advising.status).toBe('at_risk');
+    expect(result.advising.expected).toBe(1);
+  });
+
+  it('active hospital with 1 session after Q1 deadline → on_track (caught up)', () => {
+    const result = evaluateProgramYear(
+      activeThresholds,
+      enrolled({ advisingCompleted: 1 }),
+      { programYear: 2026, asOf: new Date('2026-06-02T12:00:00Z') },
+    );
+    expect(result.advising.status).toBe('on_track');
+  });
+
+  it('active hospital before any quarter deadline → on_track even at 0 sessions', () => {
+    // Mid-February: Q1 ends Mar 31; no deadline passed yet.
+    const result = evaluateProgramYear(
+      activeThresholds,
+      enrolled({ advisingCompleted: 0 }),
+      { programYear: 2026, asOf: new Date('2026-02-15T12:00:00Z') },
+    );
+    expect(result.advising.status).toBe('on_track');
+    expect(result.advising.expected).toBe(0);
+  });
+
+  it('sustainability hospital uses bi-annual schedule (Q2 + Q4)', () => {
+    // June 2: Q2 (June 30) hasn't passed yet, so 0 sessions still on_track.
+    const result = evaluateProgramYear(
+      sustainabilityThresholds,
+      enrolled({ advisingCompleted: 0, assessmentsCompleted: 1 }),
+      { programYear: 2026, asOf: new Date('2026-06-02T12:00:00Z') },
+    );
+    expect(result.advising.status).toBe('on_track');
+    // After Q2's June 30 deadline, 0 sessions flips to at_risk.
+    const afterQ2 = evaluateProgramYear(
+      sustainabilityThresholds,
+      enrolled({ advisingCompleted: 0, assessmentsCompleted: 1 }),
+      { programYear: 2026, asOf: new Date('2026-07-15T12:00:00Z') },
+    );
+    expect(afterQ2.advising.status).toBe('at_risk');
+  });
+});
+
 describe('active track — at risk / not met', () => {
   it('hospital with no progress in November is at_risk on multiple axes', () => {
     // Late in year + zero progress = catastrophically behind.
@@ -131,10 +184,13 @@ describe('active track — at risk / not met', () => {
   });
 
   it('mid-year hospital with some progress stays on_track even if behind pace', () => {
-    // Mid-year + lagging but not catastrophic → on_track. Don't shame mid-year.
+    // Mid-year + lagging on the threshold-judged axes (meetings, data) → don't
+    // shame. For advising (now milestone-judged) the hospital needs to be at
+    // least caught up to its Q1 + Q2 quarter deadlines — 2 sessions by July —
+    // otherwise the engine correctly flags it at_risk.
     const result = evaluateProgramYear(
       activeThresholds,
-      enrolled({ meetingsAttended: 3, advisingCompleted: 1, dataSubmissionsCompleted: 4 }),
+      enrolled({ meetingsAttended: 3, advisingCompleted: 2, dataSubmissionsCompleted: 4 }),
       midYear(),
     );
     expect(result.meetings.status).toBe('on_track');

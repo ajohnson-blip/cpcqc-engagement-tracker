@@ -39,22 +39,24 @@ interface Fixture {
 // identical across paths, so any disagreement in the at-risk count can only
 // come from which rows each path feeds in.
 //
-// The Q1 HRA deadline (Mar 31) has passed by ASOF (May 28), so to model a
-// genuinely on-track active enrollment the fixture sets assessmentsCompleted
-// per the caller — otherwise the schedule-aware HRA evaluator would (correctly)
-// flag it at_risk, which would muddy the at-risk-by-withdrawal accounting this
-// test is really checking.
+// The Q1 deadlines for HRAs and QI advising (both Mar 31) have passed by
+// ASOF (May 28). To model a genuinely on-track active enrollment the
+// fixture sets assessmentsCompleted AND advisingCompleted per the caller —
+// otherwise the schedule-aware evaluators would (correctly) flag those
+// requirements at_risk, which would muddy the at-risk-by-withdrawal
+// accounting this test is really checking.
 function makeFixture(
   id: string,
   status: ProgramYearProgress['enrollmentStatus'],
   withdrawnOn: string | null,
   assessmentsCompleted = 0,
+  advisingCompleted = 0,
 ): Fixture {
   const result = evaluateProgramYear(
     activeThresholds,
     {
       meetingsAttended: 0,
-      advisingCompleted: 0,
+      advisingCompleted,
       dataSubmissionsCompleted: 0,
       assessmentsCompleted,
       enrollmentStatus: status,
@@ -65,8 +67,9 @@ function makeFixture(
 }
 
 const enrollments: Fixture[] = [
-  // Q1 HRA done → schedule-aware evaluator is satisfied → overall on_track.
-  makeFixture('active', 'enrolled', null, 1),
+  // Q1 HRA + Q1 advising done → both schedule-aware evaluators are satisfied
+  // → overall on_track.
+  makeFixture('active', 'enrolled', null, 1, 1),
   makeFixture('withdrawn-prior-year', 'withdrawn', '2025-06-01'),
   makeFixture('withdrawn-data-drift', 'withdrawn', null),
 ];

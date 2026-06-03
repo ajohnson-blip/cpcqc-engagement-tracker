@@ -109,29 +109,21 @@ function quarterEndMs(year: number, quarter: 1 | 2 | 3 | 4): number {
 }
 
 /**
- * Evaluates HRA compliance as a milestone schedule rather than an annual
- * threshold. Each scheduled quarter is a hard deadline: if a quarter's end
- * date has passed and the hospital is short by at least one HRA against the
- * deadlines hit so far, the requirement is at-risk (or not-met after year end).
+ * Generic milestone-schedule evaluator. Each entry in `quarters` is a hard
+ * deadline. As `asOf` passes each quarter's end the "expected" count grows;
+ * `completed` is compared to expected (at_risk if short) and to required
+ * (met if all done, not_met if year-ended with shortfall).
  *
- * Concretely, for the standard Q1+Q4 schedule:
- *   asOf < Apr 1                 → 0 deadlines passed; 0 completions on_track.
- *   asOf in Apr–Dec, 0 done      → Q1 missed → at_risk.
- *   asOf in Apr–Dec, 1 done      → caught up to Q1 → on_track.
- *   asOf >= next Jan 1, < 2 done → year ended → not_met.
- *   completed >= required        → met.
- *
- * Replaces the previous threshold-based assessments verdict, which silently
- * tolerated a missed Q1 HRA until July (yearFraction >= 0.5) — a hospital that
- * skipped Q1 used to show on_track until mid-year.
+ * Used for HRAs (via evaluateHraSchedule below) and for QI advising sessions
+ * (see compliance.service — advising is "once per quarter" for active tracks).
  */
-export function evaluateHraSchedule(
-  schedule: readonly string[] | null | undefined,
+export function evaluateQuarterlyMilestones(
+  quarters: readonly string[],
   completed: number,
   programYear: number,
   asOf: Date,
+  options: { itemLabel: string; itemLabelPlural: string },
 ): RequirementResult {
-  const quarters = effectiveHraQuarters(schedule);
   const required = quarters.length;
   const nowMs = asOf.getTime();
   let expected = 0;
@@ -151,7 +143,7 @@ export function evaluateHraSchedule(
       current: completed,
       required,
       expected: required,
-      reason: `Year ended with ${completed} of ${required} HRAs complete.`,
+      reason: `Year ended with ${completed} of ${required} ${options.itemLabelPlural} complete.`,
     };
   }
   if (completed < expected) {
@@ -160,8 +152,31 @@ export function evaluateHraSchedule(
       current: completed,
       required,
       expected,
-      reason: `${expected} HRA deadline(s) have passed; ${completed} complete.`,
+      reason: `${expected} ${options.itemLabel} deadline(s) have passed; ${completed} complete.`,
     };
   }
   return { status: 'on_track', current: completed, required, expected };
+}
+
+/**
+ * Evaluates HRA compliance as a milestone schedule rather than an annual
+ * threshold. Standard Q1+Q4 (or SPARK 2026's Q2+Q4); the engine flags at_risk
+ * the moment a scheduled quarter's deadline passes without a completion.
+ *
+ * Replaces the previous threshold-based assessments verdict, which silently
+ * tolerated a missed Q1 HRA until July (yearFraction >= 0.5).
+ */
+export function evaluateHraSchedule(
+  schedule: readonly string[] | null | undefined,
+  completed: number,
+  programYear: number,
+  asOf: Date,
+): RequirementResult {
+  return evaluateQuarterlyMilestones(
+    effectiveHraQuarters(schedule),
+    completed,
+    programYear,
+    asOf,
+    { itemLabel: 'HRA', itemLabelPlural: 'HRAs' },
+  );
 }

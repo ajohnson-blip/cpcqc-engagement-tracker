@@ -24,7 +24,23 @@
  * provide a pre-filtered list of in-scope attended meetings.
  */
 
-import { evaluateHraSchedule } from './hra.js';
+import { evaluateHraSchedule, evaluateQuarterlyMilestones } from './hra.js';
+
+/**
+ * Default per-quarter schedule for QI Advising sessions based on the
+ * required count. CPCQC requires once-per-quarter advising for active tracks
+ * (4) and bi-annual for sustainability (2). Returns null for non-standard
+ * counts so the caller falls back to the threshold evaluator.
+ */
+function defaultAdvisingQuarters(requiredAdvising: number): readonly string[] | null {
+  switch (requiredAdvising) {
+    case 1: return ['Q4'];
+    case 2: return ['Q2', 'Q4'];
+    case 3: return ['Q2', 'Q3', 'Q4'];
+    case 4: return ['Q1', 'Q2', 'Q3', 'Q4'];
+    default: return null;
+  }
+}
 
 export type RequirementStatus = 'on_track' | 'at_risk' | 'met' | 'not_met';
 
@@ -199,13 +215,26 @@ export function evaluateProgramYear(
     'meetings',
   );
 
-  const advising = evaluateThreshold(
-    progress.advisingCompleted,
-    thresholds.requiredAdvising,
-    yearFraction,
-    yearEnded,
-    'advising sessions',
-  );
+  // QI advising sessions are scheduled per quarter (once per quarter for
+  // active, bi-annual for sustainability), so the milestone evaluator gives
+  // the right semantics: missing a quarter's session flags at_risk
+  // immediately rather than waiting for the yearFraction-based threshold.
+  const advisingQuarters = defaultAdvisingQuarters(thresholds.requiredAdvising);
+  const advising = advisingQuarters
+    ? evaluateQuarterlyMilestones(
+        advisingQuarters,
+        progress.advisingCompleted,
+        ctx.programYear,
+        ctx.asOf,
+        { itemLabel: 'advising session', itemLabelPlural: 'advising sessions' },
+      )
+    : evaluateThreshold(
+        progress.advisingCompleted,
+        thresholds.requiredAdvising,
+        yearFraction,
+        yearEnded,
+        'advising sessions',
+      );
 
   // Data submissions use the configurable minimum, not the total possible periods.
   const dataSubmissions = evaluateThreshold(
