@@ -3,7 +3,10 @@
  * (based on the CHA master list's `status2026: "Sustainable"` value) but are
  * actually on SOAR active for 2026 per their SOAR PM. Currently:
  *   - Southwest Health System, Inc.
- *   - Valley View Hospital
+ *
+ * (Valley View Hospital was originally in this list but was later corrected
+ * back to SOAR sustainability per the SOAR PM — see migration
+ * 0008_withdraw_valley_view_soar_active.sql.)
  *
  * For each hospital:
  *   1. Withdraw the existing SOAR sustainability enrollment (keep history).
@@ -31,7 +34,6 @@ import { createEnrollment } from '../src/modules/enrollments/enrollments.service
  */
 const HOSPITAL_NAMES = [
   'Southwest Health System, Inc.',
-  'Valley View Hospital',
 ];
 const PROGRAM_YEAR = 2026;
 const dryRun = process.argv.includes('--dry-run');

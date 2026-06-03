@@ -57,6 +57,13 @@
       "when": 1780017600000,
       "tag": "0007_task_outcome_not_submitted",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780099200000,
+      "tag": "0008_withdraw_valley_view_soar_active",
+      "breakpoints": true
     }
   ]
 }
