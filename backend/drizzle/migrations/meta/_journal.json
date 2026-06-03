@@ -71,6 +71,13 @@
       "when": 1780185600000,
       "tag": "0009_delete_withdrawn_enrollments",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780189200000,
+      "tag": "0010_restore_valley_view_soar_sustainability",
+      "breakpoints": true
     }
   ]
 }
