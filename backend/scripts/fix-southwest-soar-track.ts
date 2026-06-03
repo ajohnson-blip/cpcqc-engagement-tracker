@@ -9,8 +9,10 @@
  * 0008_withdraw_valley_view_soar_active.sql.)
  *
  * For each hospital:
- *   1. Withdraw the existing SOAR sustainability enrollment (keep history).
- *      Its TaskInstances remain attached but no longer affect compliance.
+ *   1. DELETE the existing SOAR sustainability enrollment (and its program
+ *      year + task instances via CASCADE). Hospitals can't withdraw per CPCQC
+ *      policy, so the wrong row shouldn't linger as a soft-deleted ghost
+ *      duplicate — it just gets removed.
  *   2. Create a fresh SOAR active enrollment for 2026 via the standard service
  *      (auto-generates the right TaskInstances).
  *
@@ -109,18 +111,10 @@ async function fixOne(hospitalName: string) {
   });
   if (existingSust) {
     // eslint-disable-next-line no-console
-    console.log(`  Withdrawing wrong sustainability enrollment ${existingSust.id}…`);
+    console.log(`  Deleting wrong sustainability enrollment ${existingSust.id}…`);
     if (!dryRun) {
       await db
-        .update(schema.enrollments)
-        .set({
-          status: 'withdrawn',
-          withdrawnOn: new Date().toISOString().slice(0, 10),
-          notes:
-            (existingSust.notes ? existingSust.notes + '\n' : '') +
-            `Withdrawn ${new Date().toISOString().slice(0, 10)}: reclassified to SOAR active per SOAR PM. See fix-southwest-soar-track.ts.`,
-          updatedAt: new Date(),
-        })
+        .delete(schema.enrollments)
         .where(eq(schema.enrollments.id, existingSust.id));
     }
   } else {

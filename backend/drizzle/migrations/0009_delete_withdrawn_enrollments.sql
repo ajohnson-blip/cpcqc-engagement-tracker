@@ -1,0 +1,16 @@
+-- Hospitals cannot withdraw from cohorts per CPCQC policy — once enrolled
+-- they either meet engagement requirements or they don't. The 'withdrawn'
+-- enrollment_status was used only by track-flip cleanup scripts
+-- (fix-southwest-soar-track.ts, migration 0008) to "soft-delete" the wrong
+-- enrollment, but the leftover rows showed up as duplicate at-risk entries
+-- on the SOAR landing page (Valley View, Southwest each appearing twice).
+--
+-- Delete outright. The enrollments table CASCADEs to program_years and
+-- task_instances so the dependent rows go with it. Audit log entries
+-- remain (entity_id references are unconstrained), preserving the history
+-- of what happened.
+--
+-- Going forward, fix-southwest-soar-track.ts deletes instead of
+-- withdrawing (see commit alongside this migration). The 'withdrawn' enum
+-- value stays in the schema as a defensive option but is not used.
+DELETE FROM "enrollments" WHERE "status" = 'withdrawn';
