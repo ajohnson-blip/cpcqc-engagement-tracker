@@ -193,12 +193,21 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
         };
       }
       case 'meeting_attendance':
+        // "Did not attend" / reset has no meeting to record — skip the
+        // required-shape fields so the backend doesn't reject an empty
+        // YYYY-MM string.
+        if (outcomeChoice === 'did_not_attend' || outcomeChoice === 'reset_not_started') {
+          return notes ? { notes } : undefined;
+        }
         return {
           meetingMonth,
           meetingTitle: meetingTitle || undefined,
           notes: notes || undefined,
         };
       case 'qi_advising':
+        if (outcomeChoice === 'did_not_attend' || outcomeChoice === 'reset_not_started') {
+          return notes ? { notes } : undefined;
+        }
         return {
           sessionDate,
           advisorName,
@@ -350,7 +359,9 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
             </>
           )}
 
-          {task.template.taskType === 'meeting_attendance' && (
+          {task.template.taskType === 'meeting_attendance' &&
+            outcomeChoice !== 'did_not_attend' &&
+            outcomeChoice !== 'reset_not_started' && (
             <>
               <div className="rounded-lg bg-cpcqc-cream-dark/40 p-3 text-sm text-cpcqc-purple-dark/80">
                 <p>
@@ -381,7 +392,9 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
             </>
           )}
 
-          {task.template.taskType === 'qi_advising' && (
+          {task.template.taskType === 'qi_advising' &&
+            outcomeChoice !== 'did_not_attend' &&
+            outcomeChoice !== 'reset_not_started' && (
             <>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Session date">

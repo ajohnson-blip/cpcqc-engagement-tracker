@@ -33,16 +33,19 @@ export const enrollmentFormPayload = z.object({
 });
 
 // Meeting attendance is judged yes/no by hospital — no individual attendees.
-// Just the month is captured; quarter is derived from it.
+// Just the month is captured; quarter is derived from it. meetingMonth is
+// optional because the "Did not attend" outcome has no meeting to record.
 export const meetingAttendancePayload = z.object({
-  meetingMonth: z.string().regex(/^\d{4}-\d{2}$/, 'YYYY-MM'),
+  meetingMonth: z.string().regex(/^\d{4}-\d{2}$/, 'YYYY-MM').optional(),
   meetingTitle: z.string().min(1).max(200).optional(),
   notes: z.string().max(2000).optional(),
 });
 
+// sessionDate / advisorName are optional for the same reason as meetingMonth
+// above — the "Did not attend" outcome has no session to record.
 export const qiAdvisingPayload = z.object({
-  sessionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD'),
-  advisorName: z.string().min(1).max(200),
+  sessionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD').optional(),
+  advisorName: z.string().min(1).max(200).optional(),
   attendees: z.array(z.string().min(1).max(200)).optional(),
   notes: z.string().max(5000).optional(),
 });
