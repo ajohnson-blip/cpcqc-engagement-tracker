@@ -48,6 +48,28 @@ export function isExcludedFromRollup(
   return withdrawnAt < currentProgramYearStart(asOf);
 }
 
+/**
+ * When a hospital has both an enrolled and a withdrawn enrollment under the
+ * same key (e.g., same initiative), the withdrawn one is an administrative
+ * duplicate (track-flip, mis-classification) and should disappear from rollup
+ * + roster views — otherwise the hospital double-counts and shows twice.
+ *
+ * Hospitals whose ONLY enrollment for a key is withdrawn (a true mid-year
+ * withdrawal) are NOT removed by this pass — the rule above is purely a
+ * dedup, not a withdrawal filter. The compliance engine continues to flag
+ * those as at_risk via the enrollment-status branch.
+ */
+export function dedupeWithdrawnDuplicates<T extends RollupEnrollment>(
+  enrollments: T[],
+  keyFn: (e: T) => string,
+): T[] {
+  const hasEnrolled = new Set<string>();
+  for (const e of enrollments) {
+    if (e.status !== 'withdrawn') hasEnrolled.add(keyFn(e));
+  }
+  return enrollments.filter((e) => e.status !== 'withdrawn' || !hasEnrolled.has(keyFn(e)));
+}
+
 /** Enrollments the /overview rollup counts. */
 export function selectOverviewRollup<T extends RollupEnrollment>(
   enrollments: T[],

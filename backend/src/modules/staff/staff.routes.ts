@@ -31,7 +31,11 @@ import {
   type ComplianceForProgramYear,
 } from '@/modules/compliance/compliance.repository.js';
 import type { RequirementStatus } from '@/modules/compliance/compliance.service.js';
-import { selectInitiativeHospitals, selectOverviewRollup } from './staff.rollup.js';
+import {
+  dedupeWithdrawnDuplicates,
+  selectInitiativeHospitals,
+  selectOverviewRollup,
+} from './staff.rollup.js';
 import { getTeamForInitiativeId } from './staff-team.service.js';
 
 const router = Router();
@@ -57,9 +61,15 @@ router.get('/overview', requireAuth, requireStaff, async (_req, res) => {
 
   // Pull the same set of enrollments the initiative roster does (every
   // enrollment, withdrawn included), then let isExcludedFromRollup decide what
-  // to drop — so the two dashboards can never disagree on the roster.
+  // to drop — so the two dashboards can never disagree on the roster. Then
+  // dedupe per-(hospital, initiative): if a hospital has both a current and a
+  // withdrawn enrollment under one initiative (track-flip cleanups), only the
+  // current one counts.
   const allEnrollments = await db.select().from(schema.enrollments);
-  const enrollments = selectOverviewRollup(allEnrollments, asOf);
+  const enrollments = dedupeWithdrawnDuplicates(
+    selectOverviewRollup(allEnrollments, asOf),
+    (e) => `${e.hospitalId}::${cohortById.get(e.cohortId)?.initiativeId ?? ''}`,
+  );
 
   const hospitalIds = Array.from(new Set(enrollments.map((e) => e.hospitalId)));
   const hospitals = hospitalIds.length
@@ -203,7 +213,14 @@ router.get('/initiatives/:code/hospitals', requireAuth, requireStaff, async (req
     .select()
     .from(schema.enrollments)
     .where(inArray(schema.enrollments.cohortId, cohortIds));
-  const enrollments = selectInitiativeHospitals(allEnrollments, query.includeWithdrawn, asOf);
+  // Within a single initiative, dedupe per-hospital: if Valley View has both a
+  // current sustainability enrollment and an obsolete withdrawn active
+  // enrollment, only the current one renders. Skip dedup when the caller asks
+  // to includeWithdrawn — they explicitly want to see history.
+  const visibleEnrollments = query.includeWithdrawn
+    ? allEnrollments
+    : dedupeWithdrawnDuplicates(allEnrollments, (e) => e.hospitalId);
+  const enrollments = selectInitiativeHospitals(visibleEnrollments, query.includeWithdrawn, asOf);
 
   const hospitalIds = Array.from(new Set(enrollments.map((e) => e.hospitalId)));
   const hospitals = hospitalIds.length

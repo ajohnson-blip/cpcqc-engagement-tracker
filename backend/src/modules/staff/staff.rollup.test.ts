@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  dedupeWithdrawnDuplicates,
   isExcludedFromRollup,
   selectInitiativeHospitals,
   selectOverviewRollup,
@@ -117,5 +118,42 @@ describe('staff overview rollup vs initiative roster', () => {
     expect(selectInitiativeHospitals(enrollments, true, ASOF)).toHaveLength(3);
     expect(selectInitiativeHospitals(enrollments, false, ASOF)).toHaveLength(2);
     expect(selectOverviewRollup(enrollments, ASOF)).toHaveLength(2);
+  });
+});
+
+describe('dedupeWithdrawnDuplicates', () => {
+  // Models the Valley View / Southwest track-flip pattern: a hospital has a
+  // current enrollment for an initiative AND a withdrawn duplicate from a
+  // prior mis-classification. The withdrawn one should not double-count.
+  const rows = [
+    { id: 'a-enrolled', hospitalId: 'valley-view', status: 'enrolled' as const, withdrawnOn: null },
+    { id: 'a-withdrawn', hospitalId: 'valley-view', status: 'withdrawn' as const, withdrawnOn: '2026-06-01' },
+    { id: 'b-withdrawn-only', hospitalId: 'lone-withdrawer', status: 'withdrawn' as const, withdrawnOn: '2026-05-01' },
+    { id: 'c-enrolled', hospitalId: 'happy-path', status: 'enrolled' as const, withdrawnOn: null },
+  ];
+
+  it('drops the withdrawn duplicate when the same hospital has a current enrollment', () => {
+    const out = dedupeWithdrawnDuplicates(rows, (r) => r.hospitalId);
+    const ids = out.map((r) => r.id).sort();
+    // a-withdrawn dropped (a-enrolled present); b-withdrawn-only kept (no
+    // current enrollment for that hospital).
+    expect(ids).toEqual(['a-enrolled', 'b-withdrawn-only', 'c-enrolled']);
+  });
+
+  it('is a no-op when there are no duplicates', () => {
+    const enrolledOnly = rows.filter((r) => r.status === 'enrolled');
+    expect(dedupeWithdrawnDuplicates(enrolledOnly, (r) => r.hospitalId)).toEqual(enrolledOnly);
+  });
+
+  it('treats different keys as independent (per-initiative scoping)', () => {
+    const mixed = [
+      { id: 'soar-enrolled', hospitalId: 'valley-view', status: 'enrolled' as const, withdrawnOn: null, initiativeId: 'soar' },
+      { id: 'soar-withdrawn', hospitalId: 'valley-view', status: 'withdrawn' as const, withdrawnOn: '2026-06-01', initiativeId: 'soar' },
+      { id: 'ttt-withdrawn', hospitalId: 'valley-view', status: 'withdrawn' as const, withdrawnOn: '2026-06-01', initiativeId: 'ttt' },
+    ];
+    const out = dedupeWithdrawnDuplicates(mixed, (r) => `${r.hospitalId}::${r.initiativeId}`);
+    // soar-withdrawn dropped (duplicate of soar-enrolled), ttt-withdrawn kept
+    // (no ttt-enrolled to dedupe against — could be a real mid-year withdrawal).
+    expect(out.map((r) => r.id).sort()).toEqual(['soar-enrolled', 'ttt-withdrawn']);
   });
 });
