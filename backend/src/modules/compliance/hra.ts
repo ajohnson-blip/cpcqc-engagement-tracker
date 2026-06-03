@@ -159,6 +159,55 @@ export function evaluateQuarterlyMilestones(
 }
 
 /**
+ * Linear monthly-pace milestone evaluator. Each month-end is a deadline.
+ * Expected = floor(monthsEnded × required / 12), so a 9-meeting active cohort
+ * expects ~4 by July 1 and a 12-submission monthly data cohort expects 6.
+ *
+ * Differs from evaluateQuarterlyMilestones in that the schedule is implicit
+ * (every month is a checkpoint) rather than a list of named quarters — used
+ * for requirements where the cadence is monthly and we don't have per-month
+ * template metadata to point at specific schedule entries.
+ */
+export function evaluateMonthlyMilestones(
+  required: number,
+  completed: number,
+  programYear: number,
+  asOf: Date,
+  options: { itemLabel: string; itemLabelPlural: string },
+): RequirementResult {
+  let monthsEnded = 0;
+  for (let m = 0; m < 12; m++) {
+    const monthEndMs = Date.UTC(programYear, m + 1, 1) - 1;
+    if (monthEndMs < asOf.getTime()) monthsEnded += 1;
+  }
+  const expected = Math.min(required, Math.floor((monthsEnded * required) / 12));
+  const yearEnded = monthsEnded === 12;
+
+  if (completed >= required) {
+    return { status: 'met', current: completed, required, expected: required };
+  }
+  if (yearEnded) {
+    return {
+      status: 'not_met',
+      current: completed,
+      required,
+      expected: required,
+      reason: `Year ended with ${completed} of ${required} ${options.itemLabelPlural} complete.`,
+    };
+  }
+  if (completed < expected) {
+    return {
+      status: 'at_risk',
+      current: completed,
+      required,
+      expected,
+      reason: `${expected} ${options.itemLabelPlural} expected by now; ${completed} complete.`,
+    };
+  }
+  return { status: 'on_track', current: completed, required, expected };
+}
+
+/**
  * Evaluates HRA compliance as a milestone schedule rather than an annual
  * threshold. Standard Q1+Q4 (or SPARK 2026's Q2+Q4); the engine flags at_risk
  * the moment a scheduled quarter's deadline passes without a completion.

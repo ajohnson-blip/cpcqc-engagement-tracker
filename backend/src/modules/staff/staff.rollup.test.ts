@@ -39,26 +39,25 @@ interface Fixture {
 // identical across paths, so any disagreement in the at-risk count can only
 // come from which rows each path feeds in.
 //
-// The Q1 deadlines for HRAs and QI advising (both Mar 31) have passed by
-// ASOF (May 28). To model a genuinely on-track active enrollment the
-// fixture sets assessmentsCompleted AND advisingCompleted per the caller —
-// otherwise the schedule-aware evaluators would (correctly) flag those
-// requirements at_risk, which would muddy the at-risk-by-withdrawal
-// accounting this test is really checking.
+// Every milestone-aware evaluator (HRAs, advising, meetings, data) flags
+// at_risk when a deadline passes without the matching completion. By ASOF
+// (May 28) four month-ends have passed (Jan/Feb/Mar/Apr) plus Q1 deadlines
+// for advising and HRAs, so a "genuinely on-track" fixture has to model
+// that progress explicitly. Caller passes whichever progress fields are
+// relevant; everything else defaults to zero.
 function makeFixture(
   id: string,
   status: ProgramYearProgress['enrollmentStatus'],
   withdrawnOn: string | null,
-  assessmentsCompleted = 0,
-  advisingCompleted = 0,
+  progress: Partial<Omit<ProgramYearProgress, 'enrollmentStatus'>> = {},
 ): Fixture {
   const result = evaluateProgramYear(
     activeThresholds,
     {
-      meetingsAttended: 0,
-      advisingCompleted,
-      dataSubmissionsCompleted: 0,
-      assessmentsCompleted,
+      meetingsAttended: progress.meetingsAttended ?? 0,
+      advisingCompleted: progress.advisingCompleted ?? 0,
+      dataSubmissionsCompleted: progress.dataSubmissionsCompleted ?? 0,
+      assessmentsCompleted: progress.assessmentsCompleted ?? 0,
       enrollmentStatus: status,
     },
     { programYear: PROGRAM_YEAR, asOf: ASOF },
@@ -67,9 +66,15 @@ function makeFixture(
 }
 
 const enrollments: Fixture[] = [
-  // Q1 HRA + Q1 advising done → both schedule-aware evaluators are satisfied
-  // → overall on_track.
-  makeFixture('active', 'enrolled', null, 1, 1),
+  // Caught up on every milestone-aware axis: 1 HRA (Q1 done), 1 advising
+  // (Q1 done), 3 meetings (floor(4 × 9 / 12)), 4 data submissions
+  // (floor(4 × 12 / 12)) → overall on_track.
+  makeFixture('active', 'enrolled', null, {
+    assessmentsCompleted: 1,
+    advisingCompleted: 1,
+    meetingsAttended: 3,
+    dataSubmissionsCompleted: 4,
+  }),
   makeFixture('withdrawn-prior-year', 'withdrawn', '2025-06-01'),
   makeFixture('withdrawn-data-drift', 'withdrawn', null),
 ];

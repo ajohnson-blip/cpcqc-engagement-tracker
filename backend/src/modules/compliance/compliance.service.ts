@@ -24,7 +24,11 @@
  * provide a pre-filtered list of in-scope attended meetings.
  */
 
-import { evaluateHraSchedule, evaluateQuarterlyMilestones } from './hra.js';
+import {
+  evaluateHraSchedule,
+  evaluateMonthlyMilestones,
+  evaluateQuarterlyMilestones,
+} from './hra.js';
 
 /**
  * Default per-quarter schedule for QI Advising sessions based on the
@@ -207,13 +211,37 @@ export function evaluateProgramYear(
     };
   })();
 
-  const meetings = evaluateThreshold(
-    progress.meetingsAttended,
-    thresholds.requiredMeetings,
-    yearFraction,
-    yearEnded,
-    'meetings',
-  );
+  // Meetings: active monthly cohorts (9 required) → monthly-pace milestones.
+  // Sustainability (4 required) → quarterly milestones, once per quarter.
+  // Anything else → fall back to threshold so unusual configs don't break.
+  const meetings = (() => {
+    const meetingLabels = { itemLabel: 'meeting', itemLabelPlural: 'meetings' };
+    if (thresholds.requiredMeetings === 9) {
+      return evaluateMonthlyMilestones(
+        9,
+        progress.meetingsAttended,
+        ctx.programYear,
+        ctx.asOf,
+        meetingLabels,
+      );
+    }
+    if (thresholds.requiredMeetings === 4) {
+      return evaluateQuarterlyMilestones(
+        ['Q1', 'Q2', 'Q3', 'Q4'],
+        progress.meetingsAttended,
+        ctx.programYear,
+        ctx.asOf,
+        meetingLabels,
+      );
+    }
+    return evaluateThreshold(
+      progress.meetingsAttended,
+      thresholds.requiredMeetings,
+      yearFraction,
+      yearEnded,
+      'meetings',
+    );
+  })();
 
   // QI advising sessions are scheduled per quarter (once per quarter for
   // active, bi-annual for sustainability), so the milestone evaluator gives
@@ -236,14 +264,29 @@ export function evaluateProgramYear(
         'advising sessions',
       );
 
-  // Data submissions use the configurable minimum, not the total possible periods.
-  const dataSubmissions = evaluateThreshold(
-    progress.dataSubmissionsCompleted,
-    thresholds.dataSubmissionsMin,
-    yearFraction,
-    yearEnded,
-    'data submissions',
-  );
+  // Data submissions: monthly cadence (12 required) → monthly-pace milestones.
+  // SPARK quarterly ("3 of any 4", configured as requiredDataPeriods=4,
+  // dataSubmissionsMin=3) and sustainability (1 required) stay on the legacy
+  // threshold evaluator — "min N of M" doesn't fit a strict per-quarter
+  // milestone model without special-casing, and the existing threshold logic
+  // already handles them correctly.
+  const dataLabels = { itemLabel: 'data submission', itemLabelPlural: 'data submissions' };
+  const dataSubmissions =
+    thresholds.requiredDataPeriods === 12 && thresholds.dataSubmissionsMin === 12
+      ? evaluateMonthlyMilestones(
+          12,
+          progress.dataSubmissionsCompleted,
+          ctx.programYear,
+          ctx.asOf,
+          dataLabels,
+        )
+      : evaluateThreshold(
+          progress.dataSubmissionsCompleted,
+          thresholds.dataSubmissionsMin,
+          yearFraction,
+          yearEnded,
+          'data submissions',
+        );
 
   // HRAs are milestone-scheduled (one per scheduled quarter), not an annual
   // threshold — a missed Q1 deadline should surface immediately, not wait

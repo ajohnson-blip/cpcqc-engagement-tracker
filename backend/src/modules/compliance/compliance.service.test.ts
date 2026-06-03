@@ -101,6 +101,65 @@ describe('active track — happy path', () => {
   });
 });
 
+describe('Meetings and data — monthly milestone pace', () => {
+  // Active cohorts meet monthly (9 required out of 12 months) and submit
+  // data monthly (12 required). The engine now flags at_risk when a
+  // hospital is behind floor(monthsEnded × required / 12).
+  it('active hospital with 0 meetings in June is at_risk', () => {
+    const result = evaluateProgramYear(
+      activeThresholds,
+      enrolled({ advisingCompleted: 1, assessmentsCompleted: 1 }),
+      { programYear: 2026, asOf: new Date('2026-06-02T12:00:00Z') },
+    );
+    // 5 months ended (Jan–May) → floor(5 × 9 / 12) = 3 expected.
+    expect(result.meetings.status).toBe('at_risk');
+    expect(result.meetings.expected).toBe(3);
+  });
+
+  it('active hospital exactly on pace for meetings stays on_track', () => {
+    const result = evaluateProgramYear(
+      activeThresholds,
+      enrolled({
+        meetingsAttended: 3,
+        advisingCompleted: 1,
+        dataSubmissionsCompleted: 5,
+        assessmentsCompleted: 1,
+      }),
+      { programYear: 2026, asOf: new Date('2026-06-02T12:00:00Z') },
+    );
+    expect(result.meetings.status).toBe('on_track');
+    expect(result.dataSubmissions.status).toBe('on_track');
+  });
+
+  it('active hospital behind on data flags at_risk independently', () => {
+    const result = evaluateProgramYear(
+      activeThresholds,
+      enrolled({
+        meetingsAttended: 3,
+        advisingCompleted: 1,
+        dataSubmissionsCompleted: 2,
+        assessmentsCompleted: 1,
+      }),
+      { programYear: 2026, asOf: new Date('2026-06-02T12:00:00Z') },
+    );
+    // 5 months ended → 5 data submissions expected, 2 complete.
+    expect(result.dataSubmissions.status).toBe('at_risk');
+    expect(result.dataSubmissions.expected).toBe(5);
+    expect(result.meetings.status).toBe('on_track');
+  });
+
+  it('sustainability meetings use quarterly milestones', () => {
+    // 4 required, schedule = Q1+Q2+Q3+Q4. At June 2 only Q1 has passed.
+    const result = evaluateProgramYear(
+      sustainabilityThresholds,
+      enrolled({ meetingsAttended: 1, advisingCompleted: 0, assessmentsCompleted: 1 }),
+      { programYear: 2026, asOf: new Date('2026-06-02T12:00:00Z') },
+    );
+    expect(result.meetings.status).toBe('on_track');
+    expect(result.meetings.expected).toBe(1);
+  });
+});
+
 describe('QI advising — quarterly milestone schedule', () => {
   // Active hospitals attend one advising session per quarter (Q1, Q2, Q3, Q4).
   // The engine now flags at_risk when a quarter's deadline has passed without
@@ -176,21 +235,26 @@ describe('active track — at risk / not met', () => {
     expect(result.overall).toBe('not_met');
   });
 
-  it('early-in-year hospital with zero progress is NOT at_risk (retrospective model)', () => {
-    // Pre-mid-year, we never flag at_risk. The hospital still has runway.
-    const result = evaluateProgramYear(activeThresholds, enrolled(), earlyInYear());
+  it('early-in-year hospital with first month done is on_track', () => {
+    // Mid-February (only Jan ended): under the new monthly-milestone rule a
+    // hospital with 1 data submission (the Jan one) is caught up. Meetings
+    // expect 0 by Feb 15 (floor(1 × 9 / 12) = 0), so 0 there is fine too.
+    const result = evaluateProgramYear(
+      activeThresholds,
+      enrolled({ dataSubmissionsCompleted: 1 }),
+      earlyInYear(),
+    );
     expect(result.meetings.status).toBe('on_track');
     expect(result.dataSubmissions.status).toBe('on_track');
   });
 
-  it('mid-year hospital with some progress stays on_track even if behind pace', () => {
-    // Mid-year + lagging on the threshold-judged axes (meetings, data) → don't
-    // shame. For advising (now milestone-judged) the hospital needs to be at
-    // least caught up to its Q1 + Q2 quarter deadlines — 2 sessions by July —
-    // otherwise the engine correctly flags it at_risk.
+  it('mid-year hospital exactly on pace stays on_track', () => {
+    // July 1 (six month-ends passed): each milestone-aware evaluator wants the
+    // hospital caught up to floor(6 × required / 12) — 4 meetings, 6 data
+    // submissions, and 2 advising sessions (Q1 + Q2 quarterly deadlines).
     const result = evaluateProgramYear(
       activeThresholds,
-      enrolled({ meetingsAttended: 3, advisingCompleted: 2, dataSubmissionsCompleted: 4 }),
+      enrolled({ meetingsAttended: 4, advisingCompleted: 2, dataSubmissionsCompleted: 6 }),
       midYear(),
     );
     expect(result.meetings.status).toBe('on_track');
