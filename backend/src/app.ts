@@ -16,6 +16,7 @@ import meRoutes from '@/modules/me/me.routes.js';
 import staffRoutes from '@/modules/staff/staff.routes.js';
 import importsRoutes from '@/modules/imports/imports.routes.js';
 import reportsRoutes from '@/modules/reports/reports.routes.js';
+import issueReportsRoutes from '@/modules/issue-reports/issue-reports.routes.js';
 
 export function createApp() {
   const app = express();
@@ -55,6 +56,7 @@ export function createApp() {
   // the global json() parser above ignores non-JSON content types so they
   // coexist cleanly.
   app.use('/staff/imports', importsRoutes);
+  app.use('/issue-reports', issueReportsRoutes);
   app.use('/reports', reportsRoutes);
 
   // TODO: mount other module routes as they're built

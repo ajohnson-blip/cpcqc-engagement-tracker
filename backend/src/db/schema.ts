@@ -573,3 +573,55 @@ export const complianceSnapshots = pgTable(
     uniqueSnapshot: uniqueIndex('compliance_snapshots_unique').on(t.programYearId, t.snapshotDate),
   }),
 );
+
+// ---------- Issue reports ----------
+
+export const issueReportStatus = pgEnum('issue_report_status', [
+  'open',
+  'in_progress',
+  'resolved',
+]);
+
+export const issueReportCategory = pgEnum('issue_report_category', [
+  'bug',
+  'data_correction',
+  'feature_request',
+  'other',
+]);
+
+/**
+ * Hospital users and CPCQC staff submit issue reports via a modal in the
+ * dashboard header. Reports get emailed to qi@cpcqc.org and tracked here for
+ * triage on the staff /staff/issue-reports page. Reporter identity is
+ * captured by snapshotting the user's email/role at submission time, so a
+ * later user deletion doesn't orphan the report's attribution.
+ */
+export const issueReports = pgTable(
+  'issue_reports',
+  {
+    id: idCol(),
+    reporterUserId: text('reporter_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    reporterEmail: text('reporter_email').notNull(),
+    reporterRole: text('reporter_role').notNull(),
+    reporterHospitalId: text('reporter_hospital_id').references(
+      () => hospitals.id,
+      { onDelete: 'set null' },
+    ),
+    subject: text('subject').notNull(),
+    body: text('body').notNull(),
+    category: issueReportCategory('category').notNull().default('other'),
+    status: issueReportStatus('status').notNull().default('open'),
+    resolutionNote: text('resolution_note'),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolvedBy: text('resolved_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    ...timestamps,
+  },
+  (t) => ({
+    statusIdx: index('issue_reports_status_idx').on(t.status),
+    createdIdx: index('issue_reports_created_idx').on(t.createdAt),
+  }),
+);

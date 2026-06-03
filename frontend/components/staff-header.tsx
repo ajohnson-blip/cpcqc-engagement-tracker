@@ -1,9 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
+import { MessageSquareWarning } from 'lucide-react';
 import { Logo } from './logo';
+import { ReportIssueModal } from './report-issue-modal';
 import { useAuth } from '@/lib/auth-context';
 
 const INITIATIVE_CODES = ['TTT', 'SPARK', 'SOAR', 'NEST'] as const;
@@ -17,6 +20,7 @@ const INITIATIVE_EMOJI: Record<(typeof INITIATIVE_CODES)[number], string> = {
 export function StaffHeader() {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
+  const [showReportIssue, setShowReportIssue] = useState(false);
 
   function activeMatch(href: string, exact = false): boolean {
     if (exact) return pathname === href;
@@ -93,9 +97,29 @@ export function StaffHeader() {
           >
             Imports
           </Link>
+          <Link
+            href="/staff/issue-reports"
+            className={clsx(
+              'rounded-full px-3 py-1.5 font-rounded text-xs font-bold uppercase tracking-wide transition',
+              activeMatch('/staff/issue-reports')
+                ? 'bg-cpcqc-purple text-white'
+                : 'text-cpcqc-purple-dark hover:bg-cpcqc-purple/10',
+            )}
+          >
+            Issues
+          </Link>
         </nav>
 
         <div className="flex items-center gap-3 text-sm">
+          <button
+            type="button"
+            onClick={() => setShowReportIssue(true)}
+            title="Report an issue or concern"
+            className="inline-flex items-center gap-1.5 rounded-full border border-cpcqc-purple-dark/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5"
+          >
+            <MessageSquareWarning size={14} aria-hidden />
+            <span className="hidden sm:inline">Report issue</span>
+          </button>
           <div className="hidden text-right sm:block">
             <div className="font-semibold text-cpcqc-purple-dark">CPCQC Staff</div>
             <button
@@ -115,6 +139,7 @@ export function StaffHeader() {
           </button>
         </div>
       </div>
+      {showReportIssue && <ReportIssueModal onClose={() => setShowReportIssue(false)} />}
     </header>
   );
 }

@@ -1,9 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
+import { MessageSquareWarning } from 'lucide-react';
 import { Logo } from './logo';
+import { ReportIssueModal } from './report-issue-modal';
 import { useAuth } from '@/lib/auth-context';
 
 interface NavItem {
@@ -19,6 +22,7 @@ const HOSPITAL_NAV: NavItem[] = [
 export function PortalHeader() {
   const pathname = usePathname();
   const { user, hospitalName, signOut } = useAuth();
+  const [showReportIssue, setShowReportIssue] = useState(false);
 
   return (
     <header className="border-b border-cpcqc-purple-dark/10 bg-white">
@@ -48,6 +52,15 @@ export function PortalHeader() {
         </nav>
 
         <div className="flex items-center gap-3 text-sm">
+          <button
+            type="button"
+            onClick={() => setShowReportIssue(true)}
+            title="Report an issue or concern"
+            className="inline-flex items-center gap-1.5 rounded-full border border-cpcqc-purple-dark/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5"
+          >
+            <MessageSquareWarning size={14} aria-hidden />
+            <span className="hidden sm:inline">Report issue</span>
+          </button>
           <div className="hidden text-right sm:block">
             <div className="font-semibold text-cpcqc-purple-dark">
               {hospitalName ?? user?.role}
@@ -69,6 +82,7 @@ export function PortalHeader() {
           </button>
         </div>
       </div>
+      {showReportIssue && <ReportIssueModal onClose={() => setShowReportIssue(false)} />}
     </header>
   );
 }
