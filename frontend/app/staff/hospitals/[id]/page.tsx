@@ -3,13 +3,34 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ChevronLeft, Mail, Phone, MapPin, FileText, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  ChevronLeft,
+  Mail,
+  Phone,
+  MapPin,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  Plus,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 import { api } from '@/lib/api';
-import type { HospitalDetailResponse, TaskRow } from '@/lib/types';
+import type { HospitalDetailResponse, HospitalStaffMember, TaskRow } from '@/lib/types';
 import { ComplianceTile } from '@/components/compliance-tile';
 import { RequirementStatusPill } from '@/components/status-pill';
 import { TaskTable } from '@/components/task-table';
+import { RosterMemberModal } from '@/components/roster-member-modal';
 import { fmtDate } from '@/lib/format';
+
+interface RosterEditorState {
+  // The initiative bucket the row belongs to (null = unaffiliated). For Add
+  // mode this is the group the "+ Add" button was clicked under; for Edit it's
+  // the row's existing initiative.
+  initiative: { id: string; code: string; name: string } | null;
+  // null = Add mode; HospitalStaffMember = Edit mode.
+  member: HospitalStaffMember | null;
+}
 
 export default function StaffHospitalDetailPage() {
   const params = useParams<{ id: string }>();
@@ -21,6 +42,44 @@ export default function StaffHospitalDetailPage() {
   const [expandedEnrollment, setExpandedEnrollment] = useState<string | null>(null);
   const [showWithdrawn, setShowWithdrawn] = useState(false);
   const [collapsedRosterGroups, setCollapsedRosterGroups] = useState<Set<string>>(new Set());
+  const [rosterEditor, setRosterEditor] = useState<RosterEditorState | null>(null);
+  const [deletingMemberId, setDeletingMemberId] = useState<string | null>(null);
+
+  function applyRosterSaved(saved: HospitalStaffMember) {
+    setData((prev) => {
+      if (!prev) return prev;
+      const existing = prev.staffMembers.find((m) => m.id === saved.id);
+      const nextMembers = existing
+        ? prev.staffMembers.map((m) => (m.id === saved.id ? saved : m))
+        : [...prev.staffMembers, saved];
+      return { ...prev, staffMembers: nextMembers };
+    });
+  }
+
+  async function handleDeleteMember(memberId: string, displayName: string) {
+    // Plain window.confirm — accessible, keyboard-friendly, no extra modal.
+    // The destructive copy is explicit so a misclick isn't an accidental data
+    // loss; the importer never restores hand-deleted rows, so this is final
+    // unless the same name shows up again in the next workbook upload.
+    if (
+      !window.confirm(
+        `Remove ${displayName} from this hospital's roster? The PM workbook importer will not bring them back unless their name reappears in the next upload.`,
+      )
+    ) {
+      return;
+    }
+    setDeletingMemberId(memberId);
+    try {
+      await api.del(`/staff/hospitals/${params.id}/staff/${memberId}`);
+      setData((prev) =>
+        prev ? { ...prev, staffMembers: prev.staffMembers.filter((m) => m.id !== memberId) } : prev,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete.');
+    } finally {
+      setDeletingMemberId(null);
+    }
+  }
 
   function toggleRosterGroup(id: string) {
     setCollapsedRosterGroups((prev) => {
@@ -299,17 +358,25 @@ export default function StaffHospitalDetailPage() {
       })()}
 
       {/* Staff roster */}
-      {staffMembers.length > 0 && (() => {
+      {(() => {
         // The same person can be a champion for multiple initiatives at a
         // hospital, and each champion belongs to exactly one initiative. Group
         // the roster by initiative so it's visually scannable on hospitals
         // enrolled in 3-4 programs (instead of a single 12-row flat table
         // where the affiliation is hidden).
-        const initiativeMeta = new Map<string, { code: string; name: string; brandColor: string | null }>();
+        //
+        // Groups are derived from BOTH enrolled initiatives AND existing staff
+        // members so an empty initiative still shows up with an "Add" button
+        // (e.g. a hospital just enrolled in NEST with no champions yet).
+        const initiativeMeta = new Map<
+          string,
+          { id: string; code: string; name: string; brandColor: string | null }
+        >();
         for (const e of enrollments) {
           if (e.initiative) initiativeMeta.set(e.initiative.id, e.initiative);
         }
         const groups = new Map<string, typeof staffMembers>();
+        for (const [id] of initiativeMeta) groups.set(id, []);
         for (const m of staffMembers) {
           const key = m.initiativeId ?? '__unaffiliated__';
           if (!groups.has(key)) groups.set(key, []);
@@ -318,10 +385,12 @@ export default function StaffHospitalDetailPage() {
         const orderedGroups = Array.from(groups.entries())
           .map(([id, members]) => ({
             id,
-            initiative: initiativeMeta.get(id),
+            initiative: initiativeMeta.get(id) ?? null,
             members: [...members].sort((a, b) => a.name.localeCompare(b.name)),
           }))
           .sort((a, b) => (a.initiative?.code ?? 'ZZ').localeCompare(b.initiative?.code ?? 'ZZ'));
+
+        if (orderedGroups.length === 0) return null;
 
         return (
           <section>
@@ -336,64 +405,106 @@ export default function StaffHospitalDetailPage() {
                   key={g.id}
                   className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-cpcqc-purple-dark/5"
                 >
-                  <button
-                    type="button"
-                    onClick={() => toggleRosterGroup(g.id)}
-                    aria-expanded={!collapsed}
-                    className="flex w-full items-center justify-between gap-2 border-b border-cpcqc-purple-dark/10 px-4 py-2.5 text-left hover:bg-cpcqc-purple-dark/5"
+                  <div
+                    className="flex items-center justify-between gap-2 border-b border-cpcqc-purple-dark/10 px-4 py-2"
                     style={
                       g.initiative?.brandColor
                         ? { backgroundColor: `${g.initiative.brandColor}15` }
                         : undefined
                     }
                   >
-                    <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleRosterGroup(g.id)}
+                      aria-expanded={!collapsed}
+                      className="-mx-2 flex flex-1 items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-cpcqc-purple-dark/5"
+                    >
                       <span className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
                         {g.initiative ? `${g.initiative.code} · ${g.initiative.name}` : 'Unaffiliated'}
                       </span>
                       <span className="text-xs text-cpcqc-purple-dark/60">
                         {g.members.length} {g.members.length === 1 ? 'person' : 'people'}
                       </span>
-                    </div>
-                    {collapsed ? (
-                      <ChevronDown size={16} className="text-cpcqc-purple-dark/60" aria-hidden />
-                    ) : (
-                      <ChevronUp size={16} className="text-cpcqc-purple-dark/60" aria-hidden />
-                    )}
-                  </button>
+                      {collapsed ? (
+                        <ChevronDown size={16} className="ml-auto text-cpcqc-purple-dark/60" aria-hidden />
+                      ) : (
+                        <ChevronUp size={16} className="ml-auto text-cpcqc-purple-dark/60" aria-hidden />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRosterEditor({ initiative: g.initiative, member: null })
+                      }
+                      className="inline-flex items-center gap-1 rounded-full border border-cpcqc-purple-dark/20 bg-white px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple hover:text-white hover:border-cpcqc-purple"
+                    >
+                      <Plus size={12} aria-hidden /> Add
+                    </button>
+                  </div>
                   {!collapsed && (
-                    <table className="w-full text-left">
-                      <thead className="bg-cpcqc-cream-dark/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
-                        <tr>
-                          <th className="px-4 py-2">Name</th>
-                          <th className="px-4 py-2">Role</th>
-                          <th className="px-4 py-2">Contact</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {g.members.map((s) => (
-                          <tr key={s.id} className="border-t border-cpcqc-purple-dark/10">
-                            <td className="px-4 py-2.5 font-semibold text-cpcqc-purple-dark">{s.name}</td>
-                            <td className="px-4 py-2.5 text-sm text-cpcqc-purple-dark/80">{s.role ?? '—'}</td>
-                            <td className="px-4 py-2.5 text-sm">
-                              {s.email && (
-                                <a
-                                  href={`mailto:${s.email}`}
-                                  className="inline-flex items-center gap-1 text-cpcqc-purple hover:underline"
-                                >
-                                  <Mail size={12} aria-hidden /> {s.email}
-                                </a>
-                              )}
-                              {s.phone && (
-                                <span className="ml-3 inline-flex items-center gap-1 text-cpcqc-purple-dark/80">
-                                  <Phone size={12} aria-hidden /> {s.phone}
-                                </span>
-                              )}
-                            </td>
+                    g.members.length === 0 ? (
+                      <p className="px-4 py-3 text-sm italic text-cpcqc-purple-dark/60">
+                        No roster entries yet — click <strong>Add</strong> above to enter the
+                        first champion.
+                      </p>
+                    ) : (
+                      <table className="w-full text-left">
+                        <thead className="bg-cpcqc-cream-dark/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
+                          <tr>
+                            <th className="px-4 py-2">Name</th>
+                            <th className="px-4 py-2">Role</th>
+                            <th className="px-4 py-2">Contact</th>
+                            <th className="w-px px-4 py-2 text-right">Actions</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {g.members.map((s) => (
+                            <tr key={s.id} className="border-t border-cpcqc-purple-dark/10">
+                              <td className="px-4 py-2.5 font-semibold text-cpcqc-purple-dark">{s.name}</td>
+                              <td className="px-4 py-2.5 text-sm text-cpcqc-purple-dark/80">{s.role ?? '—'}</td>
+                              <td className="px-4 py-2.5 text-sm">
+                                {s.email && (
+                                  <a
+                                    href={`mailto:${s.email}`}
+                                    className="inline-flex items-center gap-1 text-cpcqc-purple hover:underline"
+                                  >
+                                    <Mail size={12} aria-hidden /> {s.email}
+                                  </a>
+                                )}
+                                {s.phone && (
+                                  <span className="ml-3 inline-flex items-center gap-1 text-cpcqc-purple-dark/80">
+                                    <Phone size={12} aria-hidden /> {s.phone}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-2.5 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setRosterEditor({ initiative: g.initiative, member: s })
+                                  }
+                                  className="mr-1 inline-flex items-center rounded-full p-1.5 text-cpcqc-purple-dark/60 hover:bg-cpcqc-purple/10 hover:text-cpcqc-purple"
+                                  aria-label={`Edit ${s.name}`}
+                                  title="Edit"
+                                >
+                                  <Pencil size={14} aria-hidden />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteMember(s.id, s.name)}
+                                  disabled={deletingMemberId === s.id}
+                                  className="inline-flex items-center rounded-full p-1.5 text-cpcqc-purple-dark/60 hover:bg-cpcqc-pink-dark/10 hover:text-cpcqc-pink-dark disabled:opacity-40"
+                                  aria-label={`Remove ${s.name}`}
+                                  title="Remove"
+                                >
+                                  <Trash2 size={14} aria-hidden />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )
                   )}
                 </div>
                 );
@@ -402,6 +513,16 @@ export default function StaffHospitalDetailPage() {
           </section>
         );
       })()}
+
+      {rosterEditor && (
+        <RosterMemberModal
+          hospitalId={hospital.id}
+          initiative={rosterEditor.initiative}
+          member={rosterEditor.member}
+          onClose={() => setRosterEditor(null)}
+          onSaved={applyRosterSaved}
+        />
+      )}
 
       {/* Recent audit log */}
       {recentAudit.length > 0 && (

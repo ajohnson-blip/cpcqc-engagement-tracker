@@ -20,7 +20,8 @@
  */
 import { Router } from 'express';
 import { z } from 'zod';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { v4 as uuid } from 'uuid';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '@/db/index.js';
 import { requireAuth, requireStaff } from '@/middleware/auth.js';
 import { HttpError } from '@/middleware/errors.js';
@@ -406,5 +407,177 @@ router.get('/program-years/:id/compliance', requireAuth, requireStaff, async (re
   const result = await evaluateProgramYearById(id);
   res.json({ compliance: result });
 });
+
+// -------- /staff/hospitals/:hospitalId/staff (roster CRUD) --------
+//
+// Lets CPCQC staff edit a hospital's champion roster in-app instead of going
+// back to the PM workbook. The PM-workbook importer remains the source of
+// truth for bulk loads — it upserts on (hospitalId, initiativeId, lower(name))
+// and never deletes, so manual additions survive a workbook re-upload and
+// edits to a workbook-imported row will be re-overwritten by the next import
+// (which is the right behavior: the workbook stays canonical for anything
+// the PM still maintains there).
+
+const staffMemberBodySchema = z.object({
+  initiativeId: z.string().uuid().nullable(),
+  name: z.string().trim().min(1, 'Name is required').max(120),
+  role: z.string().trim().max(120).nullable().optional(),
+  email: z.string().trim().toLowerCase().email().max(254).nullable().optional().or(z.literal('')),
+  phone: z.string().trim().max(40).nullable().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+});
+
+function normalizeBody(input: z.infer<typeof staffMemberBodySchema>) {
+  // Treat '' as null so a cleared input doesn't store an empty string and
+  // break the email-shape check on a later view.
+  const blankToNull = (v: string | null | undefined) =>
+    v === undefined || v === null || v === '' ? null : v;
+  return {
+    initiativeId: input.initiativeId,
+    name: input.name,
+    role: blankToNull(input.role ?? null),
+    email: blankToNull(input.email ?? null),
+    phone: blankToNull(input.phone ?? null),
+    notes: blankToNull(input.notes ?? null),
+  };
+}
+
+router.post('/hospitals/:hospitalId/staff', requireAuth, requireStaff, async (req, res) => {
+  const hospitalId = z.string().uuid().parse(req.params.hospitalId);
+  const hospital = await db.query.hospitals.findFirst({
+    where: eq(schema.hospitals.id, hospitalId),
+  });
+  if (!hospital) throw new HttpError(404, 'Hospital not found');
+
+  const body = normalizeBody(staffMemberBodySchema.parse(req.body));
+
+  if (body.initiativeId) {
+    const init = await db.query.initiatives.findFirst({
+      where: eq(schema.initiatives.id, body.initiativeId),
+    });
+    if (!init) throw new HttpError(400, 'Unknown initiative');
+  }
+
+  // Match the importer's dedup key: (hospital, initiative, lower(name)).
+  // Prevents PMs from re-adding someone the workbook already loaded.
+  const existing = await db
+    .select({ id: schema.hospitalStaffMembers.id })
+    .from(schema.hospitalStaffMembers)
+    .where(
+      and(
+        eq(schema.hospitalStaffMembers.hospitalId, hospitalId),
+        body.initiativeId
+          ? eq(schema.hospitalStaffMembers.initiativeId, body.initiativeId)
+          : sql`${schema.hospitalStaffMembers.initiativeId} IS NULL`,
+        sql`lower(${schema.hospitalStaffMembers.name}) = lower(${body.name})`,
+      ),
+    )
+    .limit(1);
+  if (existing.length) {
+    throw new HttpError(
+      409,
+      `${body.name} is already on this hospital's roster for this initiative. Edit the existing row instead.`,
+    );
+  }
+
+  const id = uuid();
+  await db.insert(schema.hospitalStaffMembers).values({
+    id,
+    hospitalId,
+    ...body,
+  });
+  const created = await db.query.hospitalStaffMembers.findFirst({
+    where: eq(schema.hospitalStaffMembers.id, id),
+  });
+  res.status(201).json({ staffMember: created });
+});
+
+router.patch(
+  '/hospitals/:hospitalId/staff/:staffId',
+  requireAuth,
+  requireStaff,
+  async (req, res) => {
+    const hospitalId = z.string().uuid().parse(req.params.hospitalId);
+    const staffId = z.string().uuid().parse(req.params.staffId);
+
+    const existing = await db.query.hospitalStaffMembers.findFirst({
+      where: and(
+        eq(schema.hospitalStaffMembers.id, staffId),
+        eq(schema.hospitalStaffMembers.hospitalId, hospitalId),
+      ),
+    });
+    if (!existing) throw new HttpError(404, 'Staff member not found');
+
+    const body = normalizeBody(staffMemberBodySchema.parse(req.body));
+
+    if (body.initiativeId) {
+      const init = await db.query.initiatives.findFirst({
+        where: eq(schema.initiatives.id, body.initiativeId),
+      });
+      if (!init) throw new HttpError(400, 'Unknown initiative');
+    }
+
+    // Re-check uniqueness only if name or initiative changed, and only against
+    // OTHER rows (so saving an unchanged row doesn't false-positive on itself).
+    const movedOrRenamed =
+      body.name.toLowerCase() !== existing.name.toLowerCase() ||
+      body.initiativeId !== existing.initiativeId;
+    if (movedOrRenamed) {
+      const dupes = await db
+        .select({ id: schema.hospitalStaffMembers.id })
+        .from(schema.hospitalStaffMembers)
+        .where(
+          and(
+            eq(schema.hospitalStaffMembers.hospitalId, hospitalId),
+            body.initiativeId
+              ? eq(schema.hospitalStaffMembers.initiativeId, body.initiativeId)
+              : sql`${schema.hospitalStaffMembers.initiativeId} IS NULL`,
+            sql`lower(${schema.hospitalStaffMembers.name}) = lower(${body.name})`,
+            sql`${schema.hospitalStaffMembers.id} <> ${staffId}`,
+          ),
+        )
+        .limit(1);
+      if (dupes.length) {
+        throw new HttpError(
+          409,
+          `Another roster row for ${body.name} on this initiative already exists.`,
+        );
+      }
+    }
+
+    await db
+      .update(schema.hospitalStaffMembers)
+      .set({ ...body, updatedAt: new Date() })
+      .where(eq(schema.hospitalStaffMembers.id, staffId));
+
+    const updated = await db.query.hospitalStaffMembers.findFirst({
+      where: eq(schema.hospitalStaffMembers.id, staffId),
+    });
+    res.json({ staffMember: updated });
+  },
+);
+
+router.delete(
+  '/hospitals/:hospitalId/staff/:staffId',
+  requireAuth,
+  requireStaff,
+  async (req, res) => {
+    const hospitalId = z.string().uuid().parse(req.params.hospitalId);
+    const staffId = z.string().uuid().parse(req.params.staffId);
+
+    const existing = await db.query.hospitalStaffMembers.findFirst({
+      where: and(
+        eq(schema.hospitalStaffMembers.id, staffId),
+        eq(schema.hospitalStaffMembers.hospitalId, hospitalId),
+      ),
+    });
+    if (!existing) throw new HttpError(404, 'Staff member not found');
+
+    await db
+      .delete(schema.hospitalStaffMembers)
+      .where(eq(schema.hospitalStaffMembers.id, staffId));
+    res.status(204).end();
+  },
+);
 
 export default router;
