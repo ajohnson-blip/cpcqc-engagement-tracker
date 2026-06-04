@@ -4,8 +4,8 @@
  * Why this exists: `import-task-templates` adds new TaskTemplate rows but does
  * not automatically generate TaskInstance rows for hospitals that were enrolled
  * before the new templates existed. When we add a template (like the HRA tasks
- * for active cohorts, or a new Q1 advising for SOAR sustainability), existing
- * enrollments need a backfill pass.
+ * for active cohorts, or a new advising template), existing enrollments need
+ * a backfill pass.
  *
  * For each enrollment:
  *   - Look up matching task templates (by initiative + track)

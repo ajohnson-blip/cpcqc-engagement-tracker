@@ -99,6 +99,13 @@
       "when": 1780444800000,
       "tag": "0013_cleanup_broken_staff_roster_rows",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1780531200000,
+      "tag": "0014_drop_soar_sustainability_q1_early_advising",
+      "breakpoints": true
     }
   ]
 }
