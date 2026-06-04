@@ -1,36 +1,52 @@
 /**
- * CSS recreation of the CPCQC wordmark — the "cpcqc" lowercase wordmark with a
- * small wave/curl element above. Swap for the official SVG asset when available.
+ * CPCQC wordmark — the official logo image (mother/baby curl + "cpcqc"
+ * lowercase wordmark, both in CPCQC purple).
+ *
+ * Source asset: /public/cpcqc-logo.png (433×272, aspect ~1.59). The Next.js
+ * Image component handles intrinsic sizing + retina; we pick a rendered
+ * height per `size` and let width follow the aspect ratio.
+ *
+ * The `colorClassName` prop is kept for backwards compatibility with callers
+ * that previously tinted the CSS-rendered version, but it's a no-op now: the
+ * PNG embeds its own purple. If we ever need a white-on-purple variant for a
+ * dark hero, swap in a second asset rather than masking via CSS.
  */
+import Image from 'next/image';
 import clsx from 'clsx';
 
 interface LogoProps {
   className?: string;
   size?: 'sm' | 'md' | 'lg';
-  colorClassName?: string; // override text color
+  /** @deprecated kept for API compat; the PNG embeds its own color. */
+  colorClassName?: string;
 }
 
-const SIZE_MAP = {
-  sm: 'text-xl',
-  md: 'text-3xl',
-  lg: 'text-5xl',
+// Rendered heights in px. Width follows the source aspect ratio automatically.
+// Tuned so `sm` reads similarly to the old wordmark height in the staff/portal
+// headers, and `lg` reads as a hero on the login / interest / set-password pages.
+const HEIGHT_MAP = {
+  sm: 36,
+  md: 60,
+  lg: 120,
 } as const;
 
-export function Logo({ className, size = 'md', colorClassName = 'text-cpcqc-purple' }: LogoProps) {
+const SOURCE_WIDTH = 433;
+const SOURCE_HEIGHT = 272;
+const ASPECT = SOURCE_WIDTH / SOURCE_HEIGHT;
+
+export function Logo({ className, size = 'md' }: LogoProps) {
+  const height = HEIGHT_MAP[size];
+  const width = Math.round(height * ASPECT);
   return (
-    <div className={clsx('inline-flex flex-col items-start leading-none', className)}>
-      <span
-        aria-hidden="true"
-        className={clsx('mb-0.5 font-script text-[0.7em] tracking-wide', colorClassName, SIZE_MAP[size])}
-      >
-        ~
-      </span>
-      <span
-        className={clsx('font-rounded font-extrabold tracking-tight', colorClassName, SIZE_MAP[size])}
-      >
-        cpcqc
-      </span>
-      <span className="sr-only">CPCQC — Colorado Perinatal Care Quality Collaborative</span>
-    </div>
+    <span className={clsx('inline-flex items-center', className)}>
+      <Image
+        src="/cpcqc-logo.png"
+        alt="CPCQC"
+        width={width}
+        height={height}
+        priority={size === 'lg'}
+      />
+      <span className="sr-only">Colorado Perinatal Care Quality Collaborative</span>
+    </span>
   );
 }
