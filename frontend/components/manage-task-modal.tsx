@@ -364,10 +364,7 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
             outcomeChoice !== 'did_not_attend' &&
             outcomeChoice !== 'reset_not_started' && (
               <div className="rounded-lg bg-cpcqc-cream-dark/40 p-3 text-sm text-cpcqc-purple-dark/80">
-                <p>
-                  Attendance is judged by hospital — confirm that <em>someone</em> from your
-                  hospital attended. No need to list individual attendees.
-                </p>
+                <p>At least one hospital representative must be present.</p>
               </div>
             )}
 
