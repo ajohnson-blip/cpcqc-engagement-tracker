@@ -17,6 +17,10 @@ import staffRoutes from '@/modules/staff/staff.routes.js';
 import importsRoutes from '@/modules/imports/imports.routes.js';
 import reportsRoutes from '@/modules/reports/reports.routes.js';
 import issueReportsRoutes from '@/modules/issue-reports/issue-reports.routes.js';
+import {
+  portalAnnualInterestRouter,
+  staffAnnualInterestRouter,
+} from '@/modules/annual-interest-forms/annual-interest-forms.routes.js';
 
 export function createApp() {
   const app = express();
@@ -58,6 +62,9 @@ export function createApp() {
   app.use('/staff/imports', importsRoutes);
   app.use('/issue-reports', issueReportsRoutes);
   app.use('/reports', reportsRoutes);
+  // 2-step annual enrollment, step 1: hospital portal submission + staff triage.
+  app.use('/portal/annual-interest-forms', portalAnnualInterestRouter);
+  app.use('/staff/annual-interest-forms', staffAnnualInterestRouter);
 
   // TODO: mount other module routes as they're built
   // app.use('/enrollments', enrollmentsRoutes);

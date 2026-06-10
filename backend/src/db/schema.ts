@@ -86,6 +86,18 @@ export const interestFormStatus = pgEnum('interest_form_status', [
   'declined',
 ]);
 
+// Annual interest form (different from the per-initiative interestForms table
+// above). Tracks a single hospital's ranked preferences across the rankable
+// initiatives for a given upcoming program year. CPCQC uses these in
+// aggregate to decide cohort size and mix, then sends the detailed
+// initiative-specific Enrollment Forms to accepted hospitals.
+export const annualInterestFormStatus = pgEnum('annual_interest_form_status', [
+  'submitted',     // hospital submitted; awaiting CPCQC review
+  'under_review',  // CPCQC actively reviewing during cohort planning
+  'accepted',      // CPCQC accepted to one or more cohorts
+  'declined',      // CPCQC declined for the year
+]);
+
 export const staffRoleKind = pgEnum('staff_role_kind', [
   'program_manager',
   'qi_advisor',
@@ -623,5 +635,89 @@ export const issueReports = pgTable(
   (t) => ({
     statusIdx: index('issue_reports_status_idx').on(t.status),
     createdIdx: index('issue_reports_created_idx').on(t.createdAt),
+  }),
+);
+
+// ---------- Annual interest forms (2-step enrollment, step 1) ----------
+
+/**
+ * Per-program-year config row for the annual interest form acceptance
+ * window. One row per year; staff can edit dates in the future via a
+ * config UI (or psql for now). Used by:
+ *   - Hospital portal banner ("2027 enrollment is open / closes in N days")
+ *   - The interest form itself (the "accepted from X to Y" line)
+ *   - Backend validation that submissions only land during the window
+ */
+export const enrollmentWindows = pgTable(
+  'enrollment_windows',
+  {
+    id: idCol(),
+    programYear: integer('program_year').notNull().unique(),
+    opensAt: date('opens_at').notNull(),
+    closesAt: date('closes_at').notNull(),
+    ...timestamps,
+  },
+  (t) => ({
+    programYearIdx: index('enrollment_windows_program_year_idx').on(t.programYear),
+  }),
+);
+
+/**
+ * Step 1 of the annual enrollment flow. One row per (programYear, hospital);
+ * a hospital can edit/re-submit within the window and the row is updated in
+ * place rather than duplicated. Static initiative ranking + reasoning is
+ * captured as JSONB so the schema doesn't need to change when CPCQC adds or
+ * removes initiatives from the ranking pool in future years (e.g., TTT
+ * coming back when it's not in a 2-year cohort).
+ */
+export const annualInterestForms = pgTable(
+  'annual_interest_forms',
+  {
+    id: idCol(),
+    programYear: integer('program_year').notNull(),
+    hospitalId: text('hospital_id')
+      .notNull()
+      .references(() => hospitals.id, { onDelete: 'cascade' }),
+    // Submitter snapshot — captured at submit time so historical records
+    // survive a user delete or a role change. submitterUserId is nullable
+    // for that reason.
+    submitterUserId: text('submitter_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    submitterName: text('submitter_name').notNull(),
+    submitterRole: text('submitter_role').notNull(),
+    submitterEmail: text('submitter_email').notNull(),
+    // 0 valid for TTT-continuation hospitals submitting "no additional
+    // initiatives requested." Capped at the program year's max in the
+    // service layer (currently 2 for 2027).
+    intendedInitiativeCount: integer('intended_initiative_count').notNull(),
+    // [{ code: 'SPARK', rank: 1 }, { code: 'SOAR', rank: 2 }, ...] —
+    // length matches the rankable pool for the year (3 for 2027).
+    rankedInitiatives: jsonb('ranked_initiatives').notNull(),
+    // { SPARK: 'why...', SOAR: 'why...' } — keys are the codes ranked 1 and 2.
+    reasoning: jsonb('reasoning').notNull(),
+    status: annualInterestFormStatus('status').notNull().default('submitted'),
+    // PM scratchpad — same pattern as task_instances.staff_note. Free text
+    // visible only to staff. Cleared on resubmission preserves history? No
+    // — preserved across resubmits since PM commentary is about the hospital,
+    // not the specific submission.
+    staffNote: text('staff_note'),
+    // Once CPCQC decides, the codes of the cohorts the hospital was
+    // accepted to (e.g., ['SPARK', 'NEST']). Null until acceptance.
+    decidedInitiatives: jsonb('decided_initiatives'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decidedBy: text('decided_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    ...timestamps,
+  },
+  (t) => ({
+    // One submission per hospital per year. Resubmits UPDATE this row.
+    uniqHospitalYear: uniqueIndex('annual_interest_forms_hospital_year_uniq').on(
+      t.programYear,
+      t.hospitalId,
+    ),
+    programYearIdx: index('annual_interest_forms_program_year_idx').on(t.programYear),
+    statusIdx: index('annual_interest_forms_status_idx').on(t.status),
   }),
 );
