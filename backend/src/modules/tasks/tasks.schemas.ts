@@ -84,10 +84,13 @@ export const manageTaskBody = z.object({
    * for back-compat).
    */
   outcome: z.enum(['on_time', 'late', 'attended', 'missed', 'not_submitted']).nullable().optional(),
-  // 5000 to match the per-type payload.notes limits — the modal sends the
-  // same string to both fields and we don't want the top-level column to
-  // reject what the JSONB sub-field would accept.
-  staffNote: z.string().max(5000).optional(),
+  // 5000 to match the per-type payload.notes limits.
+  // .nullable() so the modal can explicitly clear an existing note by
+  // sending `null` (without nullable, an empty field would have to be
+  // sent as undefined, and the merge in tasks.service.ts couldn't tell
+  // "user cleared it" apart from "user didn't touch it"). The service
+  // uses an `!== undefined` check (not `??`) to honor an explicit null.
+  staffNote: z.string().max(5000).nullable().optional(),
   /** Type-specific payload — validated against the matching schema in the service. */
   payload: z
     .union([

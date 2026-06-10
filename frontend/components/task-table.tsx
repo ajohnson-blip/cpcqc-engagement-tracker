@@ -41,11 +41,11 @@ export function TaskTable({
 
   function renderRow(task: TaskRow) {
     const initiative = initiativeByEnrollment?.get(task.enrollmentId);
-    // Notes are stored on `task.staffNote` going forward, but legacy rows have
-    // them inside `task.payload.notes` — read both so older tasks still show
-    // a Notes column entry until the next time someone edits them.
-    const noteText =
-      task.staffNote ?? (task.payload as { notes?: string } | null)?.notes ?? null;
+    // Migration 0015 backfilled the legacy payload.notes location into
+    // staff_note, so staff_note is now the canonical source — no fallback
+    // needed. (Falling back to payload.notes would cause cleared notes to
+    // resurface from the stale JSONB sub-field.)
+    const noteText = task.staffNote;
     return (
       <tr key={task.id} className="border-t border-cpcqc-purple-dark/10">
         {showInitiative && (

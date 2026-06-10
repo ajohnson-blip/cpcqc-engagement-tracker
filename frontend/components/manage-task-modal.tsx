@@ -155,13 +155,11 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
   const [advisorName, setAdvisorName] = useState('');
   const [attachmentUrl, setAttachmentUrl] = useState('');
   const [periodCovered, setPeriodCovered] = useState('');
-  // Pre-fill from the persisted note so re-opening a managed task shows the
-  // previous note (was a bug: state defaulted to '' regardless of saved data).
-  // Read the top-level staffNote column first, then fall back to the legacy
-  // payload.notes location for tasks saved before this fix.
-  const [notes, setNotes] = useState(
-    () => task.staffNote ?? (task.payload as { notes?: string } | null)?.notes ?? '',
-  );
+  // Pre-fill from the persisted note so re-opening a managed task shows
+  // the previous text. Migration 0015 backfilled legacy payload.notes
+  // values into staff_note, so staff_note is now the single source of
+  // truth — no fallback needed.
+  const [notes, setNotes] = useState(() => task.staffNote ?? '');
 
   // Esc to close
   useEffect(() => {
@@ -173,6 +171,10 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
   }, [onClose]);
 
   function buildPayload(): Record<string, unknown> | undefined {
+    // NOTE: the `notes` field used to be embedded in every per-type payload
+    // here, but notes are now persisted as the top-level `staffNote` (sent
+    // directly from onSubmit). buildPayload's only job is the type-specific
+    // detail (meeting month, advisor name, etc.).
     switch (task.template.taskType) {
       case 'enrollment_form': {
         const champion = (name: string, email: string) =>
@@ -195,43 +197,38 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
           otherChampion1: otherChampion(other1Name, other1Role, other1Email),
           otherChampion2: otherChampion(other2Name, other2Role, other2Email),
           ehrSystem: ehrSystem || undefined,
-          notes: notes || undefined,
         };
       }
       case 'meeting_attendance':
         // "Did not attend" / reset has no meeting to record — skip the
         // required-shape fields so the backend doesn't reject an empty
-        // YYYY-MM string.
+        // YYYY-MM string. Return `undefined` so the server keeps whatever
+        // payload was there (or none).
         if (outcomeChoice === 'did_not_attend' || outcomeChoice === 'reset_not_started') {
-          return notes ? { notes } : undefined;
+          return undefined;
         }
         return {
           meetingMonth,
           meetingTitle: meetingTitle || undefined,
-          notes: notes || undefined,
         };
       case 'qi_advising':
         if (outcomeChoice === 'did_not_attend' || outcomeChoice === 'reset_not_started') {
-          return notes ? { notes } : undefined;
+          return undefined;
         }
         return {
           sessionDate,
           advisorName,
-          notes: notes || undefined,
         };
       case 'data_submission':
         // QI data is entered directly in REDCap; we only confirm submission here.
         return {
           periodCovered: periodCovered || undefined,
-          notes: notes || undefined,
         };
       case 'readiness_assessment':
         // HRA responses live in REDCap; we only record that it was completed.
-        return {
-          notes: notes || undefined,
-        };
+        return undefined;
       case 'other':
-        return { notes: notes || undefined, attachmentUrl: attachmentUrl || undefined };
+        return { attachmentUrl: attachmentUrl || undefined };
     }
   }
 
@@ -241,14 +238,16 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
     setSubmitting(true);
     try {
       const { status, outcome } = outcomeOptionToWire(outcomeChoice);
+      // Send the note as a top-level value every time (string when there's
+      // text, explicit null when the field is empty). The backend uses
+      // `!== undefined` semantics, so null clears the persisted note.
+      // The previous `notes.trim() || undefined` collapsed "I want to clear
+      // this" into "I didn't touch it," which is why clearing wouldn't save.
+      const trimmedNote = notes.trim();
       const res = await api.post<{ task: TaskRow }>(`/tasks/${task.id}/manage`, {
         status,
         outcome,
-        // Persist the note in the dedicated top-level column so the table can
-        // surface it and the modal can pre-fill on reopen. Keeping `notes` in
-        // the per-type payload too (via buildPayload) for back-compat with
-        // anything still reading from there.
-        staffNote: notes.trim() || undefined,
+        staffNote: trimmedNote === '' ? null : trimmedNote,
         payload: buildPayload(),
       });
       onUpdated(res.task);

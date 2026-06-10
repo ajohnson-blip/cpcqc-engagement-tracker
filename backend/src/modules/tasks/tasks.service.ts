@@ -233,7 +233,12 @@ export async function manageTask(taskId: string, body: unknown, ctx: AuthContext
         outcome: nextOutcome,
         completedOn,
         payload: validatedPayload ?? task.payload,
-        staffNote: parsed.staffNote ?? task.staffNote,
+        // Distinguish "user explicitly cleared the note" (parsed.staffNote
+        // is null) from "user didn't send the field at all" (undefined).
+        // The previous `??` collapsed both into "keep the old value" — which
+        // is why clearing the Notes field in the modal didn't persist.
+        staffNote:
+          parsed.staffNote !== undefined ? parsed.staffNote : task.staffNote,
         attachmentUrl: (validatedPayload?.['attachmentUrl'] as string | undefined) ?? task.attachmentUrl,
         updatedBy: ctx.userId,
         updatedAt: now,
