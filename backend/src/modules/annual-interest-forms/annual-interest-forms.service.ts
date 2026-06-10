@@ -101,6 +101,23 @@ export function isWindowOpen(
   return todayIso >= window.opensAt && todayIso <= window.closesAt;
 }
 
+/**
+ * Trinary window state. The frontend needs to distinguish "not yet open"
+ * from "closed (past)" so the copy on the form + banner reads sensibly.
+ * Returning just `isOpen: boolean` conflated those two — the form ended up
+ * showing "closed on Oct 15" months before the window had opened.
+ */
+export type WindowState = 'before' | 'open' | 'after';
+export function windowStateFor(
+  window: EnrollmentWindow,
+  asOf: Date = new Date(),
+): WindowState {
+  const todayIso = asOf.toISOString().slice(0, 10);
+  if (todayIso < window.opensAt) return 'before';
+  if (todayIso > window.closesAt) return 'after';
+  return 'open';
+}
+
 // ---------- Submit / upsert (hospital) ----------
 
 /**

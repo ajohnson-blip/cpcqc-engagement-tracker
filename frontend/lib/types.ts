@@ -206,6 +206,10 @@ export interface NeedsAttentionRow {
   compliance: ComplianceForProgramYear | null;
 }
 
+// LEGACY: the per-initiative interest_forms table is decommissioned, but the
+// /staff/overview endpoint still selects from it (returning [] always). Kept
+// the type so the response shape doesn't break existing callers. Remove with
+// the next pass that touches the overview page.
 export interface PendingInterestForm {
   id: string;
   initiativeId: string;
@@ -362,6 +366,10 @@ export interface EnrollmentWindow {
 export interface EnrollmentWindowResponse {
   window: EnrollmentWindow;
   isOpen: boolean;
+  // 'before' = window hasn't opened yet; 'open' = within [opens, closes];
+  // 'after' = past closes_at. Drives the copy on the form + banner so
+  // pre-window state reads as "opens on…" rather than "closed on…".
+  windowState: 'before' | 'open' | 'after';
   rankableInitiativeCodes: RankableInitiativeCode[];
 }
 

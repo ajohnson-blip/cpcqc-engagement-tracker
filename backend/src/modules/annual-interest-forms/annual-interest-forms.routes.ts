@@ -30,6 +30,7 @@ import {
   listInterestFormsForStaff,
   staffUpdateInterestForm,
   submitAnnualInterestForm,
+  windowStateFor,
 } from './annual-interest-forms.service.js';
 
 // ---------- Portal-side router ----------
@@ -48,6 +49,7 @@ portalAnnualInterestRouter.get('/window', requireAuth, async (req, res) => {
   res.json({
     window,
     isOpen: isWindowOpen(window),
+    windowState: windowStateFor(window),
     rankableInitiativeCodes: RANKABLE_INITIATIVE_CODES,
   });
 });

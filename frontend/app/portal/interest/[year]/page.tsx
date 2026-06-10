@@ -271,7 +271,13 @@ export default function AnnualInterestRealPage() {
     );
   }
 
-  const windowClosed = !windowResp.isOpen;
+  const windowState = windowResp.windowState;
+  const windowBefore = windowState === 'before';
+  const windowOpen = windowState === 'open';
+  const windowAfter = windowState === 'after';
+  // Form is read-only any time the window isn't open. Pre-window we still
+  // show the full form so hospitals can preview what they'll be filling out.
+  const formLocked = !windowOpen;
 
   // Success screen after submit/update.
   if (justSubmitted) {
@@ -346,29 +352,47 @@ export default function AnnualInterestRealPage() {
       <div
         className={
           'mb-6 flex items-center gap-2 rounded-lg px-3 py-2 text-sm ' +
-          (windowClosed
+          (windowAfter
             ? 'bg-cpcqc-pink-dark/10 text-cpcqc-pink-dark'
-            : 'bg-cpcqc-teal-dark/10 text-cpcqc-purple-dark')
+            : windowBefore
+              ? 'bg-cpcqc-orange-dark/15 text-cpcqc-orange-dark'
+              : 'bg-cpcqc-teal-dark/10 text-cpcqc-purple-dark')
         }
       >
         <CalendarDays
           size={16}
-          className={'shrink-0 ' + (windowClosed ? 'text-cpcqc-pink-dark' : 'text-cpcqc-teal-dark')}
+          className={
+            'shrink-0 ' +
+            (windowAfter
+              ? 'text-cpcqc-pink-dark'
+              : windowBefore
+                ? 'text-cpcqc-orange-dark'
+                : 'text-cpcqc-teal-dark')
+          }
           aria-hidden
         />
         <span>
-          {windowClosed ? (
+          {windowBefore && (
+            <>
+              <strong>The {programYear} interest window opens</strong> on{' '}
+              {fmtDate(windowResp.window.opensAt)} and runs through{' '}
+              {fmtDate(windowResp.window.closesAt)}. You can preview the form below;
+              we'll accept submissions when the window opens.
+            </>
+          )}
+          {windowOpen && (
+            <>
+              <strong>Interest forms are accepted</strong>{' '}
+              {fmtDate(windowResp.window.opensAt)} through {fmtDate(windowResp.window.closesAt)}.
+              {existing && ' You can update your submission until then.'}
+            </>
+          )}
+          {windowAfter && (
             <>
               <strong>The {programYear} interest window closed</strong> on{' '}
               {fmtDate(windowResp.window.closesAt)}. {existing
                 ? 'Your submission is shown below; reach out to engagement@qi.cpcqc.org if you need to make a change.'
                 : 'Contact CPCQC if you missed the window and need to submit late.'}
-            </>
-          ) : (
-            <>
-              <strong>Interest forms are accepted</strong>{' '}
-              {fmtDate(windowResp.window.opensAt)} through {fmtDate(windowResp.window.closesAt)}.
-              {existing && ' You can update your submission until then.'}
             </>
           )}
         </span>
@@ -408,9 +432,9 @@ export default function AnnualInterestRealPage() {
 
       <form
         onSubmit={onSubmit}
-        className={'space-y-6 ' + (windowClosed ? 'pointer-events-none opacity-60' : '')}
+        className={'space-y-6 ' + (formLocked ? 'pointer-events-none opacity-60' : '')}
       >
-        <fieldset disabled={windowClosed} className="space-y-6">
+        <fieldset disabled={formLocked} className="space-y-6">
           <Section title="About you">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Name" required>

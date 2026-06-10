@@ -10,7 +10,6 @@ import { logger } from '@/config/logger.js';
 import { errorHandler, notFound } from '@/middleware/errors.js';
 import authRoutes from '@/modules/auth/auth.routes.js';
 import hospitalsRoutes from '@/modules/hospitals/hospitals.routes.js';
-import interestFormsRoutes from '@/modules/interest-forms/interest-forms.routes.js';
 import tasksRoutes from '@/modules/tasks/tasks.routes.js';
 import meRoutes from '@/modules/me/me.routes.js';
 import staffRoutes from '@/modules/staff/staff.routes.js';
@@ -52,7 +51,6 @@ export function createApp() {
 
   app.use('/auth', authRoutes);
   app.use('/hospitals', hospitalsRoutes);
-  app.use('/interest-forms', interestFormsRoutes);
   app.use('/tasks', tasksRoutes);
   app.use('/me', meRoutes);
   app.use('/staff', staffRoutes);

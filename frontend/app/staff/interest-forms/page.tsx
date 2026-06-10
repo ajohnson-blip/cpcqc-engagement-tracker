@@ -3,33 +3,27 @@
 /**
  * Staff interest-forms triage page.
  *
- * Two tabs:
- *   - "Per-initiative" (legacy /interest-forms — one form per (hospital, initiative))
- *   - "Annual ranking" (new /portal/annual-interest-forms — one form per
- *     (hospital, program year) with a ranked list)
+ * One flow: the annual ranked interest form (one row per hospital × program
+ * year). The Cohort Planning aggregate at the top is the at-a-glance lens
+ * for sizing cohorts; the table below is the per-submission triage surface.
  *
- * The annual tab includes a Cohort Planning aggregate dashboard at the top
- * so PMs can see capacity vs demand at a glance during cohort sizing meetings.
+ * The legacy per-initiative form was retired (the public /interest route
+ * had zero submissions and didn't match the actual operational flow —
+ * hospitals get onboarded by CPCQC staff, not via a public form).
  */
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import clsx from 'clsx';
 import { Download, AlertTriangle, Pencil } from 'lucide-react';
 import { api } from '@/lib/api';
 import type {
   AnnualInterestForm,
   CohortPlanningAggregate,
-  PendingInterestForm,
 } from '@/lib/types';
 import { fmtDate } from '@/lib/format';
 import { AnnualInterestDetailModal } from '@/components/annual-interest-detail-modal';
 
-type FormKind = 'per_initiative' | 'annual';
-
 export default function InterestFormsListPage() {
-  const [kind, setKind] = useState<FormKind>('annual');
-
   return (
     <div>
       <header className="mb-6">
@@ -37,46 +31,13 @@ export default function InterestFormsListPage() {
           Interest Forms
         </h1>
         <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
-          Review submissions, then approve to start the Enrollment Form, or decline with a note.
+          Review the 2027 ranked submissions — flip to <em>under review</em> as you start
+          looking, then accept (with decided cohorts) or decline.
         </p>
       </header>
 
-      <div className="mb-6 inline-flex gap-1 rounded-full bg-white p-1 shadow-sm ring-1 ring-cpcqc-purple-dark/10">
-        <KindTab active={kind === 'annual'} onClick={() => setKind('annual')}>
-          Annual ranking
-        </KindTab>
-        <KindTab active={kind === 'per_initiative'} onClick={() => setKind('per_initiative')}>
-          Per-initiative
-        </KindTab>
-      </div>
-
-      {kind === 'annual' ? <AnnualPanel /> : <PerInitiativePanel />}
+      <AnnualPanel />
     </div>
-  );
-}
-
-function KindTab({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={clsx(
-        'rounded-full px-4 py-1.5 font-rounded text-sm font-bold uppercase tracking-wide transition',
-        active
-          ? 'bg-cpcqc-purple text-white'
-          : 'text-cpcqc-purple-dark hover:bg-cpcqc-purple/10',
-      )}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -448,143 +409,3 @@ function FlagPills({ form }: { form: AnnualInterestForm }) {
   );
 }
 
-// ============================================================================
-// Per-initiative (legacy — unchanged behavior)
-// ============================================================================
-
-type PerInitStatusFilter =
-  | 'submitted'
-  | 'reviewed'
-  | 'approved'
-  | 'declined'
-  | 'all';
-
-const PER_INIT_STATUSES: Array<{ value: PerInitStatusFilter; label: string }> = [
-  { value: 'submitted', label: 'New' },
-  { value: 'reviewed', label: 'Reviewed' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'declined', label: 'Declined' },
-  { value: 'all', label: 'All' },
-];
-
-const PER_INIT_STATUS_STYLE: Record<PendingInterestForm['status'], string> = {
-  submitted: 'bg-cpcqc-orange-dark/15 text-cpcqc-orange-dark',
-  reviewed: 'bg-cpcqc-purple/15 text-cpcqc-purple',
-  approved: 'bg-cpcqc-teal-dark/15 text-cpcqc-teal-dark',
-  declined: 'bg-cpcqc-pink-dark/15 text-cpcqc-pink-dark',
-};
-
-function PerInitiativePanel() {
-  const [filter, setFilter] = useState<PerInitStatusFilter>('submitted');
-  const [data, setData] = useState<{
-    interestForms: PendingInterestForm[];
-    total: number;
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setData(null);
-    const qp = new URLSearchParams();
-    if (filter !== 'all') qp.set('status', filter);
-    api
-      .get<{ interestForms: PendingInterestForm[]; total: number }>(
-        `/interest-forms?${qp.toString()}`,
-      )
-      .then((d) => !cancelled && setData(d))
-      .catch((err: Error) => !cancelled && setError(err.message));
-    return () => {
-      cancelled = true;
-    };
-  }, [filter]);
-
-  return (
-    <>
-      <div className="mb-4 flex flex-wrap gap-2">
-        {PER_INIT_STATUSES.map((f) => (
-          <button
-            key={f.value}
-            type="button"
-            onClick={() => setFilter(f.value)}
-            className={clsx(
-              'rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wide transition',
-              filter === f.value
-                ? 'bg-cpcqc-purple text-white'
-                : 'bg-white text-cpcqc-purple-dark ring-1 ring-cpcqc-purple-dark/15 hover:bg-cpcqc-purple/10',
-            )}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      {error && (
-        <div className="mb-4 rounded-xl bg-cpcqc-pink-dark/10 p-4 text-sm text-cpcqc-pink-dark">
-          {error}
-        </div>
-      )}
-
-      {!data ? (
-        <div className="rounded-xl bg-white p-8 text-center text-cpcqc-purple-dark/60 shadow-sm">
-          Loading…
-        </div>
-      ) : data.interestForms.length === 0 ? (
-        <div className="rounded-2xl bg-white p-8 text-center text-cpcqc-purple-dark/70 shadow-sm">
-          No interest forms match this filter.
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-cpcqc-purple-dark/5">
-          <table className="w-full text-left">
-            <thead className="bg-cpcqc-cream-dark/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
-              <tr>
-                <th className="px-4 py-3">Submitted</th>
-                <th className="px-4 py-3">Facility</th>
-                <th className="px-4 py-3">Submitter</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.interestForms.map((f) => (
-                <tr key={f.id} className="border-t border-cpcqc-purple-dark/10">
-                  <td className="px-4 py-3 text-sm text-cpcqc-purple-dark/80">
-                    {fmtDate(f.createdAt)}
-                  </td>
-                  <td className="px-4 py-3 font-semibold text-cpcqc-purple-dark">
-                    {f.facilityName}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-cpcqc-purple-dark/80">
-                    <div>
-                      {f.firstName} {f.lastName}
-                    </div>
-                    <div className="text-xs">
-                      {f.role} · {f.email}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={clsx(
-                        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide',
-                        PER_INIT_STATUS_STYLE[f.status],
-                      )}
-                    >
-                      {f.status === 'submitted' ? 'New' : f.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link
-                      href={`/staff/interest-forms/${f.id}`}
-                      className="font-semibold text-cpcqc-purple hover:underline"
-                    >
-                      {f.status === 'submitted' ? 'Review →' : 'Open →'}
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
-  );
-}
