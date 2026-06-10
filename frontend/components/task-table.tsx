@@ -4,7 +4,9 @@ import { useMemo, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { TaskStatusPill } from './status-pill';
 import { ManageTaskModal } from './manage-task-modal';
+import { TaskCommentModal } from './task-comment-modal';
 import { fmtDate, fmtPeriod, TASK_TYPE_LABEL } from '@/lib/format';
+import { useAuth } from '@/lib/auth-context';
 import type { TaskRow } from '@/lib/types';
 
 interface TaskTableProps {
@@ -27,6 +29,11 @@ export function TaskTable({
 }: TaskTableProps) {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const openTask = openTaskId ? tasks.find((t) => t.id === openTaskId) ?? null : null;
+  // Hospital users (hospital_user, hospital_admin) get a read-only view with
+  // a comment box; CPCQC staff (cpcqc_staff, cpcqc_admin) get the full
+  // Manage Task modal. The button label flips with the role for clarity.
+  const { user } = useAuth();
+  const isStaff = user?.role === 'cpcqc_staff' || user?.role === 'cpcqc_admin';
 
   const grouped = useMemo(() => {
     if (!groupByStage) return null;
@@ -102,7 +109,7 @@ export function TaskTable({
               onClick={() => setOpenTaskId(task.id)}
               className="rounded-full bg-cpcqc-purple px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90"
             >
-              Manage task
+              {isStaff ? 'Manage task' : 'View / comment'}
             </button>
           </div>
         </td>
@@ -149,7 +156,7 @@ export function TaskTable({
           </tbody>
         </table>
       </div>
-      {openTask && (
+      {openTask && (isStaff ? (
         <ManageTaskModal
           task={openTask}
           onClose={() => setOpenTaskId(null)}
@@ -158,7 +165,16 @@ export function TaskTable({
             onTaskUpdated?.(t);
           }}
         />
-      )}
+      ) : (
+        <TaskCommentModal
+          task={openTask}
+          onClose={() => setOpenTaskId(null)}
+          onUpdated={(t) => {
+            setOpenTaskId(null);
+            onTaskUpdated?.(t);
+          }}
+        />
+      ))}
     </>
   );
 }

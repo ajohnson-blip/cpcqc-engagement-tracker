@@ -192,7 +192,13 @@ export async function manageTask(taskId: string, body: unknown, ctx: AuthContext
   });
   if (!template) throw new HttpError(500, 'Task references missing template');
 
-  // Authorization
+  // Authorization — manage is staff-only. Hospital users get view-only access
+  // to the task list and can leave a comment via setTaskNote(). CPCQC PMs own
+  // the data-submission / attendance / HRA records since the tracker feeds
+  // legal CDPHE reporting.
+  if (ctx.role !== 'cpcqc_staff' && ctx.role !== 'cpcqc_admin') {
+    throw new HttpError(403, 'Only CPCQC staff can manage task records.');
+  }
   assertCanWriteEnrollment(enrollment.hospitalId, ctx);
 
   // Validate the type-specific payload (re-parse against the narrower schema).
@@ -330,6 +336,63 @@ export async function manageTask(taskId: string, body: unknown, ctx: AuthContext
   // Return the same shape the list endpoint returns (with joined stage,
   // template, programYear) so the frontend's task-table grouping doesn't
   // crash on undefined stage.sequence when the modal merges the updated row.
+  return await fetchShapedTaskRow(taskId);
+}
+
+// -------- Set note (any authenticated user) --------
+
+/**
+ * Update only the free-text `staffNote` on a task. Hospital users can comment
+ * on their own hospital's tasks; CPCQC staff can comment on any task. This is
+ * deliberately scoped to the note field — status / outcome / payload are
+ * staff-only via manageTask().
+ *
+ * `note` semantics:
+ *   - string  → save as the new note
+ *   - null    → clear the existing note
+ */
+export async function setTaskNote(
+  taskId: string,
+  note: string | null,
+  ctx: AuthContext,
+) {
+  const task = await db.query.taskInstances.findFirst({
+    where: eq(schema.taskInstances.id, taskId),
+  });
+  if (!task) throw new HttpError(404, 'Task not found');
+
+  const enrollment = await db.query.enrollments.findFirst({
+    where: eq(schema.enrollments.id, task.enrollmentId),
+  });
+  if (!enrollment) throw new HttpError(500, 'Task references missing enrollment');
+
+  // Hospital users can only comment on their own hospital's tasks; CPCQC
+  // staff can comment on any task. Same read-rule as the rest of the surface
+  // — see assertCanReadEnrollment.
+  assertCanReadEnrollment(enrollment.hospitalId, ctx);
+
+  const trimmed =
+    typeof note === 'string' ? (note.trim() === '' ? null : note.trim()) : null;
+
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(schema.taskInstances)
+      .set({ staffNote: trimmed, updatedBy: ctx.userId, updatedAt: now })
+      .where(eq(schema.taskInstances.id, taskId));
+
+    await tx.insert(schema.auditLog).values({
+      id: uuid(),
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      action: 'task.note',
+      entityType: 'task_instance',
+      entityId: taskId,
+      diff: { from: { staffNote: task.staffNote }, to: { staffNote: trimmed } },
+      note: trimmed,
+    });
+  });
+
   return await fetchShapedTaskRow(taskId);
 }
 

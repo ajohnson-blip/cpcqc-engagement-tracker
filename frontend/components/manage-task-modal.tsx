@@ -154,7 +154,6 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
   const [sessionDate, setSessionDate] = useState('');
   const [advisorName, setAdvisorName] = useState('');
   const [attachmentUrl, setAttachmentUrl] = useState('');
-  const [periodCovered, setPeriodCovered] = useState('');
   // Pre-fill from the persisted note so re-opening a managed task shows
   // the previous text. Migration 0015 backfilled legacy payload.notes
   // values into staff_note, so staff_note is now the single source of
@@ -220,10 +219,10 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
           advisorName,
         };
       case 'data_submission':
-        // QI data is entered directly in REDCap; we only confirm submission here.
-        return {
-          periodCovered: periodCovered || undefined,
-        };
+        // QI data is entered directly in REDCap; we only confirm submission
+        // here. The task itself already carries the period (e.g. "Jan 2026")
+        // so there's nothing per-row to capture.
+        return undefined;
       case 'readiness_assessment':
         // HRA responses live in REDCap; we only record that it was completed.
         return undefined;
@@ -430,24 +429,13 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
           )}
 
           {task.template.taskType === 'data_submission' && (
-            <>
-              <div className="rounded-lg bg-cpcqc-cream-dark/40 p-3 text-sm text-cpcqc-purple-dark/80">
-                <p>
-                  QI data for this period is entered directly in REDCap. Once submitted, record
-                  whether it was on time using the dropdown below; late submissions are tracked
-                  but do not count toward your data submission requirement.
-                </p>
-              </div>
-              <Field label="Period covered (optional)">
-                <input
-                  type="text"
-                  value={periodCovered}
-                  onChange={(e) => setPeriodCovered(e.target.value)}
-                  placeholder={fmtPeriod(task.period)}
-                  className="modal-input"
-                />
-              </Field>
-            </>
+            <div className="rounded-lg bg-cpcqc-cream-dark/40 p-3 text-sm text-cpcqc-purple-dark/80">
+              <p>
+                QI data for this period is entered directly in REDCap. Once submitted, record
+                whether it was on time using the dropdown below; late submissions are tracked
+                but do not count toward your data submission requirement.
+              </p>
+            </div>
           )}
 
           {task.template.taskType === 'readiness_assessment' && (

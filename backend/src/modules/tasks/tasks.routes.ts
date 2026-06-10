@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '@/middleware/auth.js';
-import { getTaskInstance, listTasksForEnrollment, manageTask } from './tasks.service.js';
+import {
+  getTaskInstance,
+  listTasksForEnrollment,
+  manageTask,
+  setTaskNote,
+} from './tasks.service.js';
 
 const router = Router();
 
@@ -29,6 +34,21 @@ router.get('/:id', requireAuth, async (req, res) => {
 router.post('/:id/manage', requireAuth, async (req, res) => {
   const id = z.string().uuid().parse(req.params.id);
   const updated = await manageTask(id, req.body, req.auth!);
+  res.json({ task: updated });
+});
+
+// Note-only update — available to hospital users (on their hospital's tasks)
+// and CPCQC staff. `staffNote` is required: a string saves, `null` clears.
+// Separate from /manage so the permission story is unambiguous — task status,
+// outcome, and per-type payload are staff-only via /manage.
+router.patch('/:id/note', requireAuth, async (req, res) => {
+  const id = z.string().uuid().parse(req.params.id);
+  const body = z
+    .object({
+      staffNote: z.string().max(5000).nullable(),
+    })
+    .parse(req.body);
+  const updated = await setTaskNote(id, body.staffNote, req.auth!);
   res.json({ task: updated });
 });
 
