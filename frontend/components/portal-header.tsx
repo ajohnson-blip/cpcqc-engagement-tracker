@@ -17,17 +17,21 @@ interface NavItem {
 const HOSPITAL_NAV: NavItem[] = [
   { href: '/portal', label: 'Overview' },
   { href: '/portal/tasks', label: 'My Tasks' },
-  // MOCK / PREVIEW: 2027 annual interest form. Lives outside /portal so
-  // anonymous prospective hospitals can also reach it later; for now we
-  // link in here so signed-in hospitals can review the design in context.
-  // Once approved + wired to the API, this label/destination may move.
-  { href: '/interest/preview', label: '2027 Interest' },
 ];
+
+// Year-round, lower-visual-weight chip for the annual interest form. The
+// big purple banner on /portal handles attention during the open window;
+// this chip is the always-available way for someone to get back to the
+// form after dismissing the banner.
+const INTEREST_PROGRAM_YEAR = 2027;
+const INTEREST_NAV_HREF = '/interest/preview';
 
 export function PortalHeader() {
   const pathname = usePathname();
   const { user, hospitalName, signOut } = useAuth();
   const [showReportIssue, setShowReportIssue] = useState(false);
+  const interestActive =
+    pathname === INTEREST_NAV_HREF || pathname.startsWith(INTEREST_NAV_HREF + '/');
 
   return (
     <header className="border-b border-cpcqc-purple-dark/10 bg-white">
@@ -54,6 +58,17 @@ export function PortalHeader() {
               </Link>
             );
           })}
+          <Link
+            href={INTEREST_NAV_HREF}
+            className={clsx(
+              'ml-2 inline-flex items-center gap-1 rounded-full border px-3 py-1.5 font-rounded text-xs font-semibold uppercase tracking-wide transition',
+              interestActive
+                ? 'border-cpcqc-purple bg-cpcqc-purple/10 text-cpcqc-purple-dark'
+                : 'border-cpcqc-purple-dark/20 text-cpcqc-purple-dark/80 hover:bg-cpcqc-purple-dark/5',
+            )}
+          >
+            {INTEREST_PROGRAM_YEAR} Interest
+          </Link>
         </nav>
 
         <div className="flex items-center gap-3 text-sm">

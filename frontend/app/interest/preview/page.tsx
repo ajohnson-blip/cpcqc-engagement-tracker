@@ -23,8 +23,9 @@
 
 import { useMemo, useState, type FormEvent } from 'react';
 import Link from 'next/link';
-import { CheckCircle2, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, CalendarDays } from 'lucide-react';
 import { Logo } from '@/components/logo';
+import { useAuth } from '@/lib/auth-context';
 
 const INITIATIVES = [
   { code: 'TTT',   name: 'Turning the Tide: Perinatal Substance Use',  emoji: '🌊' },
@@ -35,6 +36,27 @@ const INITIATIVES = [
 
 const PROGRAM_YEAR = 2027;
 
+// MOCK acceptance window — when this form goes live, these dates move to a
+// config row (one per program year) so PMs can edit them in the staff UI
+// without a redeploy. Inclusive on both ends. The Overview-page banner and
+// the inline "accepted from X to Y" label both read from here.
+const INTEREST_WINDOW = {
+  opensAt: '2026-08-01',
+  closesAt: '2026-09-30',
+} as const;
+
+function fmtWindowDate(iso: string): string {
+  // Render an ISO date as "Aug 1, 2026" without spinning up date-fns just
+  // for this one line. UTC noon to dodge any timezone-edge weirdness.
+  const d = new Date(`${iso}T12:00:00Z`);
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 type InitiativeCode = (typeof INITIATIVES)[number]['code'];
 
 // Empty-string rank means "not yet picked" so the dropdown can show a
@@ -42,9 +64,17 @@ type InitiativeCode = (typeof INITIATIVES)[number]['code'];
 type Rank = 1 | 2 | 3 | 4 | '';
 
 export default function AnnualInterestPreviewPage() {
+  // The real form will be hospital-sign-in-only, so Hospital comes from the
+  // signed-in user's auth context rather than a free-text field. This mock
+  // demonstrates that flow: if the visitor is signed in we lock the field
+  // to their hospital; if not (browsing the public preview URL) we fall
+  // back to a manual input so PMs can still review the form shape.
+  const { hospitalName } = useAuth();
+  const hospitalLocked = hospitalName !== null && hospitalName.trim() !== '';
+
   // About you
   const [name, setName] = useState('');
-  const [hospital, setHospital] = useState('');
+  const [hospital, setHospital] = useState(hospitalLocked ? hospitalName! : '');
   const [role, setRole] = useState('');
   const [email, setEmail] = useState('');
 
@@ -211,12 +241,21 @@ export default function AnnualInterestPreviewPage() {
             <h1 className="mb-2 font-rounded text-2xl font-extrabold text-cpcqc-purple-dark">
               Express interest in {PROGRAM_YEAR} CPCQC initiatives
             </h1>
-            <p className="mb-6 text-cpcqc-purple-dark/80">
+            <p className="mb-4 text-cpcqc-purple-dark/80">
               This is step one of CPCQC's two-step annual enrollment. Tell us which initiatives
               you're considering for {PROGRAM_YEAR} and rank your preferences. CPCQC will review
               all interest forms together to set cohort size and mix, then follow up with the
               detailed initiative-specific Enrollment Forms for the programs you're accepted into.
             </p>
+
+            <div className="mb-6 flex items-center gap-2 rounded-lg bg-cpcqc-teal-dark/10 px-3 py-2 text-sm text-cpcqc-purple-dark">
+              <CalendarDays size={16} className="shrink-0 text-cpcqc-teal-dark" aria-hidden />
+              <span>
+                <strong>Interest forms are accepted</strong>{' '}
+                {fmtWindowDate(INTEREST_WINDOW.opensAt)} through{' '}
+                {fmtWindowDate(INTEREST_WINDOW.closesAt)}.
+              </span>
+            </div>
 
             <form onSubmit={onSubmit} className="space-y-6">
               <Section title="About you">
@@ -232,13 +271,23 @@ export default function AnnualInterestPreviewPage() {
                     />
                   </Field>
                   <Field label="Hospital / facility" required>
-                    <input
-                      type="text"
-                      required
-                      value={hospital}
-                      onChange={(e) => setHospital(e.target.value)}
-                      className="form-input"
-                    />
+                    {hospitalLocked ? (
+                      <>
+                        <div className="form-input flex items-center justify-between bg-cpcqc-cream-dark/30 text-cpcqc-purple-dark">
+                          <span>{hospital}</span>
+                          <span className="text-xs text-cpcqc-purple-dark/60">From your account</span>
+                        </div>
+                        <input type="hidden" value={hospital} readOnly />
+                      </>
+                    ) : (
+                      <input
+                        type="text"
+                        required
+                        value={hospital}
+                        onChange={(e) => setHospital(e.target.value)}
+                        className="form-input"
+                      />
+                    )}
                   </Field>
                   <Field label="Your role" required>
                     <input
