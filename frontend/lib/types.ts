@@ -395,6 +395,12 @@ export interface AnnualInterestForm {
 export interface CohortPlanningAggregate {
   programYear: number;
   totalSubmissions: number;
+  // Cohort context — independent of submissions. Drives the "even if
+  // nobody's submitted yet, here's what you're walking into" tiles.
+  cohortContext: {
+    tttContinuationCount: number;
+  };
+  // Submission-funnel metrics — labeled in the UI as "of submissions so far".
   intent: { 0: number; 1: number; 2: number };
   perInitiative: Array<{
     code: RankableInitiativeCode;

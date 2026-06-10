@@ -296,14 +296,39 @@ function CohortPlanningCard({ aggregate }: { aggregate: CohortPlanningAggregate 
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-4 border-t border-cpcqc-purple-dark/10 bg-cpcqc-cream-dark/15 px-5 py-3 text-xs uppercase tracking-wide text-cpcqc-purple-dark/80 sm:grid-cols-4">
-        <IntentTile label="Intent: 0" count={aggregate.intent[0]} />
-        <IntentTile label="Intent: 1" count={aggregate.intent[1]} />
-        <IntentTile label="Intent: 2" count={aggregate.intent[2]} />
-        <IntentTile
-          label="Currently in TTT"
-          count={aggregate.currentlyTTTSubmissionCount}
-        />
+      {/* 2026 context — independent of submissions. Visible from day one so
+          PMs can plan around the TTT continuation pool even before the
+          window opens. */}
+      <div className="border-t border-cpcqc-purple-dark/10 bg-cpcqc-cream-dark/30 px-5 py-3">
+        <div className="mb-2 text-xs font-bold uppercase tracking-[0.1em] text-cpcqc-purple-dark/60">
+          {aggregate.programYear - 1} context
+        </div>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-cpcqc-purple-dark">
+          <span className="font-rounded text-2xl font-extrabold text-cpcqc-purple-dark">
+            {aggregate.cohortContext.tttContinuationCount}
+          </span>
+          <span>
+            hospital{aggregate.cohortContext.tttContinuationCount === 1 ? '' : 's'} currently
+            in TTT — continuing automatically into {aggregate.programYear}
+          </span>
+        </div>
+      </div>
+
+      {/* Submission funnel — populates as hospitals submit. Labels make
+          explicit that these tiles are submission-derived, not absolute. */}
+      <div className="border-t border-cpcqc-purple-dark/10 bg-white px-5 py-3">
+        <div className="mb-2 text-xs font-bold uppercase tracking-[0.1em] text-cpcqc-purple-dark/60">
+          Of submissions so far
+        </div>
+        <div className="grid grid-cols-2 gap-4 text-sm text-cpcqc-purple-dark sm:grid-cols-4">
+          <IntentTile label="Intent: 0" count={aggregate.intent[0]} />
+          <IntentTile label="Intent: 1" count={aggregate.intent[1]} />
+          <IntentTile label="Intent: 2" count={aggregate.intent[2]} />
+          <IntentTile
+            label="From TTT hospitals"
+            count={aggregate.currentlyTTTSubmissionCount}
+          />
+        </div>
       </div>
     </div>
   );

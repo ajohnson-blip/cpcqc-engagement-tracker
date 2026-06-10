@@ -8,7 +8,7 @@
  * One row per (programYear, hospitalId) via a unique index, so editable
  * resubmission within the open window is a natural UPDATE.
  */
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 import { db, schema } from '@/db/index.js';
@@ -361,6 +361,19 @@ export async function staffUpdateInterestForm(
 export interface CohortPlanningAggregate {
   programYear: number;
   totalSubmissions: number;
+  // Two semantically distinct buckets — the cohort context is independent
+  // of submissions (size of the auto-continuation pool, etc.) while the
+  // submission funnel is "what have hospitals told us so far?". Conflating
+  // them was confusing pre-window: "Currently in TTT: 0" read as
+  // "no TTT cohort exists" instead of "no submissions yet".
+  cohortContext: {
+    // Hospitals currently enrolled in TTT for (programYear - 1). These all
+    // auto-continue into TTT (programYear), counts toward each one's
+    // 2-initiative cap, and gets a TTT Enrollment Form sent on close date.
+    tttContinuationCount: number;
+  };
+  // Everything below this line is derived from submissions; tiles read as
+  // "of submissions so far…".
   intent: { 0: number; 1: number; 2: number };
   perInitiative: Array<{
     code: RankableInitiativeCode;
@@ -413,41 +426,45 @@ export async function getCohortPlanningAggregate(
     }
   }
 
-  // Count how many submitters are currently enrolled in TTT for the prior
-  // year (programYear - 1). Helps PMs see how many "TTT continuations" they
-  // need to remember.
-  const hospitalIds = Array.from(new Set(rows.map((r) => r.hospitalId)));
-  let currentlyTTTSubmissionCount = 0;
-  if (hospitalIds.length > 0) {
-    const tttEnrolled = await db
-      .select({ hospitalId: schema.enrollments.hospitalId })
-      .from(schema.enrollments)
-      .innerJoin(schema.cohorts, eq(schema.cohorts.id, schema.enrollments.cohortId))
-      .innerJoin(
-        schema.initiatives,
-        eq(schema.initiatives.id, schema.cohorts.initiativeId),
-      )
-      .innerJoin(
-        schema.programYears,
-        eq(schema.programYears.enrollmentId, schema.enrollments.id),
-      )
-      .where(
-        and(
-          inArray(schema.enrollments.hospitalId, hospitalIds),
-          eq(schema.initiatives.code, 'TTT'),
-          eq(schema.enrollments.status, 'enrolled'),
-          eq(schema.programYears.year, programYear - 1),
-        ),
-      );
-    const tttHospitals = new Set(tttEnrolled.map((e) => e.hospitalId));
-    currentlyTTTSubmissionCount = rows.filter((r) =>
-      tttHospitals.has(r.hospitalId),
-    ).length;
-  }
+  // Absolute TTT continuation count — every hospital currently enrolled in
+  // TTT for (programYear - 1). This is cohort-planning context: independent
+  // of whether anyone's submitted an interest form yet. PMs want to see
+  // "we have 12 TTT continuations coming" from day one of the window.
+  const tttContinuationRows = await db
+    .select({ hospitalId: schema.enrollments.hospitalId })
+    .from(schema.enrollments)
+    .innerJoin(schema.cohorts, eq(schema.cohorts.id, schema.enrollments.cohortId))
+    .innerJoin(
+      schema.initiatives,
+      eq(schema.initiatives.id, schema.cohorts.initiativeId),
+    )
+    .innerJoin(
+      schema.programYears,
+      eq(schema.programYears.enrollmentId, schema.enrollments.id),
+    )
+    .where(
+      and(
+        eq(schema.initiatives.code, 'TTT'),
+        eq(schema.enrollments.status, 'enrolled'),
+        eq(schema.programYears.year, programYear - 1),
+      ),
+    );
+  const tttContinuationHospitalSet = new Set(
+    tttContinuationRows.map((r) => r.hospitalId),
+  );
+  const tttContinuationCount = tttContinuationHospitalSet.size;
+
+  // Submission-funnel slice: of the hospitals who submitted, how many are
+  // in TTT? Useful for the "how many of our submissions are auto-continuers
+  // vs net new" question; complements (doesn't replace) the absolute count.
+  const currentlyTTTSubmissionCount = rows.filter((r) =>
+    tttContinuationHospitalSet.has(r.hospitalId),
+  ).length;
 
   return {
     programYear,
     totalSubmissions: rows.length,
+    cohortContext: { tttContinuationCount },
     intent,
     perInitiative,
     currentlyTTTSubmissionCount,
