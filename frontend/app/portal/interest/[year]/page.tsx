@@ -345,6 +345,30 @@ export default function AnnualInterestRealPage() {
         <ArrowLeft size={14} /> Back to portal
       </Link>
 
+      {existing?.status === 'accepted' && (
+        <div className="mb-6 overflow-hidden rounded-2xl bg-cpcqc-teal-dark/10 shadow-card ring-1 ring-cpcqc-teal-dark/30">
+          <div className="flex items-start gap-3 p-5">
+            <CheckCircle2
+              size={24}
+              className="mt-0.5 shrink-0 text-cpcqc-teal-dark"
+              aria-hidden
+            />
+            <div>
+              <div className="font-rounded text-base font-extrabold text-cpcqc-purple-dark">
+                Accepted for {programYear}
+                {existing.decidedInitiatives && existing.decidedInitiatives.length > 0
+                  ? `: ${existing.decidedInitiatives.join(', ')}`
+                  : ''}
+              </div>
+              <div className="mt-0.5 text-sm text-cpcqc-purple-dark/80">
+                CPCQC will follow up with the detailed, initiative-specific Enrollment
+                Form(s) and onboarding details. Questions? engagement@qi.cpcqc.org
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="mb-6">
         <h1 className="font-rounded text-3xl font-extrabold text-cpcqc-purple-dark">
           Express interest in {programYear} CPCQC initiatives

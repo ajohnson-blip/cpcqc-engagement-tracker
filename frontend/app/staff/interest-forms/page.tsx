@@ -14,14 +14,16 @@
 
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
-import { Download, AlertTriangle, Pencil } from 'lucide-react';
-import { api } from '@/lib/api';
+import { Download, AlertTriangle, Pencil, CheckCircle2 } from 'lucide-react';
+import { api, ApiError } from '@/lib/api';
 import type {
   AnnualInterestForm,
   CohortPlanningAggregate,
+  RankableInitiativeCode,
 } from '@/lib/types';
 import { fmtDate } from '@/lib/format';
 import { AnnualInterestDetailModal } from '@/components/annual-interest-detail-modal';
+import { AnnualBulkAcceptDialog } from '@/components/annual-bulk-accept-dialog';
 
 export default function InterestFormsListPage() {
   return (
@@ -71,10 +73,27 @@ function AnnualPanel() {
   const [aggregate, setAggregate] = useState<CohortPlanningAggregate | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openFormId, setOpenFormId] = useState<string | null>(null);
+  // Bulk-accept selection + dialog state.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
     setForms(null);
+    // Selection is scoped to the current filtered view; reset it when the
+    // filter or year changes so we never act on rows that are no longer shown.
+    setSelectedIds(new Set());
     const qp = new URLSearchParams();
     qp.set('programYear', String(programYear));
     if (statusFilter !== 'all') qp.set('status', statusFilter);
@@ -104,6 +123,36 @@ function AnnualPanel() {
       )
       .then((d) => setAggregate(d.aggregate))
       .catch(() => {});
+  }
+
+  async function handleBulkAccept(decidedInitiatives: RankableInitiativeCode[]) {
+    setBulkError(null);
+    setBulkSaving(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const res = await api.post<{ accepted: AnnualInterestForm[] }>(
+        '/staff/annual-interest-forms/bulk-accept',
+        { ids, decidedInitiatives },
+      );
+      // Merge the updated rows back into the list.
+      const byId = new Map(res.accepted.map((f) => [f.id, f]));
+      setForms((prev) =>
+        prev ? prev.map((f) => byId.get(f.id) ?? f) : prev,
+      );
+      setSelectedIds(new Set());
+      setBulkOpen(false);
+      // Refresh aggregate (acceptance shifts the funnel + decided counts).
+      api
+        .get<{ aggregate: CohortPlanningAggregate }>(
+          `/staff/annual-interest-forms/aggregate?programYear=${programYear}`,
+        )
+        .then((d) => setAggregate(d.aggregate))
+        .catch(() => {});
+    } catch (err) {
+      setBulkError(err instanceof ApiError ? err.message : 'Bulk accept failed.');
+    } finally {
+      setBulkSaving(false);
+    }
   }
 
   async function downloadXlsx() {
@@ -169,6 +218,33 @@ function AnnualPanel() {
         </div>
       )}
 
+      {selectedIds.size > 0 && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-cpcqc-purple/10 px-4 py-2.5 ring-1 ring-cpcqc-purple/20">
+          <span className="text-sm font-semibold text-cpcqc-purple-dark">
+            {selectedIds.size} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setBulkError(null);
+                setBulkOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-full bg-cpcqc-purple px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90"
+            >
+              <CheckCircle2 size={13} aria-hidden /> Accept into cohorts…
+            </button>
+          </div>
+        </div>
+      )}
+
       {!forms ? (
         <div className="rounded-xl bg-white p-8 text-center text-cpcqc-purple-dark/60 shadow-sm">
           Loading…
@@ -182,6 +258,25 @@ function AnnualPanel() {
           <table className="w-full text-left">
             <thead className="bg-cpcqc-cream-dark/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
               <tr>
+                <th className="w-px px-4 py-3">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all"
+                    className="h-4 w-4 cursor-pointer accent-cpcqc-purple"
+                    checked={forms.length > 0 && selectedIds.size === forms.length}
+                    ref={(el) => {
+                      // Indeterminate when some-but-not-all are selected.
+                      if (el)
+                        el.indeterminate =
+                          selectedIds.size > 0 && selectedIds.size < forms.length;
+                    }}
+                    onChange={(e) =>
+                      setSelectedIds(
+                        e.target.checked ? new Set(forms.map((f) => f.id)) : new Set(),
+                      )
+                    }
+                  />
+                </th>
                 <th className="px-4 py-3">Submitted</th>
                 <th className="px-4 py-3">Hospital</th>
                 <th className="px-4 py-3">Rankings</th>
@@ -195,8 +290,20 @@ function AnnualPanel() {
               {forms.map((f) => (
                 <tr
                   key={f.id}
-                  className="border-t border-cpcqc-purple-dark/10 hover:bg-cpcqc-cream-dark/15"
+                  className={clsx(
+                    'border-t border-cpcqc-purple-dark/10 hover:bg-cpcqc-cream-dark/15',
+                    selectedIds.has(f.id) && 'bg-cpcqc-purple/5',
+                  )}
                 >
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${f.hospital.name}`}
+                      className="h-4 w-4 cursor-pointer accent-cpcqc-purple"
+                      checked={selectedIds.has(f.id)}
+                      onChange={() => toggleSelected(f.id)}
+                    />
+                  </td>
                   <td className="px-4 py-3 text-sm text-cpcqc-purple-dark/80">
                     {fmtDate(f.createdAt)}
                   </td>
@@ -255,6 +362,18 @@ function AnnualPanel() {
             handleUpdated(u);
             setOpenFormId(null);
           }}
+        />
+      )}
+
+      {bulkOpen && (
+        <AnnualBulkAcceptDialog
+          hospitalNames={(forms ?? [])
+            .filter((f) => selectedIds.has(f.id))
+            .map((f) => f.hospital.name)}
+          saving={bulkSaving}
+          error={bulkError}
+          onCancel={() => setBulkOpen(false)}
+          onConfirm={(decided) => void handleBulkAccept(decided)}
         />
       )}
     </>
