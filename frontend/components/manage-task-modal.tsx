@@ -149,8 +149,6 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
   const [other2Role, setOther2Role] = useState('');
   const [other2Email, setOther2Email] = useState('');
   const [ehrSystem, setEhrSystem] = useState('');
-  const [meetingMonth, setMeetingMonth] = useState(''); // YYYY-MM
-  const [meetingTitle, setMeetingTitle] = useState('');
   const [sessionDate, setSessionDate] = useState('');
   const [advisorName, setAdvisorName] = useState('');
   const [attachmentUrl, setAttachmentUrl] = useState('');
@@ -199,17 +197,11 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
         };
       }
       case 'meeting_attendance':
-        // "Did not attend" / reset has no meeting to record — skip the
-        // required-shape fields so the backend doesn't reject an empty
-        // YYYY-MM string. Return `undefined` so the server keeps whatever
-        // payload was there (or none).
-        if (outcomeChoice === 'did_not_attend' || outcomeChoice === 'reset_not_started') {
-          return undefined;
-        }
-        return {
-          meetingMonth,
-          meetingTitle: meetingTitle || undefined,
-        };
+        // The task name carries the meeting (e.g. "Attend the April TTT
+        // initiative meeting") and the subtitle carries the month, so
+        // there's no per-row data to capture. Status + outcome are sent
+        // outside buildPayload via the top-level fields.
+        return undefined;
       case 'qi_advising':
         if (outcomeChoice === 'did_not_attend' || outcomeChoice === 'reset_not_started') {
           return undefined;
@@ -371,35 +363,13 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
           {task.template.taskType === 'meeting_attendance' &&
             outcomeChoice !== 'did_not_attend' &&
             outcomeChoice !== 'reset_not_started' && (
-            <>
               <div className="rounded-lg bg-cpcqc-cream-dark/40 p-3 text-sm text-cpcqc-purple-dark/80">
                 <p>
                   Attendance is judged by hospital — confirm that <em>someone</em> from your
                   hospital attended. No need to list individual attendees.
                 </p>
               </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Meeting month">
-                  <input
-                    type="month"
-                    required
-                    value={meetingMonth}
-                    onChange={(e) => setMeetingMonth(e.target.value)}
-                    className="modal-input"
-                  />
-                </Field>
-                <Field label="Meeting title (optional)">
-                  <input
-                    type="text"
-                    value={meetingTitle}
-                    onChange={(e) => setMeetingTitle(e.target.value)}
-                    placeholder="e.g. March 2026 Cohort Meeting"
-                    className="modal-input"
-                  />
-                </Field>
-              </div>
-            </>
-          )}
+            )}
 
           {task.template.taskType === 'qi_advising' &&
             outcomeChoice !== 'did_not_attend' &&
