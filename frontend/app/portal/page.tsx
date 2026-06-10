@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { CalendarDays, ArrowRight, X, CheckCircle2 } from 'lucide-react';
+import { CalendarDays, ArrowRight, X, CheckCircle2, Clock } from 'lucide-react';
 import { api } from '@/lib/api';
 import type {
   AnnualInterestForm,
@@ -11,6 +11,11 @@ import type {
 } from '@/lib/types';
 import { useAuth } from '@/lib/auth-context';
 import { EnrollmentCard } from '@/components/enrollment-card';
+import { daysUntilUtc, closesInLabel } from '@/lib/format';
+
+// Within this many days of the close date, the banner + form switch to a
+// countdown ("closes in N days") and shift toward urgency styling.
+const COUNTDOWN_THRESHOLD_DAYS = 7;
 
 // Which program year's interest window the portal banner cares about. Could
 // be derived from "the next year with a configured window" once we have
@@ -42,6 +47,10 @@ export default function PortalHomePage() {
   const showInterestBanner =
     (interestState === 'open' || interestState === 'before') &&
     !interestBannerDismissed;
+  // Countdown — only meaningful while open. daysLeft<=7 flips copy to urgency.
+  const daysLeft = interestWindow ? daysUntilUtc(interestWindow.window.closesAt) : null;
+  const closingSoon =
+    interestState === 'open' && daysLeft !== null && daysLeft <= COUNTDOWN_THRESHOLD_DAYS;
 
   useEffect(() => {
     let cancelled = false;
@@ -154,9 +163,20 @@ export default function PortalHomePage() {
                     {INTEREST_PROGRAM_YEAR} interest form submitted
                   </div>
                   <div className="mt-0.5 text-sm text-cpcqc-purple-dark/80">
-                    You can update your submission until{' '}
-                    {fmtBannerDate(interestWindow.window.closesAt)},{' '}
-                    {interestWindow.window.closesAt.slice(0, 4)}.
+                    {closingSoon ? (
+                      <>
+                        <span className="font-bold text-cpcqc-orange-dark">
+                          Window {closesInLabel(daysLeft!)}
+                        </span>{' '}
+                        — you can still update your submission until then.
+                      </>
+                    ) : (
+                      <>
+                        You can update your submission until{' '}
+                        {fmtBannerDate(interestWindow.window.closesAt)},{' '}
+                        {interestWindow.window.closesAt.slice(0, 4)}.
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -173,15 +193,22 @@ export default function PortalHomePage() {
           <div className="mb-6 overflow-hidden rounded-2xl bg-cpcqc-purple shadow-card">
             <div className="flex items-start justify-between gap-4 p-5 text-white sm:items-center">
               <div className="flex items-start gap-3 sm:items-center">
-                <CalendarDays size={24} className="mt-0.5 shrink-0 sm:mt-0" aria-hidden />
+                {closingSoon ? (
+                  <Clock size={24} className="mt-0.5 shrink-0 sm:mt-0" aria-hidden />
+                ) : (
+                  <CalendarDays size={24} className="mt-0.5 shrink-0 sm:mt-0" aria-hidden />
+                )}
                 <div>
                   <div className="font-rounded text-base font-extrabold">
-                    {INTEREST_PROGRAM_YEAR} enrollment is open
+                    {closingSoon
+                      ? `${INTEREST_PROGRAM_YEAR} enrollment ${closesInLabel(daysLeft!)}`
+                      : `${INTEREST_PROGRAM_YEAR} enrollment is open`}
                   </div>
                   <div className="mt-0.5 text-sm text-white/85">
                     Express your interest in CPCQC initiatives for {INTEREST_PROGRAM_YEAR}.
-                    Forms accepted through {fmtBannerDate(interestWindow.window.closesAt)},{' '}
-                    {interestWindow.window.closesAt.slice(0, 4)}.
+                    {closingSoon
+                      ? ` Submit before the window closes ${fmtBannerDate(interestWindow.window.closesAt)}.`
+                      : ` Forms accepted through ${fmtBannerDate(interestWindow.window.closesAt)}, ${interestWindow.window.closesAt.slice(0, 4)}.`}
                   </div>
                 </div>
               </div>

@@ -23,6 +23,7 @@ import { requireAuth } from '@/middleware/auth.js';
 import { HttpError } from '@/middleware/errors.js';
 import {
   RANKABLE_INITIATIVE_CODES,
+  bulkAcceptInterestForms,
   getCohortPlanningAggregate,
   getEnrollmentWindow,
   getInterestFormForHospital,
@@ -102,6 +103,14 @@ staffAnnualInterestRouter.patch('/:id', requireAuth, async (req, res) => {
   const id = z.string().uuid().parse(req.params.id);
   const updated = await staffUpdateInterestForm(id, req.body, req.auth!);
   res.json({ form: updated });
+});
+
+// Bulk accept — assign a set of cohorts to many submissions in one action,
+// emailing each newly-accepted hospital. Body: { ids: string[],
+// decidedInitiatives: string[] }.
+staffAnnualInterestRouter.post('/bulk-accept', requireAuth, async (req, res) => {
+  const result = await bulkAcceptInterestForms(req.body, req.auth!);
+  res.json(result);
 });
 
 staffAnnualInterestRouter.get('/export', requireAuth, async (req, res) => {

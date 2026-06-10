@@ -8,6 +8,26 @@ export function fmtDate(iso: string | null | undefined, dateFormat = 'MMM d, yyy
   return format(d, dateFormat);
 }
 
+/**
+ * Whole days from UTC-today to a YYYY-MM-DD date. 0 = the date is today,
+ * 1 = tomorrow, negative = in the past. UTC throughout to match how the
+ * backend compares enrollment-window dates (bare DATE values, no tz).
+ */
+export function daysUntilUtc(iso: string): number {
+  const now = new Date();
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const t = new Date(`${iso}T00:00:00Z`);
+  const targetUtc = Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate());
+  return Math.round((targetUtc - todayUtc) / 86_400_000);
+}
+
+/** "closes today" / "closes tomorrow" / "closes in N days" for a day count. */
+export function closesInLabel(days: number): string {
+  if (days <= 0) return 'closes today';
+  if (days === 1) return 'closes tomorrow';
+  return `closes in ${days} days`;
+}
+
 export function fmtPeriod(period: string): string {
   // "2026-Q1" → "Q1 2026"; "2026-03" → "Mar 2026"; "2026-annual" → "Annual 2026"
   const m = /^(\d{4})-(.+)$/.exec(period);

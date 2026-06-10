@@ -8,7 +8,7 @@
  * One row per (programYear, hospitalId) via a unique index, so editable
  * resubmission within the open window is a natural UPDATE.
  */
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 import { db, schema } from '@/db/index.js';
@@ -353,7 +353,74 @@ export async function staffUpdateInterestForm(
 
   const shaped = await shapeRow(id);
   if (!shaped) throw new HttpError(500, 'Failed to fetch shaped row');
+
+  // Notify the hospital only on a genuine transition INTO accepted — not on
+  // edits to an already-accepted form (e.g. tweaking decided cohorts), which
+  // would re-send a near-duplicate email.
+  if (parsed.status === 'accepted' && existing.status !== 'accepted') {
+    void sendAcceptanceEmail(shaped).catch(() => {});
+  }
   return shaped;
+}
+
+// ---------- Bulk accept ----------
+
+const bulkAcceptBodySchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(500),
+  decidedInitiatives: z.array(z.enum(RANKABLE_INITIATIVE_CODES)).min(1).max(3),
+});
+
+/**
+ * Accept many submissions into the same set of cohorts in one action — the
+ * cohort-planning-meeting workflow ("assign these 12 hospitals to SPARK").
+ * Overwrites each form's decided cohorts with the provided set, flips status
+ * to accepted, and emails each hospital that wasn't already accepted.
+ *
+ * Overwrite (not merge) semantics keep this predictable: PMs group hospitals
+ * by their final cohort assignment and run the action once per group. A
+ * hospital getting SPARK+NEST goes in the [SPARK, NEST] batch.
+ */
+export async function bulkAcceptInterestForms(
+  body: unknown,
+  ctx: AuthContext,
+): Promise<{ accepted: InterestFormShape[] }> {
+  if (ctx.role !== 'cpcqc_staff' && ctx.role !== 'cpcqc_admin') {
+    throw new HttpError(403, 'Staff only.');
+  }
+  const parsed = bulkAcceptBodySchema.parse(body);
+
+  // Snapshot prior statuses so we only email genuine transitions into accepted.
+  const before = await db
+    .select({
+      id: schema.annualInterestForms.id,
+      status: schema.annualInterestForms.status,
+    })
+    .from(schema.annualInterestForms)
+    .where(inArray(schema.annualInterestForms.id, parsed.ids));
+  const priorStatusById = new Map(before.map((r) => [r.id, r.status]));
+
+  const now = new Date();
+  await db
+    .update(schema.annualInterestForms)
+    .set({
+      status: 'accepted',
+      decidedInitiatives: parsed.decidedInitiatives,
+      decidedAt: now,
+      decidedBy: ctx.userId ?? null,
+      updatedAt: now,
+    })
+    .where(inArray(schema.annualInterestForms.id, parsed.ids));
+
+  const accepted: InterestFormShape[] = [];
+  for (const id of parsed.ids) {
+    const shaped = await shapeRow(id);
+    if (!shaped) continue;
+    accepted.push(shaped);
+    if (priorStatusById.get(id) !== 'accepted') {
+      void sendAcceptanceEmail(shaped).catch(() => {});
+    }
+  }
+  return { accepted };
 }
 
 // ---------- Aggregate for Cohort Planning view ----------
@@ -585,6 +652,32 @@ async function sendSubmissionEmails(form: InterestFormShape, wasUpdate: boolean)
   });
 }
 
+/**
+ * Acceptance notification to the hospital — fired on transition into accepted
+ * (single or bulk). #3-Light: this tells the hospital their outcome and what
+ * comes next; it does NOT auto-create enrollments (that's the deferred
+ * heavier phase, gated on 2027 cohorts existing).
+ */
+async function sendAcceptanceEmail(form: InterestFormShape): Promise<void> {
+  const cohorts = form.decidedInitiatives ?? [];
+  const cohortLine =
+    cohorts.length > 0
+      ? `into the following initiative(s) for ${form.programYear}: ${cohorts.join(', ')}`
+      : `for ${form.programYear}`;
+  await sendEmail({
+    toEmail: form.submitterEmail,
+    subject: `CPCQC ${form.programYear} — ${form.hospital.name} has been accepted`,
+    kind: 'annual_interest.accepted',
+    body:
+      `Hi ${form.submitterName},\n\n` +
+      `Good news — ${form.hospital.name} has been accepted ${cohortLine}.\n\n` +
+      `What's next: CPCQC will follow up with the detailed, initiative-specific ` +
+      `Enrollment Form(s) for each accepted initiative, along with onboarding ` +
+      `details and key dates.\n\n` +
+      `Questions? engagement@qi.cpcqc.org`,
+  });
+}
+
 function formatSubmissionSummary(form: InterestFormShape): string {
   const ranked = [...form.rankedInitiatives]
     .sort((a, b) => a.rank - b.rank)
@@ -594,8 +687,12 @@ function formatSubmissionSummary(form: InterestFormShape): string {
       return `  ${r.rank}. ${r.code}${reasonLine}`;
     })
     .join('\n');
-  return (
-    `  Intent: ${form.intendedInitiativeCount} additional initiative(s) for ${form.programYear}\n` +
-    `  Rankings:\n${ranked}`
-  );
+  // intent=0 only happens for TTT-continuation hospitals saying "I'm
+  // continuing TTT, adding nothing else." Phrase it as an acknowledgement
+  // rather than the awkward "0 additional initiative(s)".
+  const intentLine =
+    form.intendedInitiativeCount === 0
+      ? `  Intent: continuing your existing enrollment(s) for ${form.programYear} — no additional initiatives requested`
+      : `  Intent: ${form.intendedInitiativeCount} additional initiative(s) for ${form.programYear}`;
+  return `${intentLine}\n  Rankings:\n${ranked}`;
 }

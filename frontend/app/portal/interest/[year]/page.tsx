@@ -30,17 +30,21 @@ import {
   CheckCircle2,
   AlertTriangle,
   CalendarDays,
+  Clock,
   ArrowLeft,
   Pencil,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { daysUntilUtc, closesInLabel } from '@/lib/format';
 import type {
   AnnualInterestForm,
   EnrollmentWindowResponse,
   MyEnrollment,
   RankableInitiativeCode,
 } from '@/lib/types';
+
+const COUNTDOWN_THRESHOLD_DAYS = 7;
 
 const RANKABLE_INITIATIVES = [
   { code: 'SPARK', name: 'SPARK: Postpartum Discharge Transitions', emoji: '✨' },
@@ -278,6 +282,10 @@ export default function AnnualInterestRealPage() {
   // Form is read-only any time the window isn't open. Pre-window we still
   // show the full form so hospitals can preview what they'll be filling out.
   const formLocked = !windowOpen;
+  // Countdown — only while open. Within the threshold the open-state banner
+  // flips to urgency copy + orange styling.
+  const daysLeft = daysUntilUtc(windowResp.window.closesAt);
+  const closingSoon = windowOpen && daysLeft <= COUNTDOWN_THRESHOLD_DAYS;
 
   // Success screen after submit/update.
   if (justSubmitted) {
@@ -354,23 +362,27 @@ export default function AnnualInterestRealPage() {
           'mb-6 flex items-center gap-2 rounded-lg px-3 py-2 text-sm ' +
           (windowAfter
             ? 'bg-cpcqc-pink-dark/10 text-cpcqc-pink-dark'
-            : windowBefore
+            : windowBefore || closingSoon
               ? 'bg-cpcqc-orange-dark/15 text-cpcqc-orange-dark'
               : 'bg-cpcqc-teal-dark/10 text-cpcqc-purple-dark')
         }
       >
-        <CalendarDays
-          size={16}
-          className={
-            'shrink-0 ' +
-            (windowAfter
-              ? 'text-cpcqc-pink-dark'
-              : windowBefore
-                ? 'text-cpcqc-orange-dark'
-                : 'text-cpcqc-teal-dark')
-          }
-          aria-hidden
-        />
+        {closingSoon && !windowAfter ? (
+          <Clock size={16} className="shrink-0 text-cpcqc-orange-dark" aria-hidden />
+        ) : (
+          <CalendarDays
+            size={16}
+            className={
+              'shrink-0 ' +
+              (windowAfter
+                ? 'text-cpcqc-pink-dark'
+                : windowBefore
+                  ? 'text-cpcqc-orange-dark'
+                  : 'text-cpcqc-teal-dark')
+            }
+            aria-hidden
+          />
+        )}
         <span>
           {windowBefore && (
             <>
@@ -381,11 +393,21 @@ export default function AnnualInterestRealPage() {
             </>
           )}
           {windowOpen && (
-            <>
-              <strong>Interest forms are accepted</strong>{' '}
-              {fmtDate(windowResp.window.opensAt)} through {fmtDate(windowResp.window.closesAt)}.
-              {existing && ' You can update your submission until then.'}
-            </>
+            closingSoon ? (
+              <>
+                <strong className="capitalize">{closesInLabel(daysLeft)}</strong> — the{' '}
+                {programYear} interest window closes {fmtDate(windowResp.window.closesAt)}.
+                {existing
+                  ? ' You can still update your submission until then.'
+                  : ' Submit before then to be considered.'}
+              </>
+            ) : (
+              <>
+                <strong>Interest forms are accepted</strong>{' '}
+                {fmtDate(windowResp.window.opensAt)} through {fmtDate(windowResp.window.closesAt)}.
+                {existing && ' You can update your submission until then.'}
+              </>
+            )
           )}
           {windowAfter && (
             <>
