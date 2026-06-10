@@ -24,7 +24,7 @@ const HOSPITAL_NAV: NavItem[] = [
 // this chip is the always-available way for someone to get back to the
 // form after dismissing the banner.
 const INTEREST_PROGRAM_YEAR = 2027;
-const INTEREST_NAV_HREF = '/interest/preview';
+const INTEREST_NAV_HREF = `/portal/interest/${INTEREST_PROGRAM_YEAR}`;
 
 export function PortalHeader() {
   const pathname = usePathname();

@@ -348,3 +348,50 @@ export interface MyTasksResponse {
     completedOn: string | null;
   }>;
 }
+
+// ---------- Annual interest forms (step 1 of 2-step enrollment) ----------
+
+export type RankableInitiativeCode = 'SPARK' | 'SOAR' | 'NEST';
+
+export interface EnrollmentWindow {
+  programYear: number;
+  opensAt: string; // YYYY-MM-DD
+  closesAt: string; // YYYY-MM-DD
+}
+
+export interface EnrollmentWindowResponse {
+  window: EnrollmentWindow;
+  isOpen: boolean;
+  rankableInitiativeCodes: RankableInitiativeCode[];
+}
+
+export interface AnnualInterestForm {
+  id: string;
+  programYear: number;
+  hospital: { id: string; name: string };
+  submitterName: string;
+  submitterRole: string;
+  submitterEmail: string;
+  intendedInitiativeCount: number;
+  rankedInitiatives: Array<{ code: RankableInitiativeCode; rank: number }>;
+  reasoning: Record<string, string>;
+  status: 'submitted' | 'under_review' | 'accepted' | 'declined';
+  staffNote: string | null;
+  decidedInitiatives: RankableInitiativeCode[] | null;
+  decidedAt: string | null;
+  flags: { currentlyEnrolledInTTT: boolean };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CohortPlanningAggregate {
+  programYear: number;
+  totalSubmissions: number;
+  intent: { 0: number; 1: number; 2: number };
+  perInitiative: Array<{
+    code: RankableInitiativeCode;
+    rankCounts: Record<1 | 2 | 3, number>;
+    totalInterested: number;
+  }>;
+  currentlyTTTSubmissionCount: number;
+}
