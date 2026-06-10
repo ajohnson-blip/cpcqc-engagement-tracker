@@ -41,6 +41,11 @@ export function TaskTable({
 
   function renderRow(task: TaskRow) {
     const initiative = initiativeByEnrollment?.get(task.enrollmentId);
+    // Notes are stored on `task.staffNote` going forward, but legacy rows have
+    // them inside `task.payload.notes` — read both so older tasks still show
+    // a Notes column entry until the next time someone edits them.
+    const noteText =
+      task.staffNote ?? (task.payload as { notes?: string } | null)?.notes ?? null;
     return (
       <tr key={task.id} className="border-t border-cpcqc-purple-dark/10">
         {showInitiative && (
@@ -63,6 +68,21 @@ export function TaskTable({
         <td className="px-4 py-3 text-sm text-cpcqc-purple-dark/80">{fmtDate(task.dueOn)}</td>
         <td className="px-4 py-3">
           <TaskStatusPill status={task.status} outcome={task.outcome} />
+        </td>
+        <td className="max-w-[14rem] px-4 py-3 text-sm text-cpcqc-purple-dark/80">
+          {noteText ? (
+            // line-clamp-2 + the native title tooltip lets a user skim the
+            // first ~2 lines and hover for the full text without leaving the
+            // table. Modal still owns the full edit surface.
+            <span
+              title={noteText}
+              className="line-clamp-2 cursor-help break-words leading-snug"
+            >
+              {noteText}
+            </span>
+          ) : (
+            <span className="text-cpcqc-purple-dark/40">—</span>
+          )}
         </td>
         <td className="px-4 py-3 text-right">
           <div className="inline-flex items-center gap-2">
@@ -108,6 +128,7 @@ export function TaskTable({
               <th className="px-4 py-3">Task</th>
               <th className="px-4 py-3">Due</th>
               <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Notes</th>
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
@@ -116,7 +137,7 @@ export function TaskTable({
               ? grouped.flatMap((g) => [
                   <tr key={`group-${g.stage.code}`} className="bg-cpcqc-cream-dark/30">
                     <td
-                      colSpan={showInitiative ? 5 : 4}
+                      colSpan={showInitiative ? 6 : 5}
                       className="px-4 py-2 font-rounded text-sm font-bold uppercase tracking-wide text-cpcqc-purple-dark"
                     >
                       {g.stage.code} {g.stage.name}

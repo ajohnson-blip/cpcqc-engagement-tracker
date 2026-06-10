@@ -155,7 +155,13 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
   const [advisorName, setAdvisorName] = useState('');
   const [attachmentUrl, setAttachmentUrl] = useState('');
   const [periodCovered, setPeriodCovered] = useState('');
-  const [notes, setNotes] = useState('');
+  // Pre-fill from the persisted note so re-opening a managed task shows the
+  // previous note (was a bug: state defaulted to '' regardless of saved data).
+  // Read the top-level staffNote column first, then fall back to the legacy
+  // payload.notes location for tasks saved before this fix.
+  const [notes, setNotes] = useState(
+    () => task.staffNote ?? (task.payload as { notes?: string } | null)?.notes ?? '',
+  );
 
   // Esc to close
   useEffect(() => {
@@ -238,6 +244,11 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
       const res = await api.post<{ task: TaskRow }>(`/tasks/${task.id}/manage`, {
         status,
         outcome,
+        // Persist the note in the dedicated top-level column so the table can
+        // surface it and the modal can pre-fill on reopen. Keeping `notes` in
+        // the per-type payload too (via buildPayload) for back-compat with
+        // anything still reading from there.
+        staffNote: notes.trim() || undefined,
         payload: buildPayload(),
       });
       onUpdated(res.task);
