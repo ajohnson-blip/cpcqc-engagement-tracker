@@ -27,22 +27,31 @@ import { CheckCircle2, AlertTriangle, CalendarDays } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { useAuth } from '@/lib/auth-context';
 
-const INITIATIVES = [
-  { code: 'TTT',   name: 'Turning the Tide: Perinatal Substance Use',  emoji: '🌊' },
-  { code: 'SPARK', name: 'SPARK: Postpartum Discharge Transitions',     emoji: '✨' },
-  { code: 'SOAR',  name: 'SOAR: Primary Cesarean Reduction',            emoji: '🪁' },
-  { code: 'NEST',  name: 'NEST: Infant Safe Sleep',                     emoji: '🐣' },
+// The 2027 ranking pool is SPARK / SOAR / NEST only. TTT is a 2-year cohort
+// running 2026–2027, so we are NOT enrolling new TTT hospitals for 2027 —
+// current TTT hospitals continue automatically (see the TTT continuation
+// note in the form). When TTT reopens for new enrollment in a future year,
+// add it back to RANKABLE_INITIATIVES.
+const RANKABLE_INITIATIVES = [
+  { code: 'SPARK', name: 'SPARK: Postpartum Discharge Transitions', emoji: '✨' },
+  { code: 'SOAR',  name: 'SOAR: Primary Cesarean Reduction',         emoji: '🪁' },
+  { code: 'NEST',  name: 'NEST: Infant Safe Sleep',                  emoji: '🐣' },
 ] as const;
+const TOTAL_RANKS = RANKABLE_INITIATIVES.length;
 
 const PROGRAM_YEAR = 2027;
+
+// CPCQC caps hospitals at 2 initiatives for 2027 — they still rank all 3 so
+// CPCQC has a fallback if their top choice is oversubscribed.
+const MAX_INITIATIVES_PER_HOSPITAL = 2;
 
 // MOCK acceptance window — when this form goes live, these dates move to a
 // config row (one per program year) so PMs can edit them in the staff UI
 // without a redeploy. Inclusive on both ends. The Overview-page banner and
 // the inline "accepted from X to Y" label both read from here.
 const INTEREST_WINDOW = {
-  opensAt: '2026-08-01',
-  closesAt: '2026-09-30',
+  opensAt: '2026-09-15',
+  closesAt: '2026-10-15',
 } as const;
 
 function fmtWindowDate(iso: string): string {
@@ -57,11 +66,11 @@ function fmtWindowDate(iso: string): string {
   });
 }
 
-type InitiativeCode = (typeof INITIATIVES)[number]['code'];
+type InitiativeCode = (typeof RANKABLE_INITIATIVES)[number]['code'];
 
 // Empty-string rank means "not yet picked" so the dropdown can show a
-// placeholder; once submitted, every value will be 1–4.
-type Rank = 1 | 2 | 3 | 4 | '';
+// placeholder; once submitted, every value will be 1–TOTAL_RANKS.
+type Rank = 1 | 2 | 3 | '';
 
 export default function AnnualInterestPreviewPage() {
   // The real form will be hospital-sign-in-only, so Hospital comes from the
@@ -78,20 +87,22 @@ export default function AnnualInterestPreviewPage() {
   const [role, setRole] = useState('');
   const [email, setEmail] = useState('');
 
-  // Intent count — soft signal for CPCQC cohort planning, decoupled from the
-  // ranking. A hospital might rank all 4 but only intend to enroll in 2.
-  const [intendedCount, setIntendedCount] = useState<1 | 2 | 3 | 4 | ''>('');
+  // Intent count is capped at MAX_INITIATIVES_PER_HOSPITAL (=2 for 2027).
+  // Decoupled from the ranking: a hospital still ranks all 3 even if they
+  // only intend to enroll in 1, so CPCQC has a fallback if the top choice
+  // is oversubscribed during cohort planning.
+  const [intendedCount, setIntendedCount] = useState<1 | 2 | ''>('');
 
   // Per-initiative rank. Initialized to '' so the placeholder shows.
   const [ranks, setRanks] = useState<Record<InitiativeCode, Rank>>({
-    TTT: '', SPARK: '', SOAR: '', NEST: '',
+    SPARK: '', SOAR: '', NEST: '',
   });
 
   // Per-initiative "why" — only required for whichever 2 are ranked 1 and 2.
-  // Kept in state for all 4 so a user changing their mind doesn't lose typing,
-  // but only top-2 are validated / submitted.
+  // Kept in state for all 3 so a user reordering their picks doesn't lose
+  // typing, but only top-2 are validated / submitted.
   const [whys, setWhys] = useState<Record<InitiativeCode, string>>({
-    TTT: '', SPARK: '', SOAR: '', NEST: '',
+    SPARK: '', SOAR: '', NEST: '',
   });
 
   // Mock submission preview
@@ -130,17 +141,20 @@ export default function AnnualInterestPreviewPage() {
     validationErrors.push('Tell us how many initiatives you intend to enroll in.');
   }
   const ranksFilled = (Object.values(ranks) as Rank[]).filter((r) => r !== '').length;
-  if (ranksFilled < 4) {
-    validationErrors.push('Rank all 4 initiatives from 1 (top choice) to 4.');
+  if (ranksFilled < TOTAL_RANKS) {
+    validationErrors.push(
+      `Rank all ${TOTAL_RANKS} initiatives from 1 (top choice) to ${TOTAL_RANKS}.`,
+    );
   }
-  // Verify ranks are exactly {1,2,3,4}. The takenRanks set prevents most dup
-  // cases, but a user could leave one '' and double up on another via the
-  // disabled-dropdown nudge being a visual cue rather than a hard block — so
-  // re-verify before submit.
-  if (ranksFilled === 4 && takenRanks.size !== 4) {
-    validationErrors.push('Each initiative needs a unique rank from 1 to 4.');
+  // Verify ranks are exactly {1,…,TOTAL_RANKS}. The takenRanks disabled-option
+  // nudge is a visual cue rather than a hard block (so keyboard nav stays
+  // recoverable), so re-verify before submit.
+  if (ranksFilled === TOTAL_RANKS && takenRanks.size !== TOTAL_RANKS) {
+    validationErrors.push(
+      `Each initiative needs a unique rank from 1 to ${TOTAL_RANKS}.`,
+    );
   }
-  if (ranksFilled === 4 && takenRanks.size === 4) {
+  if (ranksFilled === TOTAL_RANKS && takenRanks.size === TOTAL_RANKS) {
     const topCode = codeByRank.get(1);
     const secondCode = codeByRank.get(2);
     if (topCode && !whys[topCode].trim()) {
@@ -312,16 +326,20 @@ export default function AnnualInterestPreviewPage() {
                 </div>
               </Section>
 
-              <Section title="Your enrollment intent">
-                <Field label={`How many initiatives do you intend to enroll in for ${PROGRAM_YEAR}?`} required>
+              <Section
+                title="Your enrollment intent"
+                description={`Hospitals can enroll in up to ${MAX_INITIATIVES_PER_HOSPITAL} initiatives for ${PROGRAM_YEAR}.`}
+              >
+                <Field
+                  label={`How many initiatives do you intend to enroll in for ${PROGRAM_YEAR}?`}
+                  required
+                >
                   <select
                     required
                     value={intendedCount}
                     onChange={(e) =>
                       setIntendedCount(
-                        e.target.value === ''
-                          ? ''
-                          : (parseInt(e.target.value, 10) as 1 | 2 | 3 | 4),
+                        e.target.value === '' ? '' : (parseInt(e.target.value, 10) as 1 | 2),
                       )
                     }
                     className="form-input"
@@ -329,18 +347,35 @@ export default function AnnualInterestPreviewPage() {
                     <option value="">Select…</option>
                     <option value={1}>1 initiative</option>
                     <option value={2}>2 initiatives</option>
-                    <option value={3}>3 initiatives</option>
-                    <option value={4}>All 4 initiatives</option>
                   </select>
                 </Field>
               </Section>
 
+              <div className="rounded-xl border border-cpcqc-purple-dark/15 bg-cpcqc-cream-dark/30 p-4">
+                <h3 className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
+                  About Turning the Tide (TTT)
+                </h3>
+                <p className="mt-2 text-sm text-cpcqc-purple-dark/80">
+                  TTT is a two-year cohort running 2026–2027, and CPCQC is{' '}
+                  <strong>not enrolling new TTT hospitals</strong> for {PROGRAM_YEAR} —
+                  so it doesn't appear in the ranking below. If your hospital is
+                  currently enrolled in TTT for 2026, you'll continue through{' '}
+                  {PROGRAM_YEAR} to complete the cohort. CPCQC will send the {PROGRAM_YEAR}{' '}
+                  TTT Enrollment Form to all current TTT hospitals on{' '}
+                  {fmtWindowDate(INTEREST_WINDOW.closesAt)}.
+                </p>
+                <p className="mt-2 text-xs text-cpcqc-purple-dark/60">
+                  Annual enrollment forms are a legal requirement even for multi-year
+                  cohorts.
+                </p>
+              </div>
+
               <Section
                 title="Rank the initiatives"
-                description={`Rank all four from 1 (your top choice) to 4 (lowest). Two of these will appear above the others — we ask for a brief "why" on your top two so the cohort review has the context it needs.`}
+                description={`Rank all ${TOTAL_RANKS} from 1 (your top choice) to ${TOTAL_RANKS} (lowest). Two of these will appear above the others — we ask for a brief "why" on your top two so the cohort review has the context it needs.`}
               >
                 <div className="space-y-3">
-                  {INITIATIVES.map((init) => {
+                  {RANKABLE_INITIATIVES.map((init) => {
                     const code = init.code as InitiativeCode;
                     const rank = ranks[code];
                     const isTop2 = rank === 1 || rank === 2;
@@ -376,14 +411,14 @@ export default function AnnualInterestPreviewPage() {
                                   [code]:
                                     e.target.value === ''
                                       ? ''
-                                      : (parseInt(e.target.value, 10) as 1 | 2 | 3 | 4),
+                                      : (parseInt(e.target.value, 10) as 1 | 2 | 3),
                                 }))
                               }
                               className="form-input w-24"
                               aria-label={`Rank for ${init.code}`}
                             >
                               <option value="">—</option>
-                              {[1, 2, 3, 4].map((n) => {
+                              {Array.from({ length: TOTAL_RANKS }, (_, i) => i + 1).map((n) => {
                                 // Allow re-selecting our own current rank; nudge
                                 // against picking ranks already taken by other
                                 // initiatives by appending a marker (we don't

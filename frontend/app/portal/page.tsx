@@ -13,8 +13,8 @@ import { EnrollmentCard } from '@/components/enrollment-card';
 // helper rather than this hardcoded `true`. The banner hides once closed.
 const INTEREST_PROGRAM_YEAR = 2027;
 const INTEREST_WINDOW = {
-  opensAt: '2026-08-01',
-  closesAt: '2026-09-30',
+  opensAt: '2026-09-15',
+  closesAt: '2026-10-15',
 } as const;
 const INTEREST_WINDOW_OPEN_MOCK = true;
 
