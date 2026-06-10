@@ -122,6 +122,45 @@ export async function requestPasswordReset(email: string): Promise<string | null
   return token;
 }
 
+/**
+ * Self-service password change. Requires the signed-in user's current password
+ * as proof of identity (so a stolen session cookie can't silently rewrite
+ * credentials) and validates the new password length.
+ *
+ * On success, revokes every refresh token for the user — including the one
+ * powering the current session. Same pattern as confirmPasswordReset: if the
+ * credentials just changed, everywhere they were signed in needs to re-auth.
+ * The frontend redirects to /login after the call returns.
+ */
+export async function changePassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  if (newPassword.length < 12) {
+    throw new HttpError(400, 'New password must be at least 12 characters.');
+  }
+  if (currentPassword === newPassword) {
+    throw new HttpError(400, 'New password must be different from the current one.');
+  }
+  const user = await db.query.users.findFirst({ where: eq(schema.users.id, userId) });
+  if (!user) throw new HttpError(404, 'User not found');
+  const ok = await verifyPassword(currentPassword, user.passwordHash);
+  if (!ok) throw new HttpError(400, 'Current password is incorrect.');
+  const hash = await hashPassword(newPassword);
+  await db
+    .update(schema.users)
+    .set({ passwordHash: hash, updatedAt: new Date() })
+    .where(eq(schema.users.id, userId));
+  // Revoke ALL refresh tokens for this user — including the one powering the
+  // current session. The frontend redirects to /login immediately after a
+  // successful change so the user reauthenticates with the new password.
+  await db
+    .update(schema.refreshTokens)
+    .set({ revokedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(schema.refreshTokens.userId, userId), isNull(schema.refreshTokens.revokedAt)));
+}
+
 export async function confirmPasswordReset(token: string, newPassword: string): Promise<void> {
   const tokenHash = hashToken(token);
   const row = await db.query.passwordResets.findFirst({

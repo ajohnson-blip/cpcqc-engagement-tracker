@@ -85,13 +85,18 @@ export function PortalHeader() {
             <div className="font-semibold text-cpcqc-purple-dark">
               {hospitalName ?? user?.role}
             </div>
-            <button
-              type="button"
-              onClick={() => void signOut()}
-              className="text-xs text-cpcqc-purple-dark/70 hover:text-cpcqc-purple"
-            >
-              Sign out
-            </button>
+            <div className="flex justify-end gap-3 text-xs text-cpcqc-purple-dark/70">
+              <Link href="/portal/account" className="hover:text-cpcqc-purple">
+                Account
+              </Link>
+              <button
+                type="button"
+                onClick={() => void signOut()}
+                className="hover:text-cpcqc-purple"
+              >
+                Sign out
+              </button>
+            </div>
           </div>
           <button
             type="button"

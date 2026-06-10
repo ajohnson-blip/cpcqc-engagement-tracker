@@ -122,13 +122,18 @@ export function StaffHeader() {
           </button>
           <div className="hidden text-right sm:block">
             <div className="font-semibold text-cpcqc-purple-dark">CPCQC Staff</div>
-            <button
-              type="button"
-              onClick={() => void signOut()}
-              className="text-xs text-cpcqc-purple-dark/70 hover:text-cpcqc-purple"
-            >
-              Sign out ({user?.role.replace('cpcqc_', '')})
-            </button>
+            <div className="flex justify-end gap-3 text-xs text-cpcqc-purple-dark/70">
+              <Link href="/staff/account" className="hover:text-cpcqc-purple">
+                Account
+              </Link>
+              <button
+                type="button"
+                onClick={() => void signOut()}
+                className="hover:text-cpcqc-purple"
+              >
+                Sign out ({user?.role.replace('cpcqc_', '')})
+              </button>
+            </div>
           </div>
           <button
             type="button"

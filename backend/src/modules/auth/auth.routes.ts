@@ -6,6 +6,7 @@ import { requireAuth } from '@/middleware/auth.js';
 import { db, schema } from '@/db/index.js';
 import { eq } from 'drizzle-orm';
 import {
+  changePassword,
   login,
   logout,
   refresh,
@@ -66,6 +67,24 @@ router.post('/password-reset/confirm', async (req, res) => {
     .object({ token: z.string().min(20), newPassword: z.string().min(12) })
     .parse(req.body);
   await confirmPasswordReset(body.token, body.newPassword);
+  res.json({ ok: true });
+});
+
+// Self-service password change for the signed-in user. Verifies the current
+// password (so a stolen session can't silently rewrite credentials), updates
+// to the new hash, and revokes all refresh tokens including the current one.
+// The frontend redirects to /login after a successful response.
+router.post('/change-password', requireAuth, async (req, res) => {
+  const body = z
+    .object({
+      currentPassword: z.string().min(1),
+      newPassword: z.string().min(12),
+    })
+    .parse(req.body);
+  await changePassword(req.auth!.userId, body.currentPassword, body.newPassword);
+  // Clear the refresh-token cookie since we just revoked it server-side;
+  // belt-and-suspenders so the next request doesn't carry a now-invalid token.
+  res.clearCookie(REFRESH_COOKIE, { path: '/' });
   res.json({ ok: true });
 });
 
