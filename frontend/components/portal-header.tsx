@@ -17,6 +17,11 @@ interface NavItem {
 const HOSPITAL_NAV: NavItem[] = [
   { href: '/portal', label: 'Overview' },
   { href: '/portal/tasks', label: 'My Tasks' },
+  // MOCK / PREVIEW: 2027 annual interest form. Lives outside /portal so
+  // anonymous prospective hospitals can also reach it later; for now we
+  // link in here so signed-in hospitals can review the design in context.
+  // Once approved + wired to the API, this label/destination may move.
+  { href: '/interest/preview', label: '2027 Interest' },
 ];
 
 export function PortalHeader() {
