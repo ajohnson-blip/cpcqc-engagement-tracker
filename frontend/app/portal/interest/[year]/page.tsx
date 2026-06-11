@@ -412,13 +412,18 @@ export default function AnnualInterestRealPage() {
         </p>
       </header>
 
-      <div className="mb-6 rounded-xl border border-cpcqc-purple-dark/15 bg-cpcqc-cream-dark/20 px-4 py-3 text-sm text-cpcqc-purple-dark/80">
-        <strong className="text-cpcqc-purple-dark">
+      <div className="mb-6 space-y-2 rounded-xl border border-cpcqc-purple-dark/15 bg-cpcqc-cream-dark/20 px-4 py-3 text-sm text-cpcqc-purple-dark/80">
+        <p>
+          <strong className="text-cpcqc-purple-dark">New for {programYear}:</strong> CPCQC is
+          limiting enrollment to two QI initiatives per hospital each year — to protect hospital
+          staff and CPCQC's capacity to support high-quality QI implementation.
+        </p>
+        <p>
           Under Colorado law (C.R.S. § 25-52-106.5(6)(a)(II)), hospitals are only required to
-          actively engage in one QI initiative per year.
-        </strong>{' '}
-        Ranking additional initiatives below is optional — it helps CPCQC plan cohort sizes,
-        but you're not obligated to participate in more than one.
+          actively engage in one QI initiative per year. Ranking additional initiatives below is
+          optional — it helps CPCQC plan cohort sizes, but you're not obligated to participate in
+          more than one.
+        </p>
       </div>
 
       <div
