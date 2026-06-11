@@ -417,8 +417,8 @@ export default function AnnualInterestRealPage() {
           Under Colorado law (C.R.S. § 25-52-106.5(6)(a)(II)), hospitals are only required to
           actively engage in one QI initiative per year.
         </strong>{' '}
-        Ranking a second initiative below is optional — it helps CPCQC plan cohort sizes, but
-        you're not obligated to participate in more than one.
+        Ranking additional initiatives below is optional — it helps CPCQC plan cohort sizes,
+        but you're not obligated to participate in more than one.
       </div>
 
       <div
