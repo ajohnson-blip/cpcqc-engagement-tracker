@@ -121,6 +121,18 @@ export function AnnualInterestDetailModal({ form, onClose, onUpdated }: Props) {
             </div>
           )}
 
+          {form.flags.currentlyInSoarSustainability && (
+            <div className="flex items-start gap-2 rounded-lg bg-cpcqc-orange-dark/15 px-3 py-2 text-sm text-cpcqc-orange-dark">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
+              <span>
+                <strong>Completing a SOAR sustainability year.</strong> SOAR was removed
+                from this hospital's ranking. After {form.programYear - 1} metrics are
+                finalized, decide: graduate from SOAR, or revert to SOAR active (which
+                counts toward their 2-initiative cap).
+              </span>
+            </div>
+          )}
+
           {/* Submitter */}
           <div className="rounded-xl border border-cpcqc-purple-dark/10 bg-cpcqc-cream-dark/20 p-4 text-sm">
             <div className="text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">

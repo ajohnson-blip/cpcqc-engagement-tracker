@@ -30,9 +30,13 @@ export const submitInterestFormBodySchema = z.object({
   programYear: z.number().int().min(2026).max(2100),
   // 0 valid for TTT-continuation hospitals submitting "no additional initiatives requested."
   intendedInitiativeCount: z.number().int().min(0).max(2),
+  // Length is per-hospital (a SOAR-sustainability hospital ranks 2, not 3),
+  // so the exact set + permutation is validated in the service against the
+  // hospital's eligible codes rather than pinned here.
   rankedInitiatives: z
     .array(rankedInitiativeSchema)
-    .length(RANKABLE_INITIATIVE_CODES.length),
+    .min(1)
+    .max(RANKABLE_INITIATIVE_CODES.length),
   reasoning: z.record(z.string().min(1).max(2000)).refine(
     (obj) => Object.keys(obj).length <= RANKABLE_INITIATIVE_CODES.length,
     'Too many reasoning entries',
@@ -118,6 +122,63 @@ export function windowStateFor(
   return 'open';
 }
 
+// ---------- Eligibility ----------
+
+/**
+ * Is the hospital completing a SOAR sustainability year for `year`?
+ * Sustainability is capped at one year by law (C.R.S. § 25-52-106.5), so
+ * these hospitals cannot re-rank SOAR for the next year — after year-end
+ * CPCQC either graduates them (metrics met) or reverts them to SOAR active
+ * (metrics not met). That determination is CPCQC's and happens after the
+ * 2026 program year closes, so the interest form can't resolve it; it just
+ * removes SOAR from these hospitals' ranking options.
+ */
+async function isInSoarSustainability(
+  hospitalId: string,
+  year: number,
+): Promise<boolean> {
+  const rows = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(schema.enrollments)
+    .innerJoin(schema.cohorts, eq(schema.cohorts.id, schema.enrollments.cohortId))
+    .innerJoin(
+      schema.initiatives,
+      eq(schema.initiatives.id, schema.cohorts.initiativeId),
+    )
+    .innerJoin(
+      schema.programYears,
+      eq(schema.programYears.enrollmentId, schema.enrollments.id),
+    )
+    .where(
+      and(
+        eq(schema.enrollments.hospitalId, hospitalId),
+        eq(schema.initiatives.code, 'SOAR'),
+        eq(schema.cohorts.track, 'sustainability'),
+        eq(schema.enrollments.status, 'enrolled'),
+        eq(schema.programYears.year, year),
+      ),
+    );
+  return (rows[0]?.count ?? 0) > 0;
+}
+
+/**
+ * The rankable initiatives a specific hospital may choose for `programYear`.
+ * Starts from the global pool and removes any the hospital is locked out of —
+ * currently just SOAR for hospitals completing a SOAR sustainability year in
+ * (programYear - 1). The frontend computes the same set from /me/enrollments
+ * for the form UI; this server-side copy is what submission is validated
+ * against so the two can't drift.
+ */
+export async function eligibleRankableCodes(
+  hospitalId: string,
+  programYear: number,
+): Promise<RankableInitiativeCode[]> {
+  const inSoarSustain = await isInSoarSustainability(hospitalId, programYear - 1);
+  return RANKABLE_INITIATIVE_CODES.filter(
+    (c) => !(c === 'SOAR' && inSoarSustain),
+  );
+}
+
 // ---------- Submit / upsert (hospital) ----------
 
 /**
@@ -161,9 +222,26 @@ export async function submitAnnualInterestForm(
     );
   }
 
-  // Sanity-check ranks are a complete 1..N permutation of the rankable pool.
-  const ranks = parsed.rankedInitiatives.map((r) => r.rank).sort();
-  const expected = RANKABLE_INITIATIVE_CODES.map((_, i) => i + 1);
+  // The hospital must rank exactly its eligible set (global pool minus any
+  // initiative it's locked out of, e.g. SOAR for a SOAR-sustainability
+  // hospital). Computed server-side so a tampered request can't rank an
+  // ineligible initiative.
+  const eligible = await eligibleRankableCodes(ctx.hospitalId, parsed.programYear);
+  const submittedCodes = parsed.rankedInitiatives.map((r) => r.code).sort();
+  const eligibleSorted = [...eligible].sort();
+  const sameSet =
+    submittedCodes.length === eligibleSorted.length &&
+    submittedCodes.every((c, i) => c === eligibleSorted[i]);
+  if (!sameSet) {
+    throw new HttpError(
+      400,
+      `rankedInitiatives must rank exactly your eligible initiative(s): ${eligibleSorted.join(', ')}.`,
+    );
+  }
+
+  // Ranks must be a complete 1..N permutation over the eligible count.
+  const ranks = parsed.rankedInitiatives.map((r) => r.rank).sort((a, b) => a - b);
+  const expected = eligible.map((_, i) => i + 1);
   if (
     ranks.length !== expected.length ||
     !ranks.every((r, i) => r === expected[i])
@@ -173,21 +251,18 @@ export async function submitAnnualInterestForm(
       'rankedInitiatives must use each rank from 1 to N exactly once.',
     );
   }
-  const codes = parsed.rankedInitiatives.map((r) => r.code).sort();
-  const uniqCodes = Array.from(new Set(codes)).sort();
-  if (codes.length !== uniqCodes.length) {
-    throw new HttpError(400, 'rankedInitiatives has duplicate codes.');
-  }
 
-  // Reasoning required for whichever initiatives are ranked #1 and #2.
+  // Reasoning required for whichever initiatives are ranked #1 and (when a
+  // second exists) #2. A hospital with only one eligible initiative supplies
+  // a single "why".
   const topByRank = new Map<number, string>();
   for (const r of parsed.rankedInitiatives) topByRank.set(r.rank, r.code);
   const topCode = topByRank.get(1);
-  const secondCode = topByRank.get(2);
   if (!topCode || !parsed.reasoning[topCode]?.trim()) {
     throw new HttpError(400, `Reasoning required for top choice (${topCode}).`);
   }
-  if (!secondCode || !parsed.reasoning[secondCode]?.trim()) {
+  const secondCode = topByRank.get(2);
+  if (secondCode && !parsed.reasoning[secondCode]?.trim()) {
     throw new HttpError(
       400,
       `Reasoning required for second choice (${secondCode}).`,
@@ -438,6 +513,10 @@ export interface CohortPlanningAggregate {
     // auto-continue into TTT (programYear), counts toward each one's
     // 2-initiative cap, and gets a TTT Enrollment Form sent on close date.
     tttContinuationCount: number;
+    // Hospitals completing a SOAR sustainability year in (programYear - 1).
+    // After year-end metrics, CPCQC graduates them or reverts them to SOAR
+    // active. SOAR is removed from their ranking; they're pending review.
+    soarSustainabilityCount: number;
   };
   // Everything below this line is derived from submissions; tiles read as
   // "of submissions so far…".
@@ -521,6 +600,33 @@ export async function getCohortPlanningAggregate(
   );
   const tttContinuationCount = tttContinuationHospitalSet.size;
 
+  // Absolute SOAR-sustainability count — every hospital in a SOAR
+  // sustainability cohort for (programYear - 1). Pending the post-year-end
+  // graduate-vs-revert determination. Independent of submissions.
+  const soarSustainRows = await db
+    .select({ hospitalId: schema.enrollments.hospitalId })
+    .from(schema.enrollments)
+    .innerJoin(schema.cohorts, eq(schema.cohorts.id, schema.enrollments.cohortId))
+    .innerJoin(
+      schema.initiatives,
+      eq(schema.initiatives.id, schema.cohorts.initiativeId),
+    )
+    .innerJoin(
+      schema.programYears,
+      eq(schema.programYears.enrollmentId, schema.enrollments.id),
+    )
+    .where(
+      and(
+        eq(schema.initiatives.code, 'SOAR'),
+        eq(schema.cohorts.track, 'sustainability'),
+        eq(schema.enrollments.status, 'enrolled'),
+        eq(schema.programYears.year, programYear - 1),
+      ),
+    );
+  const soarSustainabilityCount = new Set(
+    soarSustainRows.map((r) => r.hospitalId),
+  ).size;
+
   // Submission-funnel slice: of the hospitals who submitted, how many are
   // in TTT? Useful for the "how many of our submissions are auto-continuers
   // vs net new" question; complements (doesn't replace) the absolute count.
@@ -531,7 +637,7 @@ export async function getCohortPlanningAggregate(
   return {
     programYear,
     totalSubmissions: rows.length,
-    cohortContext: { tttContinuationCount },
+    cohortContext: { tttContinuationCount, soarSustainabilityCount },
     intent,
     perInitiative,
     currentlyTTTSubmissionCount,
@@ -554,7 +660,13 @@ export interface InterestFormShape {
   staffNote: string | null;
   decidedInitiatives: RankableInitiativeCode[] | null;
   decidedAt: string | null;
-  flags: { currentlyEnrolledInTTT: boolean };
+  flags: {
+    currentlyEnrolledInTTT: boolean;
+    // Completing a SOAR sustainability year in (programYear-1) — SOAR was
+    // removed from their ranking; CPCQC reviews 2026 metrics after year-end
+    // to graduate them or revert them to SOAR active.
+    currentlyInSoarSustainability: boolean;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -591,6 +703,11 @@ async function shapeRow(id: string): Promise<InterestFormShape | null> {
       ),
     );
 
+  const inSoarSustainability = await isInSoarSustainability(
+    row.hospitalId,
+    row.programYear - 1,
+  );
+
   return {
     id: row.id,
     programYear: row.programYear,
@@ -612,6 +729,7 @@ async function shapeRow(id: string): Promise<InterestFormShape | null> {
     decidedAt: row.decidedAt?.toISOString() ?? null,
     flags: {
       currentlyEnrolledInTTT: (tttEnrolled[0]?.count ?? 0) > 0,
+      currentlyInSoarSustainability: inSoarSustainability,
     },
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

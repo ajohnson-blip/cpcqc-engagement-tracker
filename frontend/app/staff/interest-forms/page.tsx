@@ -422,14 +422,26 @@ function CohortPlanningCard({ aggregate }: { aggregate: CohortPlanningAggregate 
         <div className="mb-2 text-xs font-bold uppercase tracking-[0.1em] text-cpcqc-purple-dark/60">
           {aggregate.programYear - 1} context
         </div>
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-cpcqc-purple-dark">
-          <span className="font-rounded text-2xl font-extrabold text-cpcqc-purple-dark">
-            {aggregate.cohortContext.tttContinuationCount}
-          </span>
-          <span>
-            hospital{aggregate.cohortContext.tttContinuationCount === 1 ? '' : 's'} currently
-            in TTT — continuing automatically into {aggregate.programYear}
-          </span>
+        <div className="space-y-1.5 text-sm text-cpcqc-purple-dark">
+          <div className="flex flex-wrap items-baseline gap-x-3">
+            <span className="font-rounded text-2xl font-extrabold text-cpcqc-purple-dark">
+              {aggregate.cohortContext.tttContinuationCount}
+            </span>
+            <span>
+              hospital{aggregate.cohortContext.tttContinuationCount === 1 ? '' : 's'} currently
+              in TTT — continuing automatically into {aggregate.programYear}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-baseline gap-x-3">
+            <span className="font-rounded text-2xl font-extrabold text-cpcqc-purple-dark">
+              {aggregate.cohortContext.soarSustainabilityCount}
+            </span>
+            <span>
+              hospital{aggregate.cohortContext.soarSustainabilityCount === 1 ? '' : 's'} in SOAR
+              sustainability — pending {aggregate.programYear - 1} metrics review (graduate or
+              revert to SOAR active)
+            </span>
+          </div>
         </div>
       </div>
 
@@ -520,6 +532,12 @@ function FlagPills({ form }: { form: AnnualInterestForm }) {
       color: 'bg-cpcqc-orange-dark/15 text-cpcqc-orange-dark',
     });
   }
+  if (form.flags.currentlyInSoarSustainability) {
+    flags.push({
+      label: 'SOAR sustain — review',
+      color: 'bg-cpcqc-orange-dark/15 text-cpcqc-orange-dark',
+    });
+  }
   if (form.staffNote && form.staffNote.trim()) {
     flags.push({
       label: 'PM note',
@@ -545,7 +563,7 @@ function FlagPills({ form }: { form: AnnualInterestForm }) {
             f.color,
           )}
         >
-          {f.label === 'TTT continuation' && <AlertTriangle size={10} aria-hidden />}
+          {f.color.includes('orange') && <AlertTriangle size={10} aria-hidden />}
           {f.label}
         </span>
       ))}

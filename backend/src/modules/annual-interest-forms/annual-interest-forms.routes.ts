@@ -135,6 +135,7 @@ staffAnnualInterestRouter.get('/export', requireAuth, async (req, res) => {
     { header: 'Status', key: 'status', width: 14 },
     { header: 'Decided cohorts', key: 'decided', width: 22 },
     { header: 'Currently in TTT', key: 'tttFlag', width: 16 },
+    { header: 'SOAR sustain (review)', key: 'soarSustainFlag', width: 20 },
     ...RANKABLE_INITIATIVE_CODES.map((code) => ({
       header: `${code} rank`,
       key: `rank_${code}`,
@@ -162,6 +163,7 @@ staffAnnualInterestRouter.get('/export', requireAuth, async (req, res) => {
       status: f.status,
       decided: (f.decidedInitiatives ?? []).join(', '),
       tttFlag: f.flags.currentlyEnrolledInTTT ? 'Yes' : 'No',
+      soarSustainFlag: f.flags.currentlyInSoarSustainability ? 'Yes' : 'No',
       ...Object.fromEntries(
         RANKABLE_INITIATIVE_CODES.map((code) => [
           `rank_${code}`,

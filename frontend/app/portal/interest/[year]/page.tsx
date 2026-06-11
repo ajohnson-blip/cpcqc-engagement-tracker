@@ -51,7 +51,6 @@ const RANKABLE_INITIATIVES = [
   { code: 'SOAR',  name: 'SOAR: Primary Cesarean Reduction',         emoji: '🪁' },
   { code: 'NEST',  name: 'NEST: Infant Safe Sleep',                  emoji: '🐣' },
 ] as const;
-const TOTAL_RANKS = RANKABLE_INITIATIVES.length;
 
 type Rank = 1 | 2 | 3 | '';
 
@@ -160,10 +159,36 @@ export default function AnnualInterestRealPage() {
     () => priorEnrollments.some((e) => e.initiative?.code === 'TTT'),
     [priorEnrollments],
   );
+  // SOAR sustainability hospitals can't re-rank SOAR — sustainability is
+  // capped at one year. After year-end metrics, CPCQC graduates them or
+  // reverts them to SOAR active. So SOAR is dropped from their ranking pool.
+  const inSoarSustainability = useMemo(
+    () =>
+      priorEnrollments.some(
+        (e) => e.initiative?.code === 'SOAR' && e.cohort?.track === 'sustainability',
+      ),
+    [priorEnrollments],
+  );
+
+  // Per-hospital rankable pool: the global set minus any the hospital is
+  // locked out of. The backend independently validates against the same rule.
+  const eligibleInitiatives = useMemo(
+    () =>
+      RANKABLE_INITIATIVES.filter(
+        (init) => !(init.code === 'SOAR' && inSoarSustainability),
+      ),
+    [inSoarSustainability],
+  );
+  const eligibleCount = eligibleInitiatives.length;
+  const eligibleCodes = useMemo(
+    () => new Set(eligibleInitiatives.map((i) => i.code as RankableInitiativeCode)),
+    [eligibleInitiatives],
+  );
 
   // For TTT hospitals, the intent question is "how many ADDITIONAL initiatives
   // beyond your TTT continuation?" with options 0 or 1. For non-TTT hospitals,
-  // it's 1 or 2 — the standard cap.
+  // it's 1 or 2 — the standard cap. (SOAR-sustainability hospitals keep the
+  // normal cap; CPCQC reconciles if they revert to SOAR active.)
   const intentOptions = inTTT
     ? ([0, 1] as const)
     : ([1, 2] as const);
@@ -192,14 +217,17 @@ export default function AnnualInterestRealPage() {
   if (!submitterRole.trim()) validationErrors.push('Your role is required.');
   if (!submitterEmail.trim()) validationErrors.push('Email is required.');
   if (intendedCount === '') validationErrors.push('Tell us how many initiatives you intend to enroll in.');
-  const ranksFilled = (Object.values(ranks) as Rank[]).filter((r) => r !== '').length;
-  if (ranksFilled < TOTAL_RANKS) {
-    validationErrors.push(`Rank all ${TOTAL_RANKS} initiatives from 1 to ${TOTAL_RANKS}.`);
+  // Only count ranks for eligible initiatives (a dropped SOAR stays '').
+  const ranksFilled = (Object.keys(ranks) as RankableInitiativeCode[])
+    .filter((code) => eligibleCodes.has(code) && ranks[code] !== '')
+    .length;
+  if (ranksFilled < eligibleCount) {
+    validationErrors.push(`Rank all ${eligibleCount} initiatives from 1 to ${eligibleCount}.`);
   }
-  if (ranksFilled === TOTAL_RANKS && takenRanks.size !== TOTAL_RANKS) {
-    validationErrors.push(`Each initiative needs a unique rank from 1 to ${TOTAL_RANKS}.`);
+  if (ranksFilled === eligibleCount && takenRanks.size !== eligibleCount) {
+    validationErrors.push(`Each initiative needs a unique rank from 1 to ${eligibleCount}.`);
   }
-  if (ranksFilled === TOTAL_RANKS && takenRanks.size === TOTAL_RANKS) {
+  if (ranksFilled === eligibleCount && takenRanks.size === eligibleCount) {
     const topCode = codeByRank.get(1);
     const secondCode = codeByRank.get(2);
     if (topCode && !whys[topCode].trim()) {
@@ -218,14 +246,17 @@ export default function AnnualInterestRealPage() {
     setSubmitting(true);
     try {
       const topCode = codeByRank.get(1)!;
-      const secondCode = codeByRank.get(2)!;
+      const secondCode = codeByRank.get(2);
+      // Only eligible initiatives with a numeric rank — a dropped SOAR stays
+      // '' and must not be sent.
       const rankedInitiatives = (Object.keys(ranks) as RankableInitiativeCode[])
+        .filter((code) => eligibleCodes.has(code) && typeof ranks[code] === 'number')
         .map((code) => ({ code, rank: ranks[code] as number }))
         .sort((a, b) => a.rank - b.rank);
-      const reasoning = {
+      const reasoning: Record<string, string> = {
         [topCode]: whys[topCode].trim(),
-        [secondCode]: whys[secondCode].trim(),
       };
+      if (secondCode) reasoning[secondCode] = whys[secondCode].trim();
       const res = await api.post<{ form: AnnualInterestForm; wasUpdate: boolean }>(
         '/portal/annual-interest-forms',
         {
@@ -380,6 +411,15 @@ export default function AnnualInterestRealPage() {
           detailed initiative-specific Enrollment Forms for the programs you're accepted into.
         </p>
       </header>
+
+      <div className="mb-6 rounded-xl border border-cpcqc-purple-dark/15 bg-cpcqc-cream-dark/20 px-4 py-3 text-sm text-cpcqc-purple-dark/80">
+        <strong className="text-cpcqc-purple-dark">
+          Under Colorado law (C.R.S. § 25-52-106.5(6)(a)(II)), hospitals are only required to
+          actively engage in one QI initiative per year.
+        </strong>{' '}
+        Ranking a second initiative below is optional — it helps CPCQC plan cohort sizes, but
+        you're not obligated to participate in more than one.
+      </div>
 
       <div
         className={
@@ -575,12 +615,33 @@ export default function AnnualInterestRealPage() {
             </p>
           </div>
 
+          {inSoarSustainability && (
+            <div className="rounded-xl border border-cpcqc-purple-dark/15 bg-cpcqc-cream-dark/30 p-4">
+              <h3 className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
+                About your SOAR sustainability year
+              </h3>
+              <p className="mt-2 text-sm text-cpcqc-purple-dark/80">
+                Your hospital is completing its SOAR sustainability year in {priorYear}. Under
+                Colorado law, sustainability participation is limited to one year, so SOAR
+                isn't a ranking option below. Once your {priorYear} SOAR metrics are finalized
+                after year-end, CPCQC will confirm your {programYear} SOAR status —{' '}
+                <strong>hospitals that meet their sustainability metrics graduate from SOAR</strong>,
+                while those that don't may return to the SOAR active cohort. We'll be in touch
+                about which applies to you.
+              </p>
+              <p className="mt-2 text-xs text-cpcqc-purple-dark/60">
+                If CPCQC moves you to SOAR active for {programYear}, that counts toward your
+                two-initiative limit and we'll reconcile it with anything you rank below.
+              </p>
+            </div>
+          )}
+
           <Section
             title="Rank the initiatives"
-            description={`Rank all ${TOTAL_RANKS} from 1 (your top choice) to ${TOTAL_RANKS} (lowest). Two of these will appear above the others — we ask for a brief "why" on your top two so the cohort review has the context it needs.`}
+            description={`Rank all ${eligibleCount} from 1 (your top choice) to ${eligibleCount} (lowest). The top two will be highlighted — we ask for a brief "why" on your top two so the cohort review has the context it needs.`}
           >
             <div className="space-y-3">
-              {RANKABLE_INITIATIVES.map((init) => {
+              {eligibleInitiatives.map((init) => {
                 const code = init.code as RankableInitiativeCode;
                 const rank = ranks[code];
                 const isTop2 = rank === 1 || rank === 2;
@@ -623,7 +684,7 @@ export default function AnnualInterestRealPage() {
                           aria-label={`Rank for ${init.code}`}
                         >
                           <option value="">—</option>
-                          {Array.from({ length: TOTAL_RANKS }, (_, i) => i + 1).map((n) => {
+                          {Array.from({ length: eligibleCount }, (_, i) => i + 1).map((n) => {
                             const takenByOther = takenRanks.has(n) && rank !== n;
                             return (
                               <option key={n} value={n} disabled={takenByOther}>

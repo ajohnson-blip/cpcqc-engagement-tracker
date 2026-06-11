@@ -387,7 +387,10 @@ export interface AnnualInterestForm {
   staffNote: string | null;
   decidedInitiatives: RankableInitiativeCode[] | null;
   decidedAt: string | null;
-  flags: { currentlyEnrolledInTTT: boolean };
+  flags: {
+    currentlyEnrolledInTTT: boolean;
+    currentlyInSoarSustainability: boolean;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -399,6 +402,7 @@ export interface CohortPlanningAggregate {
   // nobody's submitted yet, here's what you're walking into" tiles.
   cohortContext: {
     tttContinuationCount: number;
+    soarSustainabilityCount: number;
   };
   // Submission-funnel metrics — labeled in the UI as "of submissions so far".
   intent: { 0: number; 1: number; 2: number };
