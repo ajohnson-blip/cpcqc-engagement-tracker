@@ -53,3 +53,7 @@ pm_engagement_data_*.xlsx
 # --- Misc ---
 *.tmp
 .cache/
+
+# Bulk-created account credentials — NEVER commit
+*credentials*.csv
+cpcqc-credentials*.csv
