@@ -19,6 +19,7 @@ import {
   UserPlus,
   Copy,
   CheckCircle2,
+  KeyRound,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import type {
@@ -33,6 +34,7 @@ export default function StaffUsersPage() {
   const [users, setUsers] = useState<StaffUserListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [manageUser, setManageUser] = useState<StaffUserListItem | null>(null);
+  const [resetUser, setResetUser] = useState<StaffUserListItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   // Bumped after a create to re-run the list query.
   const [reloadKey, setReloadKey] = useState(0);
@@ -143,13 +145,23 @@ export default function StaffUsersPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setManageUser(u)}
-                      className="font-semibold text-cpcqc-purple hover:underline"
-                    >
-                      Manage access →
-                    </button>
+                    <div className="inline-flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setResetUser(u)}
+                        className="inline-flex items-center gap-1 font-semibold text-cpcqc-purple-dark/70 hover:text-cpcqc-purple hover:underline"
+                        title="Reset password & email new credentials"
+                      >
+                        <KeyRound size={12} aria-hidden /> Reset
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setManageUser(u)}
+                        className="font-semibold text-cpcqc-purple hover:underline"
+                      >
+                        Manage access →
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -174,6 +186,178 @@ export default function StaffUsersPage() {
           onCreated={() => setReloadKey((k) => k + 1)}
         />
       )}
+
+      {resetUser && (
+        <ResetPasswordModal user={resetUser} onClose={() => setResetUser(null)} />
+      )}
+    </div>
+  );
+}
+
+interface ResetResult {
+  emailed: boolean;
+  tempPassword: string | null;
+  email: string;
+  url: string;
+}
+
+function ResetPasswordModal({
+  user,
+  onClose,
+}: {
+  user: StaffUserListItem;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<ResetResult | null>(null);
+  const [copied, setCopied] = useState(false);
+  const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  async function doReset() {
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await api.post<ResetResult>(`/staff/users/${user.id}/reset-password`, {});
+      setResult(res);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not reset the password.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 grid place-items-center bg-cpcqc-purple-dark/40 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-card">
+        <div className="h-1.5 w-full bg-cpcqc-pink" />
+        <div className="flex items-start justify-between gap-4 px-6 pt-5">
+          <h2 className="font-rounded text-xl font-extrabold text-cpcqc-purple-dark">
+            {result ? 'Password reset' : 'Reset password'}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-1 text-cpcqc-purple-dark/60 hover:bg-cpcqc-purple-dark/5"
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-4 px-6 pb-5 pt-4">
+          {error && (
+            <div className="rounded-lg bg-cpcqc-pink-dark/10 px-3 py-2 text-sm text-cpcqc-pink-dark">
+              {error}
+            </div>
+          )}
+
+          {!result ? (
+            <>
+              <p className="text-sm text-cpcqc-purple-dark/80">
+                Reset the password for <strong>{name}</strong> ({user.email})? They'll be
+                emailed a new temporary password and any current session will be signed out.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  disabled={busy}
+                  className="rounded-full border border-cpcqc-purple-dark/20 px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void doReset()}
+                  disabled={busy}
+                  className="rounded-full bg-cpcqc-purple px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90 disabled:opacity-50"
+                >
+                  {busy ? 'Resetting…' : 'Reset & email'}
+                </button>
+              </div>
+            </>
+          ) : result.emailed ? (
+            <>
+              <div className="flex items-start gap-2 rounded-lg bg-cpcqc-teal-dark/10 px-3 py-2 text-sm text-cpcqc-purple-dark">
+                <CheckCircle2
+                  size={16}
+                  className="mt-0.5 shrink-0 text-cpcqc-teal-dark"
+                  aria-hidden
+                />
+                <span>
+                  New credentials emailed to <strong>{result.email}</strong>. They'll set their
+                  own password on next sign-in.
+                </span>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-full bg-cpcqc-purple px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90"
+                >
+                  Done
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="rounded-lg bg-cpcqc-orange-dark/10 px-3 py-2 text-sm text-cpcqc-orange-dark">
+                Password reset, but the email couldn't be sent. Share these manually:
+              </div>
+              <div className="rounded-lg border border-cpcqc-purple-dark/20 bg-cpcqc-cream-dark/20 p-3 text-sm text-cpcqc-purple-dark">
+                <div>
+                  <span className="text-cpcqc-purple-dark/60">Sign in at:</span> {result.url}
+                </div>
+                <div className="mt-1">
+                  <span className="text-cpcqc-purple-dark/60">Email:</span> {result.email}
+                </div>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="text-cpcqc-purple-dark/60">Password:</span>
+                  <code className="break-all font-mono">{result.tempPassword}</code>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!result.tempPassword) return;
+                      void navigator.clipboard?.writeText(result.tempPassword).then(() => {
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 1500);
+                      });
+                    }}
+                    className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-cpcqc-purple-dark/20 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5"
+                  >
+                    <Copy size={12} aria-hidden /> {copied ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-full bg-cpcqc-purple px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90"
+                >
+                  Done
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

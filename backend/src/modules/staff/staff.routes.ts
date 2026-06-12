@@ -29,6 +29,11 @@ import { HttpError } from '@/middleware/errors.js';
 import { generateTempPassword, hashPassword } from '@/modules/auth/auth.service.js';
 import { sendEmail } from '@/modules/notifications/notifications.service.js';
 import {
+  credentialsEmail,
+  loginUrl,
+  resetPasswordAndEmail,
+} from './champion-accounts.service.js';
+import {
   evaluateEnrollment,
   evaluateProgramYearById,
   pickCurrentProgramYear,
@@ -739,26 +744,22 @@ router.post('/users', requireAuth, requireStaff, async (req, res) => {
     hospitalId: body.hospitalId,
   });
 
-  // Email the champion their sign-in details directly. CORS_ORIGIN is the
-  // frontend base (first entry if it's a comma list).
-  const frontendBase = env.CORS_ORIGIN.split(',')[0]!.trim().replace(/\/$/, '');
-  const loginUrl = `${frontendBase}/login`;
+  // Email the champion their sign-in details directly.
+  const url = loginUrl();
+  const { subject, body: emailBody } = credentialsEmail({
+    firstName: body.firstName,
+    hospitalName: hospital.name,
+    email: body.email,
+    tempPassword,
+    url,
+    reason: 'welcome',
+  });
   const sendResult = await sendEmail({
     toEmail: body.email,
-    subject: 'Your CPCQC Engagement Tracker account',
+    subject,
     kind: 'champion.welcome',
     userId: id,
-    body:
-      `Hi ${body.firstName},\n\n` +
-      `A CPCQC program manager has set up your account for the Engagement Tracker — ` +
-      `the dashboard where ${hospital.name} tracks its perinatal QI engagement.\n\n` +
-      `Sign in here: ${loginUrl}\n` +
-      `  Email:    ${body.email}\n` +
-      `  Password: ${tempPassword}\n\n` +
-      `Please change your password right after your first sign-in ` +
-      `(Account → Change password). The temporary password above is for ` +
-      `first-time access only.\n\n` +
-      `Questions? qi@cpcqc.org`,
+    body: emailBody,
   });
 
   // sendEmail never throws — it returns sent=false in dev (no SendGrid key)
@@ -777,9 +778,18 @@ router.post('/users', requireAuth, requireStaff, async (req, res) => {
       hospital: { id: hospital.id, name: hospital.name },
     },
     emailed,
-    loginUrl,
+    loginUrl: url,
     tempPassword: emailed ? null : tempPassword,
   });
+});
+
+// Reset a champion's password and email them new credentials. General-purpose
+// recovery (champion forgot / never activated). Returns whether the email
+// sent; on failure returns the temp password for manual relay.
+router.post('/users/:userId/reset-password', requireAuth, requireStaff, async (req, res) => {
+  const userId = z.string().uuid().parse(req.params.userId);
+  const result = await resetPasswordAndEmail(userId, 'reset');
+  res.json(result);
 });
 
 // A single user's hospital access — primary + additional grants.
