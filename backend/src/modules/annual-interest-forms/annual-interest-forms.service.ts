@@ -13,7 +13,7 @@ import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
-import type { AuthContext } from '@/middleware/auth.js';
+import { resolveActiveHospitalId, type AuthContext } from '@/middleware/auth.js';
 import { sendEmail } from '@/modules/notifications/notifications.service.js';
 
 // ---------- Types + zod schemas ----------
@@ -46,6 +46,9 @@ export const submitInterestFormBodySchema = z.object({
   submitterName: z.string().trim().min(1).max(200),
   submitterRole: z.string().trim().min(1).max(200),
   submitterEmail: z.string().trim().email().max(254),
+  // Active hospital for regional users (validated against their accessible
+  // set). Omitted → the user's primary hospital.
+  hospitalId: z.string().uuid().optional(),
 });
 export type SubmitInterestFormBody = z.infer<typeof submitInterestFormBodySchema>;
 
@@ -201,9 +204,9 @@ export async function submitAnnualInterestForm(
   if (ctx.role !== 'hospital_user' && ctx.role !== 'hospital_admin') {
     throw new HttpError(403, 'Only hospital users can submit interest forms.');
   }
-  if (!ctx.hospitalId) {
-    throw new HttpError(403, 'No hospital associated with this account.');
-  }
+  // Regional users submit for whichever hospital is active in the switcher;
+  // resolveActiveHospitalId validates it's one they can access.
+  const targetHospitalId = resolveActiveHospitalId(ctx, parsed.hospitalId);
 
   // Window check — submissions are rejected outside the open window. CPCQC
   // staff can still PATCH metadata (staff_note, status) post-close via the
@@ -226,7 +229,7 @@ export async function submitAnnualInterestForm(
   // initiative it's locked out of, e.g. SOAR for a SOAR-sustainability
   // hospital). Computed server-side so a tampered request can't rank an
   // ineligible initiative.
-  const eligible = await eligibleRankableCodes(ctx.hospitalId, parsed.programYear);
+  const eligible = await eligibleRankableCodes(targetHospitalId, parsed.programYear);
   const submittedCodes = parsed.rankedInitiatives.map((r) => r.code).sort();
   const eligibleSorted = [...eligible].sort();
   const sameSet =
@@ -275,7 +278,7 @@ export async function submitAnnualInterestForm(
   const insert = {
     id: uuid(),
     programYear: parsed.programYear,
-    hospitalId: ctx.hospitalId,
+    hospitalId: targetHospitalId,
     submitterUserId: ctx.userId ?? null,
     submitterName: parsed.submitterName,
     submitterRole: parsed.submitterRole,
@@ -331,12 +334,14 @@ export async function submitAnnualInterestForm(
 export async function getInterestFormForHospital(
   programYear: number,
   ctx: AuthContext,
+  requestedHospitalId?: string,
 ): Promise<InterestFormShape | null> {
-  if (!ctx.hospitalId) return null;
+  if (ctx.hospitalIds.length === 0) return null;
+  const hospitalId = resolveActiveHospitalId(ctx, requestedHospitalId);
   const row = await db.query.annualInterestForms.findFirst({
     where: and(
       eq(schema.annualInterestForms.programYear, programYear),
-      eq(schema.annualInterestForms.hospitalId, ctx.hospitalId),
+      eq(schema.annualInterestForms.hospitalId, hospitalId),
     ),
   });
   if (!row) return null;

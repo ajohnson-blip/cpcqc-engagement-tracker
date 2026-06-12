@@ -6,7 +6,15 @@ import { HttpError } from './errors.js';
 export interface AuthContext {
   userId: string;
   role: 'hospital_user' | 'hospital_admin' | 'cpcqc_staff' | 'cpcqc_admin';
+  /** Primary/default hospital (back-compat; also the default "active" one). */
   hospitalId: string | null;
+  /**
+   * Full set of hospitals this user may access — the primary plus any granted
+   * via user_hospitals (regional staff). Always includes hospitalId when
+   * non-null. Single-hospital users have exactly [hospitalId], so
+   * `hospitalIds.includes(x)` behaves like the old `hospitalId === x`.
+   */
+  hospitalIds: string[];
 }
 
 declare module 'express-serve-static-core' {
@@ -24,10 +32,19 @@ export function signAccessToken(ctx: AuthContext): string {
 
 export function verifyAccessToken(token: string): AuthContext {
   const payload = jwt.verify(token, env.JWT_ACCESS_SECRET) as jwt.JwtPayload & AuthContext;
+  const hospitalId = payload.hospitalId ?? null;
+  // Back-compat: tokens issued before multi-hospital won't carry hospitalIds;
+  // fall back to [primary] so old sessions keep working until they refresh.
+  const hospitalIds = Array.isArray(payload.hospitalIds)
+    ? payload.hospitalIds
+    : hospitalId
+      ? [hospitalId]
+      : [];
   return {
     userId: payload.userId,
     role: payload.role,
-    hospitalId: payload.hospitalId ?? null,
+    hospitalId,
+    hospitalIds,
   };
 }
 
@@ -53,3 +70,25 @@ export const requireRole =
 
 export const requireStaff = requireRole('cpcqc_staff', 'cpcqc_admin');
 export const requireAdmin = requireRole('cpcqc_admin');
+
+/**
+ * Resolve which hospital a hospital-user request is acting on. A regional user
+ * can pass the active hospital (e.g. from the portal switcher); it must be one
+ * they're allowed to access. With no explicit choice, defaults to their
+ * primary, then the first accessible. Throws 403 for an inaccessible request
+ * and 400 when the account has no hospital at all.
+ */
+export function resolveActiveHospitalId(
+  ctx: AuthContext,
+  requested?: string | null,
+): string {
+  if (requested) {
+    if (!ctx.hospitalIds.includes(requested)) {
+      throw new HttpError(403, 'You do not have access to that hospital.');
+    }
+    return requested;
+  }
+  if (ctx.hospitalId) return ctx.hospitalId;
+  if (ctx.hospitalIds.length > 0) return ctx.hospitalIds[0]!;
+  throw new HttpError(400, 'No hospital is associated with this account.');
+}

@@ -14,7 +14,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asc, eq, inArray } from 'drizzle-orm';
 import { db, schema } from '@/db/index.js';
-import { requireAuth } from '@/middleware/auth.js';
+import { requireAuth, resolveActiveHospitalId } from '@/middleware/auth.js';
 import { HttpError } from '@/middleware/errors.js';
 import {
   evaluateEnrollment,
@@ -26,11 +26,14 @@ import { getTeamsForInitiativeIds } from '@/modules/staff/staff-team.service.js'
 const router = Router();
 
 router.get('/enrollments', requireAuth, async (req, res) => {
-  if (!req.auth!.hospitalId) {
+  if (req.auth!.hospitalIds.length === 0) {
     res.json({ enrollments: [] });
     return;
   }
-  const hospitalId = req.auth!.hospitalId;
+  // Regional users pass the active hospital from the portal switcher; it must
+  // be one they can access. Defaults to their primary.
+  const requested = z.string().uuid().optional().parse(req.query.hospitalId);
+  const hospitalId = resolveActiveHospitalId(req.auth!, requested);
 
   const enrollments = await db
     .select()
@@ -126,17 +129,18 @@ router.get('/enrollments', requireAuth, async (req, res) => {
 });
 
 router.get('/tasks', requireAuth, async (req, res) => {
-  if (!req.auth!.hospitalId) {
+  if (req.auth!.hospitalIds.length === 0) {
     res.json({ tasks: [] });
     return;
   }
-  const hospitalId = req.auth!.hospitalId;
   const query = z
     .object({
       status: z.enum(['not_started', 'current_activities', 'complete', 'needs_revision']).optional(),
       programYear: z.coerce.number().int().min(2025).max(2100).optional(),
+      hospitalId: z.string().uuid().optional(),
     })
     .parse(req.query);
+  const hospitalId = resolveActiveHospitalId(req.auth!, query.hospitalId);
 
   const enrollmentIds = (
     await db

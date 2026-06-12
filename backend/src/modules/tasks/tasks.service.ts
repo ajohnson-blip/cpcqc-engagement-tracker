@@ -400,7 +400,7 @@ export async function setTaskNote(
 
 function assertCanReadEnrollment(hospitalId: string, ctx: AuthContext) {
   if (ctx.role === 'cpcqc_staff' || ctx.role === 'cpcqc_admin') return;
-  if (ctx.hospitalId === hospitalId) return;
+  if (ctx.hospitalIds.includes(hospitalId)) return;
   throw new HttpError(403, 'Forbidden: not your hospital');
 }
 
@@ -408,7 +408,7 @@ function assertCanWriteEnrollment(hospitalId: string, ctx: AuthContext) {
   if (ctx.role === 'cpcqc_staff' || ctx.role === 'cpcqc_admin') return;
   if (
     (ctx.role === 'hospital_user' || ctx.role === 'hospital_admin') &&
-    ctx.hospitalId === hospitalId
+    ctx.hospitalIds.includes(hospitalId)
   ) {
     return;
   }

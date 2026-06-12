@@ -62,7 +62,8 @@ portalAnnualInterestRouter.get('/', requireAuth, async (req, res) => {
     .min(2026)
     .max(2100)
     .parse(req.query.programYear);
-  const form = await getInterestFormForHospital(programYear, req.auth!);
+  const hospitalId = z.string().uuid().optional().parse(req.query.hospitalId);
+  const form = await getInterestFormForHospital(programYear, req.auth!, hospitalId);
   res.json({ form });
 });
 

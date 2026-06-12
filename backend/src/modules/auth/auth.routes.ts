@@ -4,7 +4,7 @@ import { env } from '@/config/env.js';
 import { HttpError } from '@/middleware/errors.js';
 import { requireAuth } from '@/middleware/auth.js';
 import { db, schema } from '@/db/index.js';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
   changePassword,
   login,
@@ -95,6 +95,20 @@ router.get('/me', requireAuth, async (req, res) => {
   const hospital = user.hospitalId
     ? await db.query.hospitals.findFirst({ where: eq(schema.hospitals.id, user.hospitalId) })
     : null;
+
+  // Full accessible-hospital set (primary ∪ user_hospitals grants), so the
+  // portal can render a switcher for regional staff. The auth context already
+  // carries the ids; resolve them to names here.
+  const accessibleIds = req.auth!.hospitalIds;
+  const hospitals = accessibleIds.length
+    ? (
+        await db
+          .select({ id: schema.hospitals.id, name: schema.hospitals.name })
+          .from(schema.hospitals)
+          .where(inArray(schema.hospitals.id, accessibleIds))
+      ).sort((a, b) => a.name.localeCompare(b.name))
+    : [];
+
   res.json({
     user: {
       id: user.id,
@@ -107,6 +121,7 @@ router.get('/me', requireAuth, async (req, res) => {
     hospital: hospital
       ? { id: hospital.id, name: hospital.name, region: hospital.region }
       : null,
+    hospitals,
   });
 });
 

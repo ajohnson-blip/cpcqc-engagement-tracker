@@ -721,3 +721,35 @@ export const annualInterestForms = pgTable(
     statusIdx: index('annual_interest_forms_status_idx').on(t.status),
   }),
 );
+
+// ---------- Multi-hospital access (regional staff) ----------
+
+/**
+ * Additional hospitals a user can access beyond their primary
+ * users.hospital_id. Regional staff (e.g. a UCHealth QI lead covering several
+ * UCHealth sites) get one login that can switch between all their hospitals.
+ *
+ * A user's full accessible set = {users.hospital_id} ∪ {user_hospitals rows}.
+ * The primary stays on users.hospital_id for back-compat (single-hospital
+ * users need no rows here).
+ */
+export const userHospitals = pgTable(
+  'user_hospitals',
+  {
+    id: idCol(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    hospitalId: text('hospital_id')
+      .notNull()
+      .references(() => hospitals.id, { onDelete: 'cascade' }),
+    ...timestamps,
+  },
+  (t) => ({
+    uniqUserHospital: uniqueIndex('user_hospitals_user_hospital_uniq').on(
+      t.userId,
+      t.hospitalId,
+    ),
+    userIdx: index('user_hospitals_user_idx').on(t.userId),
+  }),
+);

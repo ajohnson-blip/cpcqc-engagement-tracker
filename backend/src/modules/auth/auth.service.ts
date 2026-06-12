@@ -32,6 +32,34 @@ export interface LoginResult {
   auth: AuthContext;
 }
 
+/**
+ * Build the auth context for a user, including the full accessible-hospital
+ * set (primary users.hospital_id ∪ user_hospitals grants). Baked into the
+ * access token, so a grant/revoke takes effect on the user's next token
+ * refresh (≤ access TTL) or immediately on re-login.
+ */
+async function buildAuthContext(user: {
+  id: string;
+  role: AuthContext['role'];
+  hospitalId: string | null;
+}): Promise<AuthContext> {
+  const ids = new Set<string>();
+  if (user.hospitalId) ids.add(user.hospitalId);
+  if (user.role === 'hospital_user' || user.role === 'hospital_admin') {
+    const extra = await db
+      .select({ hospitalId: schema.userHospitals.hospitalId })
+      .from(schema.userHospitals)
+      .where(eq(schema.userHospitals.userId, user.id));
+    for (const e of extra) ids.add(e.hospitalId);
+  }
+  return {
+    userId: user.id,
+    role: user.role,
+    hospitalId: user.hospitalId ?? null,
+    hospitalIds: Array.from(ids),
+  };
+}
+
 export async function login(email: string, password: string): Promise<LoginResult> {
   const user = await db.query.users.findFirst({
     where: and(sql`lower(${schema.users.email}) = lower(${email})`, isNull(schema.users.deactivatedAt)),
@@ -40,11 +68,7 @@ export async function login(email: string, password: string): Promise<LoginResul
   const ok = await verifyPassword(password, user.passwordHash);
   if (!ok) throw new HttpError(401, 'Invalid credentials');
 
-  const auth: AuthContext = {
-    userId: user.id,
-    role: user.role,
-    hospitalId: user.hospitalId ?? null,
-  };
+  const auth = await buildAuthContext(user);
 
   const accessToken = signAccessToken(auth);
   const { token: refreshToken, hash: tokenHash } = newOpaqueToken();
@@ -89,11 +113,7 @@ export async function refresh(refreshToken: string): Promise<LoginResult> {
     .set({ revokedAt: new Date(), updatedAt: new Date() })
     .where(eq(schema.refreshTokens.id, row.id));
 
-  const auth: AuthContext = {
-    userId: user.id,
-    role: user.role,
-    hospitalId: user.hospitalId ?? null,
-  };
+  const auth = await buildAuthContext(user);
   const accessToken = signAccessToken(auth);
   const { token: newRefresh, hash: newHash } = newOpaqueToken();
   const expiresAt = new Date(Date.now() + env.JWT_REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000);
