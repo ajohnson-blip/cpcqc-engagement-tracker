@@ -23,9 +23,11 @@ import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '@/db/index.js';
+import { env } from '@/config/env.js';
 import { requireAuth, requireStaff } from '@/middleware/auth.js';
 import { HttpError } from '@/middleware/errors.js';
 import { generateTempPassword, hashPassword } from '@/modules/auth/auth.service.js';
+import { sendEmail } from '@/modules/notifications/notifications.service.js';
 import {
   evaluateEnrollment,
   evaluateProgramYearById,
@@ -696,6 +698,34 @@ router.post('/users', requireAuth, requireStaff, async (req, res) => {
     hospitalId: body.hospitalId,
   });
 
+  // Email the champion their sign-in details directly. CORS_ORIGIN is the
+  // frontend base (first entry if it's a comma list).
+  const frontendBase = env.CORS_ORIGIN.split(',')[0]!.trim().replace(/\/$/, '');
+  const loginUrl = `${frontendBase}/login`;
+  const sendResult = await sendEmail({
+    toEmail: body.email,
+    subject: 'Your CPCQC Engagement Tracker account',
+    kind: 'champion.welcome',
+    userId: id,
+    body:
+      `Hi ${body.firstName},\n\n` +
+      `A CPCQC program manager has set up your account for the Engagement Tracker — ` +
+      `the dashboard where ${hospital.name} tracks its perinatal QI engagement.\n\n` +
+      `Sign in here: ${loginUrl}\n` +
+      `  Email:    ${body.email}\n` +
+      `  Password: ${tempPassword}\n\n` +
+      `Please change your password right after your first sign-in ` +
+      `(Account → Change password). The temporary password above is for ` +
+      `first-time access only.\n\n` +
+      `Questions? qi@cpcqc.org`,
+  });
+
+  // sendEmail never throws — it returns sent=false in dev (no SendGrid key)
+  // or on a delivery failure. Only hand the plaintext back to the PM when the
+  // email did NOT go out, so they can relay it manually instead of the
+  // champion being locked out. When it sent, the password stays out of the
+  // response entirely.
+  const emailed = sendResult.sent;
   res.status(201).json({
     user: {
       id,
@@ -705,8 +735,9 @@ router.post('/users', requireAuth, requireStaff, async (req, res) => {
       role: body.role,
       hospital: { id: hospital.id, name: hospital.name },
     },
-    // Plaintext, shown once to the PM to relay. Never stored.
-    tempPassword,
+    emailed,
+    loginUrl,
+    tempPassword: emailed ? null : tempPassword,
   });
 });
 

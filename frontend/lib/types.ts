@@ -58,7 +58,11 @@ export interface CreateChampionResponse {
     role: UserRole;
     hospital: { id: string; name: string };
   };
-  tempPassword: string;
+  // True when the welcome email went out. When false (dev / delivery failure),
+  // tempPassword is returned so the PM can relay it manually.
+  emailed: boolean;
+  loginUrl: string;
+  tempPassword: string | null;
 }
 
 export type RequirementStatus = 'on_track' | 'at_risk' | 'met' | 'not_met';

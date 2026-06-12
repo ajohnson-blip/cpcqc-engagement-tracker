@@ -249,7 +249,7 @@ function CreateChampionModal({
   }
 
   function copyPassword() {
-    if (!created) return;
+    if (!created?.tempPassword) return;
     void navigator.clipboard?.writeText(created.tempPassword).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
@@ -283,34 +283,60 @@ function CreateChampionModal({
 
         {created ? (
           <div className="space-y-4 px-6 pb-5 pt-4">
-            <div className="flex items-start gap-2 rounded-lg bg-cpcqc-teal-dark/10 px-3 py-2 text-sm text-cpcqc-purple-dark">
-              <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-cpcqc-teal-dark" aria-hidden />
-              <span>
-                Account for <strong>{created.user.email}</strong> at{' '}
-                <strong>{created.user.hospital.name}</strong> is ready.
-              </span>
-            </div>
-            <div>
-              <div className="mb-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/60">
-                Temporary password
-              </div>
-              <div className="flex items-center gap-2 rounded-lg border border-cpcqc-purple-dark/20 bg-cpcqc-cream-dark/20 px-3 py-2">
-                <code className="flex-1 break-all font-mono text-sm text-cpcqc-purple-dark">
-                  {created.tempPassword}
-                </code>
-                <button
-                  type="button"
-                  onClick={copyPassword}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-cpcqc-purple-dark/20 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5"
-                >
-                  <Copy size={12} aria-hidden /> {copied ? 'Copied' : 'Copy'}
-                </button>
-              </div>
-              <p className="mt-2 text-xs text-cpcqc-purple-dark/60">
-                Shown once — copy it now. Share it with the champion securely; they'll change it
-                on first sign-in (Account → Change password). They sign in at <strong>/portal</strong>.
-              </p>
-            </div>
+            {created.emailed ? (
+              <>
+                <div className="flex items-start gap-2 rounded-lg bg-cpcqc-teal-dark/10 px-3 py-2 text-sm text-cpcqc-purple-dark">
+                  <CheckCircle2
+                    size={16}
+                    className="mt-0.5 shrink-0 text-cpcqc-teal-dark"
+                    aria-hidden
+                  />
+                  <span>
+                    We've emailed <strong>{created.user.email}</strong> their sign-in details for{' '}
+                    <strong>{created.user.hospital.name}</strong>. They'll set their own password
+                    on first login — nothing more for you to do.
+                  </span>
+                </div>
+                <p className="text-xs text-cpcqc-purple-dark/60">
+                  If they don't see it, ask them to check spam, or you can resend by recreating —
+                  the account already exists, so use the access tools instead.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="flex items-start gap-2 rounded-lg bg-cpcqc-orange-dark/10 px-3 py-2 text-sm text-cpcqc-orange-dark">
+                  <CheckCircle2 size={16} className="mt-0.5 shrink-0" aria-hidden />
+                  <span>
+                    Account for <strong>{created.user.email}</strong> at{' '}
+                    <strong>{created.user.hospital.name}</strong> is created, but the welcome email
+                    couldn't be sent. Share these details with the champion manually:
+                  </span>
+                </div>
+                <div className="rounded-lg border border-cpcqc-purple-dark/20 bg-cpcqc-cream-dark/20 p-3 text-sm text-cpcqc-purple-dark">
+                  <div>
+                    <span className="text-cpcqc-purple-dark/60">Sign in at:</span>{' '}
+                    {created.loginUrl}
+                  </div>
+                  <div className="mt-1">
+                    <span className="text-cpcqc-purple-dark/60">Email:</span> {created.user.email}
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-cpcqc-purple-dark/60">Password:</span>
+                    <code className="break-all font-mono">{created.tempPassword}</code>
+                    <button
+                      type="button"
+                      onClick={copyPassword}
+                      className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-cpcqc-purple-dark/20 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5"
+                    >
+                      <Copy size={12} aria-hidden /> {copied ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-cpcqc-purple-dark/60">
+                    Shown once — they'll change it on first sign-in (Account → Change password).
+                  </p>
+                </div>
+              </>
+            )}
             <div className="flex justify-end">
               <button
                 type="button"
