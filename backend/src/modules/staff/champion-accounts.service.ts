@@ -42,35 +42,51 @@ export function credentialsEmail(p: CredentialsEmailParams): {
       ? 'Your CPCQC Engagement Tracker password was reset'
       : 'Your CPCQC Engagement Tracker account';
 
-  // Lead paragraph explains *why* they're getting this message now.
-  const intro =
-    p.reason === 'welcome'
-      ? `A CPCQC program manager has set up your account for the Engagement Tracker — ` +
-        `the dashboard where ${p.hospitalName} tracks its perinatal QI engagement.`
-      : p.reason === 'onboarding'
-        ? `The CPCQC Engagement Tracker is now live — the dashboard where ${p.hospitalName} ` +
-          `tracks its perinatal QI engagement. Your account was created earlier; now that the ` +
-          `platform is ready, we're sending the sign-in details you'll need to get started. ` +
-          `(If you've been expecting this, this is it — there's nothing you missed.)`
-        : `Your CPCQC Engagement Tracker password has been reset by a CPCQC program manager. ` +
-          `Use the temporary password below to sign back in.`;
+  // Lead paragraph(s) explaining *why* they're getting this message now, an
+  // optional change-password line, and a closing — all by reason.
+  let intro: string;
+  let changeLine: string;
+  let closing: string;
 
-  const changeLine =
-    p.reason === 'reset'
-      ? `Please choose a new password right after you sign in (Account → Change password).`
-      : `Please change your password right after your first sign-in (Account → Change ` +
-        `password). The temporary password above is for first-time access only.`;
+  if (p.reason === 'onboarding') {
+    // Copy provided by CPCQC for the one-time onboarding of accounts created
+    // before email was available. References SB 24-175 / C.R.S. statute.
+    intro =
+      `The CPCQC Hospital Engagement Tracker has undergone significant improvements. This tool ` +
+      `helps your hospital monitor engagement activities and progress toward meeting the ` +
+      `requirements of Senate Bill 24-175, codified at C.R.S. § 25-52-106.5(6)(a)(II), which ` +
+      `requires all Colorado hospitals with labor and delivery services to participate ` +
+      `annually in at least one CPCQC-led quality improvement initiative.\n\n` +
+      `With the updated Engagement Tracker now available, we are sending your sign-in ` +
+      `information so you can reset your password and access the platform.`;
+    changeLine = '';
+    closing = `Please reach out to the CPCQC team if you have any questions or need support.`;
+  } else if (p.reason === 'welcome') {
+    intro =
+      `A CPCQC program manager has set up your account for the Engagement Tracker — ` +
+      `the dashboard where ${p.hospitalName} tracks its perinatal QI engagement.`;
+    changeLine =
+      `Please change your password right after your first sign-in (Account → Change ` +
+      `password). The temporary password above is for first-time access only.`;
+    closing = `Questions? qi@cpcqc.org`;
+  } else {
+    // reset
+    intro =
+      `Your CPCQC Engagement Tracker password has been reset by a CPCQC program manager. ` +
+      `Use the temporary password below to sign back in.`;
+    changeLine = `Please choose a new password right after you sign in (Account → Change password).`;
+    closing = `Questions? qi@cpcqc.org`;
+  }
 
-  const body =
-    `Hi ${p.firstName},\n\n` +
-    `${intro}\n\n` +
-    `Sign in here: ${p.url}\n` +
-    `  Email:    ${p.email}\n` +
-    `  Password: ${p.tempPassword}\n\n` +
-    `${changeLine}\n\n` +
-    `Questions? qi@cpcqc.org`;
+  const parts = [
+    `Hi ${p.firstName},`,
+    intro,
+    `Sign in here: ${p.url}\n  Email:    ${p.email}\n  Password: ${p.tempPassword}`,
+  ];
+  if (changeLine) parts.push(changeLine);
+  parts.push(closing);
 
-  return { subject, body };
+  return { subject, body: parts.join('\n\n') };
 }
 
 /**
