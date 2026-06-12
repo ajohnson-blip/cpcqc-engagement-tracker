@@ -108,6 +108,17 @@ export function StaffHeader() {
           >
             Issues
           </Link>
+          <Link
+            href="/staff/users"
+            className={clsx(
+              'rounded-full px-3 py-1.5 font-rounded text-xs font-bold uppercase tracking-wide transition',
+              activeMatch('/staff/users')
+                ? 'bg-cpcqc-purple text-white'
+                : 'text-cpcqc-purple-dark hover:bg-cpcqc-purple/10',
+            )}
+          >
+            Access
+          </Link>
         </nav>
 
         <div className="flex items-center gap-3 text-sm">

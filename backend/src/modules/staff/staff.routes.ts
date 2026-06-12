@@ -580,4 +580,169 @@ router.delete(
   },
 );
 
+// -------- /staff/users (multi-hospital access management) --------
+//
+// Lets CPCQC staff grant a hospital user access to additional hospitals
+// (regional staff covering several sites in their system). Manages the
+// user_hospitals grants; the primary users.hospital_id is shown but not
+// edited here.
+
+// Find hospital users to manage. Search matches email / first / last name.
+router.get('/users', requireAuth, requireStaff, async (req, res) => {
+  const search = z.string().trim().max(200).optional().parse(req.query.search);
+  const conditions = [
+    inArray(schema.users.role, ['hospital_user', 'hospital_admin'] as const),
+  ];
+  if (search) {
+    const like = `%${search.toLowerCase()}%`;
+    conditions.push(
+      sql`(lower(${schema.users.email}) LIKE ${like}
+        OR lower(coalesce(${schema.users.firstName}, '')) LIKE ${like}
+        OR lower(coalesce(${schema.users.lastName}, '')) LIKE ${like})`,
+    );
+  }
+  const rows = await db
+    .select({
+      id: schema.users.id,
+      email: schema.users.email,
+      firstName: schema.users.firstName,
+      lastName: schema.users.lastName,
+      role: schema.users.role,
+      primaryHospitalId: schema.users.hospitalId,
+    })
+    .from(schema.users)
+    .where(and(...conditions))
+    .orderBy(schema.users.email)
+    .limit(50);
+
+  // Count of additional hospital grants per user (for the list view).
+  const userIds = rows.map((r) => r.id);
+  const grantCounts = new Map<string, number>();
+  if (userIds.length) {
+    const counts = await db
+      .select({
+        userId: schema.userHospitals.userId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(schema.userHospitals)
+      .where(inArray(schema.userHospitals.userId, userIds))
+      .groupBy(schema.userHospitals.userId);
+    for (const c of counts) grantCounts.set(c.userId, c.count);
+  }
+  const hospitalNameById = new Map(
+    (
+      await db
+        .select({ id: schema.hospitals.id, name: schema.hospitals.name })
+        .from(schema.hospitals)
+    ).map((h) => [h.id, h.name]),
+  );
+
+  res.json({
+    users: rows.map((r) => ({
+      id: r.id,
+      email: r.email,
+      firstName: r.firstName,
+      lastName: r.lastName,
+      role: r.role,
+      primaryHospital: r.primaryHospitalId
+        ? { id: r.primaryHospitalId, name: hospitalNameById.get(r.primaryHospitalId) ?? '—' }
+        : null,
+      additionalCount: grantCounts.get(r.id) ?? 0,
+    })),
+  });
+});
+
+// A single user's hospital access — primary + additional grants.
+router.get('/users/:userId/hospitals', requireAuth, requireStaff, async (req, res) => {
+  const userId = z.string().uuid().parse(req.params.userId);
+  const user = await db.query.users.findFirst({ where: eq(schema.users.id, userId) });
+  if (!user) throw new HttpError(404, 'User not found');
+
+  const grants = await db
+    .select({
+      id: schema.userHospitals.id,
+      hospitalId: schema.userHospitals.hospitalId,
+      name: schema.hospitals.name,
+    })
+    .from(schema.userHospitals)
+    .innerJoin(schema.hospitals, eq(schema.hospitals.id, schema.userHospitals.hospitalId))
+    .where(eq(schema.userHospitals.userId, userId));
+
+  const primary = user.hospitalId
+    ? await db.query.hospitals.findFirst({ where: eq(schema.hospitals.id, user.hospitalId) })
+    : null;
+
+  res.json({
+    user: { id: user.id, email: user.email, role: user.role },
+    primaryHospital: primary ? { id: primary.id, name: primary.name } : null,
+    additionalHospitals: grants
+      .map((g) => ({ id: g.hospitalId, name: g.name }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  });
+});
+
+// Grant a user access to an additional hospital.
+router.post('/users/:userId/hospitals', requireAuth, requireStaff, async (req, res) => {
+  const userId = z.string().uuid().parse(req.params.userId);
+  const { hospitalId } = z.object({ hospitalId: z.string().uuid() }).parse(req.body);
+
+  const user = await db.query.users.findFirst({ where: eq(schema.users.id, userId) });
+  if (!user) throw new HttpError(404, 'User not found');
+  if (user.role !== 'hospital_user' && user.role !== 'hospital_admin') {
+    throw new HttpError(400, 'Only hospital users can be granted hospital access.');
+  }
+  const hospital = await db.query.hospitals.findFirst({
+    where: eq(schema.hospitals.id, hospitalId),
+  });
+  if (!hospital) throw new HttpError(404, 'Hospital not found');
+  if (user.hospitalId === hospitalId) {
+    throw new HttpError(409, 'That is already the user’s primary hospital.');
+  }
+  const dupe = await db
+    .select({ id: schema.userHospitals.id })
+    .from(schema.userHospitals)
+    .where(
+      and(
+        eq(schema.userHospitals.userId, userId),
+        eq(schema.userHospitals.hospitalId, hospitalId),
+      ),
+    )
+    .limit(1);
+  if (dupe.length) throw new HttpError(409, 'User already has access to that hospital.');
+
+  await db.insert(schema.userHospitals).values({ id: uuid(), userId, hospitalId });
+  res.status(201).json({ hospital: { id: hospital.id, name: hospital.name } });
+});
+
+// Revoke an additional-hospital grant. (The primary is not managed here.)
+router.delete(
+  '/users/:userId/hospitals/:hospitalId',
+  requireAuth,
+  requireStaff,
+  async (req, res) => {
+    const userId = z.string().uuid().parse(req.params.userId);
+    const hospitalId = z.string().uuid().parse(req.params.hospitalId);
+    const existing = await db
+      .select({ id: schema.userHospitals.id })
+      .from(schema.userHospitals)
+      .where(
+        and(
+          eq(schema.userHospitals.userId, userId),
+          eq(schema.userHospitals.hospitalId, hospitalId),
+        ),
+      )
+      .limit(1);
+    if (!existing.length) throw new HttpError(404, 'Grant not found.');
+    await db
+      .delete(schema.userHospitals)
+      .where(
+        and(
+          eq(schema.userHospitals.userId, userId),
+          eq(schema.userHospitals.hospitalId, hospitalId),
+        ),
+      );
+    res.status(204).end();
+  },
+);
+
 export default router;

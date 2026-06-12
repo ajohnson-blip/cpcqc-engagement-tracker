@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
-import { MessageSquareWarning } from 'lucide-react';
+import { MessageSquareWarning, Building2 } from 'lucide-react';
 import { Logo } from './logo';
 import { ReportIssueModal } from './report-issue-modal';
 import { useAuth } from '@/lib/auth-context';
@@ -28,8 +28,10 @@ const INTEREST_NAV_HREF = `/portal/interest/${INTEREST_PROGRAM_YEAR}`;
 
 export function PortalHeader() {
   const pathname = usePathname();
-  const { user, hospitalName, signOut } = useAuth();
+  const { user, hospitalName, hospitals, activeHospitalId, setActiveHospitalId, signOut } =
+    useAuth();
   const [showReportIssue, setShowReportIssue] = useState(false);
+  const multiHospital = hospitals.length > 1;
   const interestActive =
     pathname === INTEREST_NAV_HREF || pathname.startsWith(INTEREST_NAV_HREF + '/');
 
@@ -72,6 +74,24 @@ export function PortalHeader() {
         </nav>
 
         <div className="flex items-center gap-3 text-sm">
+          {multiHospital && (
+            <label className="hidden items-center gap-1.5 rounded-full border border-cpcqc-purple/30 bg-cpcqc-purple/5 px-3 py-1.5 sm:inline-flex">
+              <Building2 size={14} className="shrink-0 text-cpcqc-purple" aria-hidden />
+              <span className="sr-only">Active hospital</span>
+              <select
+                value={activeHospitalId ?? ''}
+                onChange={(e) => setActiveHospitalId(e.target.value)}
+                className="max-w-[12rem] cursor-pointer truncate bg-transparent text-xs font-bold text-cpcqc-purple-dark focus:outline-none"
+                title="Switch hospital"
+              >
+                {hospitals.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <button
             type="button"
             onClick={() => setShowReportIssue(true)}
@@ -83,7 +103,7 @@ export function PortalHeader() {
           </button>
           <div className="hidden text-right sm:block">
             <div className="font-semibold text-cpcqc-purple-dark">
-              {hospitalName ?? user?.role}
+              {multiHospital ? 'Regional access' : (hospitalName ?? user?.role)}
             </div>
             <div className="flex justify-end gap-3 text-xs text-cpcqc-purple-dark/70">
               <Link href="/portal/account" className="hover:text-cpcqc-purple">

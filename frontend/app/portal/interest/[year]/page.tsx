@@ -67,7 +67,8 @@ function fmtDate(iso: string): string {
 export default function AnnualInterestRealPage() {
   const params = useParams<{ year: string }>();
   const programYear = parseInt(params.year, 10);
-  const { hospitalName } = useAuth();
+  const { hospitalName, activeHospitalId } = useAuth();
+  const hq = activeHospitalId ? `&hospitalId=${activeHospitalId}` : '';
 
   const [windowResp, setWindowResp] = useState<EnrollmentWindowResponse | null>(null);
   const [enrollments, setEnrollments] = useState<MyEnrollment[] | null>(null);
@@ -99,10 +100,12 @@ export default function AnnualInterestRealPage() {
       api.get<EnrollmentWindowResponse>(
         `/portal/annual-interest-forms/window?programYear=${programYear}`,
       ),
-      api.get<{ enrollments: MyEnrollment[] }>('/me/enrollments'),
+      api.get<{ enrollments: MyEnrollment[] }>(
+        `/me/enrollments${activeHospitalId ? `?hospitalId=${activeHospitalId}` : ''}`,
+      ),
       api
         .get<{ form: AnnualInterestForm | null }>(
-          `/portal/annual-interest-forms?programYear=${programYear}`,
+          `/portal/annual-interest-forms?programYear=${programYear}${hq}`,
         )
         .catch(() => ({ form: null })),
     ])
@@ -140,7 +143,7 @@ export default function AnnualInterestRealPage() {
     return () => {
       cancelled = true;
     };
-  }, [programYear]);
+  }, [programYear, activeHospitalId, hq]);
 
   // ---------- Derived state ----------
 
@@ -267,6 +270,7 @@ export default function AnnualInterestRealPage() {
           submitterName: submitterName.trim(),
           submitterRole: submitterRole.trim(),
           submitterEmail: submitterEmail.trim(),
+          ...(activeHospitalId ? { hospitalId: activeHospitalId } : {}),
         },
       );
       setExisting(res.form);

@@ -32,7 +32,11 @@ function fmtBannerDate(iso: string): string {
 }
 
 export default function PortalHomePage() {
-  const { hospitalName } = useAuth();
+  const { hospitalName, activeHospitalId } = useAuth();
+  // Regional users: scope every fetch to the active hospital. The `&hospitalId`
+  // is appended only when known; single-hospital users send nothing extra and
+  // the server falls back to their primary.
+  const hq = activeHospitalId ? `&hospitalId=${activeHospitalId}` : '';
   const [enrollments, setEnrollments] = useState<MyEnrollment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [interestWindow, setInterestWindow] = useState<EnrollmentWindowResponse | null>(null);
@@ -54,8 +58,11 @@ export default function PortalHomePage() {
 
   useEffect(() => {
     let cancelled = false;
+    setEnrollments(null);
     api
-      .get<{ enrollments: MyEnrollment[] }>('/me/enrollments')
+      .get<{ enrollments: MyEnrollment[] }>(
+        `/me/enrollments${activeHospitalId ? `?hospitalId=${activeHospitalId}` : ''}`,
+      )
       .then((data) => {
         if (!cancelled) setEnrollments(data.enrollments);
       })
@@ -73,14 +80,14 @@ export default function PortalHomePage() {
       .catch(() => {});
     api
       .get<{ form: AnnualInterestForm | null }>(
-        `/portal/annual-interest-forms?programYear=${INTEREST_PROGRAM_YEAR}`,
+        `/portal/annual-interest-forms?programYear=${INTEREST_PROGRAM_YEAR}${hq}`,
       )
       .then((res) => !cancelled && setInterestSubmission(res.form))
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeHospitalId, hq]);
 
   return (
     <div>

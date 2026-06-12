@@ -26,6 +26,27 @@ export interface MeResponse {
     hospitalId: string | null;
   };
   hospital: { id: string; name: string; region: string | null } | null;
+  // Full accessible-hospital set (primary + regional grants). One entry for
+  // single-hospital users; multiple for regional staff → drives the switcher.
+  hospitals: Array<{ id: string; name: string }>;
+}
+
+// ---------- Staff: multi-hospital access management ----------
+
+export interface StaffUserListItem {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  role: UserRole;
+  primaryHospital: { id: string; name: string } | null;
+  additionalCount: number;
+}
+
+export interface UserHospitalsResponse {
+  user: { id: string; email: string; role: UserRole };
+  primaryHospital: { id: string; name: string } | null;
+  additionalHospitals: Array<{ id: string; name: string }>;
 }
 
 export type RequirementStatus = 'on_track' | 'at_risk' | 'met' | 'not_met';

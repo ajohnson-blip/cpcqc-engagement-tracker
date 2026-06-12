@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import type { MyTasksResponse, TaskRow, TaskStatus } from '@/lib/types';
 import { TaskTable } from '@/components/task-table';
+import { useAuth } from '@/lib/auth-context';
 
 const STATUS_FILTERS: Array<{ value: TaskStatus | 'all'; label: string }> = [
   { value: 'all', label: 'All' },
@@ -20,6 +21,7 @@ const STATUS_FILTERS: Array<{ value: TaskStatus | 'all'; label: string }> = [
 const INITIATIVE_ORDER = ['TTT', 'SPARK', 'SOAR', 'NEST'] as const;
 
 export default function PortalTasksPage() {
+  const { activeHospitalId } = useAuth();
   const [tasks, setTasks] = useState<MyTasksResponse['tasks'] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<TaskStatus | 'all'>('all');
@@ -27,8 +29,11 @@ export default function PortalTasksPage() {
 
   useEffect(() => {
     let cancelled = false;
+    setTasks(null);
     api
-      .get<MyTasksResponse>('/me/tasks')
+      .get<MyTasksResponse>(
+        `/me/tasks${activeHospitalId ? `?hospitalId=${activeHospitalId}` : ''}`,
+      )
       .then((data) => {
         if (!cancelled) setTasks(data.tasks);
       })
@@ -38,7 +43,7 @@ export default function PortalTasksPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeHospitalId]);
 
   // The set of initiatives the signed-in user actually has tasks for —
   // drives which initiative pills get rendered. Computed from the loaded
