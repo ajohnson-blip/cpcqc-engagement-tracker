@@ -19,6 +19,7 @@ interface NavItem {
 const HOSPITAL_NAV: NavItem[] = [
   { href: '/portal', label: 'Overview' },
   { href: '/portal/tasks', label: 'My Tasks' },
+  { href: '/portal/requirements', label: 'Requirements' },
 ];
 
 // The interest-form nav chip only appears while the window is OPEN — we don't
