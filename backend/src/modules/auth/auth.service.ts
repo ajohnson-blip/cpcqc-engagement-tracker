@@ -13,6 +13,17 @@ export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, BCRYPT_ROUNDS);
 }
 
+// Unambiguous charset (no 0/O/1/l/I) so a temp password survives being read
+// off a screen or copied from the staff UI. 16 chars ≈ 94 bits of entropy,
+// comfortably over the 12-char minimum the login/change-password flows enforce.
+const TEMP_PW_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+export function generateTempPassword(len = 16): string {
+  const bytes = crypto.randomBytes(len);
+  let out = '';
+  for (let i = 0; i < len; i++) out += TEMP_PW_CHARS[bytes[i]! % TEMP_PW_CHARS.length];
+  return out;
+}
+
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
   return bcrypt.compare(password, hash);
 }

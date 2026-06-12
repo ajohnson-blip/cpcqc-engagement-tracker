@@ -49,6 +49,18 @@ export interface UserHospitalsResponse {
   additionalHospitals: Array<{ id: string; name: string }>;
 }
 
+export interface CreateChampionResponse {
+  user: {
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+    role: UserRole;
+    hospital: { id: string; name: string };
+  };
+  tempPassword: string;
+}
+
 export type RequirementStatus = 'on_track' | 'at_risk' | 'met' | 'not_met';
 
 export interface RequirementResult {

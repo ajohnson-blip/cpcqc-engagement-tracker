@@ -10,15 +10,32 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Search, Building2, X, Plus, Trash2 } from 'lucide-react';
+import {
+  Search,
+  Building2,
+  X,
+  Plus,
+  Trash2,
+  UserPlus,
+  Copy,
+  CheckCircle2,
+} from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import type { StaffUserListItem, UserHospitalsResponse } from '@/lib/types';
+import type {
+  StaffUserListItem,
+  UserHospitalsResponse,
+  CreateChampionResponse,
+  UserRole,
+} from '@/lib/types';
 
 export default function StaffUsersPage() {
   const [search, setSearch] = useState('');
   const [users, setUsers] = useState<StaffUserListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [manageUser, setManageUser] = useState<StaffUserListItem | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  // Bumped after a create to re-run the list query.
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,7 +50,7 @@ export default function StaffUsersPage() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [search]);
+  }, [search, reloadKey]);
 
   function bumpAdditionalCount(userId: string, delta: number) {
     setUsers((prev) =>
@@ -49,14 +66,23 @@ export default function StaffUsersPage() {
 
   return (
     <div>
-      <header className="mb-6">
-        <h1 className="font-rounded text-3xl font-extrabold text-cpcqc-purple-dark">
-          User access
-        </h1>
-        <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
-          Grant regional staff access to additional hospitals in their system. Search a
-          hospital user, then add or remove hospitals beyond their primary.
-        </p>
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="font-rounded text-3xl font-extrabold text-cpcqc-purple-dark">
+            User access
+          </h1>
+          <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
+            Create champion accounts, and grant regional staff access to additional hospitals
+            in their system.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowCreate(true)}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-cpcqc-purple px-4 py-2 font-rounded text-sm font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90"
+        >
+          <UserPlus size={15} aria-hidden /> New champion
+        </button>
       </header>
 
       <div className="mb-4 flex items-center gap-2 rounded-full bg-white px-4 py-2 shadow-sm ring-1 ring-cpcqc-purple-dark/10">
@@ -139,7 +165,318 @@ export default function StaffUsersPage() {
           onChanged={(delta) => bumpAdditionalCount(manageUser.id, delta)}
         />
       )}
+
+      {showCreate && (
+        <CreateChampionModal
+          onClose={() => setShowCreate(false)}
+          onCreated={() => setReloadKey((k) => k + 1)}
+        />
+      )}
     </div>
+  );
+}
+
+function CreateChampionModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState<Extract<UserRole, 'hospital_admin' | 'hospital_user'>>(
+    'hospital_admin',
+  );
+  const [hospital, setHospital] = useState<{ id: string; name: string } | null>(null);
+  const [hospSearch, setHospSearch] = useState('');
+  const [hospResults, setHospResults] = useState<Array<{ id: string; name: string }>>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<CreateChampionResponse | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const t = setTimeout(() => {
+      if (!hospSearch.trim() || hospital) {
+        setHospResults([]);
+        return;
+      }
+      api
+        .get<{ hospitals: Array<{ id: string; name: string }> }>(
+          `/hospitals?search=${encodeURIComponent(hospSearch.trim())}&limit=20`,
+        )
+        .then((d) => !cancelled && setHospResults(d.hospitals))
+        .catch(() => {});
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [hospSearch, hospital]);
+
+  const canSubmit = firstName.trim() && email.trim() && hospital && !saving;
+
+  async function submit() {
+    if (!canSubmit || !hospital) return;
+    setError(null);
+    setSaving(true);
+    try {
+      const res = await api.post<CreateChampionResponse>('/staff/users', {
+        firstName: firstName.trim(),
+        lastName: lastName.trim() || undefined,
+        email: email.trim(),
+        hospitalId: hospital.id,
+        role,
+      });
+      setCreated(res);
+      onCreated();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not create the account.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function copyPassword() {
+    if (!created) return;
+    void navigator.clipboard?.writeText(created.tempPassword).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 grid place-items-center bg-cpcqc-purple-dark/40 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-card">
+        <div className="h-1.5 w-full bg-cpcqc-pink" />
+        <div className="flex items-start justify-between gap-4 px-6 pt-5">
+          <h2 className="font-rounded text-xl font-extrabold text-cpcqc-purple-dark">
+            {created ? 'Account created' : 'New champion account'}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-1 text-cpcqc-purple-dark/60 hover:bg-cpcqc-purple-dark/5"
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {created ? (
+          <div className="space-y-4 px-6 pb-5 pt-4">
+            <div className="flex items-start gap-2 rounded-lg bg-cpcqc-teal-dark/10 px-3 py-2 text-sm text-cpcqc-purple-dark">
+              <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-cpcqc-teal-dark" aria-hidden />
+              <span>
+                Account for <strong>{created.user.email}</strong> at{' '}
+                <strong>{created.user.hospital.name}</strong> is ready.
+              </span>
+            </div>
+            <div>
+              <div className="mb-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/60">
+                Temporary password
+              </div>
+              <div className="flex items-center gap-2 rounded-lg border border-cpcqc-purple-dark/20 bg-cpcqc-cream-dark/20 px-3 py-2">
+                <code className="flex-1 break-all font-mono text-sm text-cpcqc-purple-dark">
+                  {created.tempPassword}
+                </code>
+                <button
+                  type="button"
+                  onClick={copyPassword}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-cpcqc-purple-dark/20 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5"
+                >
+                  <Copy size={12} aria-hidden /> {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-cpcqc-purple-dark/60">
+                Shown once — copy it now. Share it with the champion securely; they'll change it
+                on first sign-in (Account → Change password). They sign in at <strong>/portal</strong>.
+              </p>
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-full bg-cpcqc-purple px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4 px-6 pb-5 pt-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="First name" required>
+                <input
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className="modal-input"
+                />
+              </Field>
+              <Field label="Last name">
+                <input
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  className="modal-input"
+                />
+              </Field>
+            </div>
+            <Field label="Email" required>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@hospital.org"
+                className="modal-input"
+              />
+            </Field>
+
+            <Field label="Hospital" required>
+              {hospital ? (
+                <div className="flex items-center gap-2 rounded-lg border border-cpcqc-purple/30 bg-cpcqc-purple/5 px-3 py-2 text-sm text-cpcqc-purple-dark">
+                  <Building2 size={14} className="text-cpcqc-purple" aria-hidden />
+                  {hospital.name}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHospital(null);
+                      setHospSearch('');
+                    }}
+                    className="ml-auto text-xs font-bold uppercase text-cpcqc-purple-dark/60 hover:text-cpcqc-purple"
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    value={hospSearch}
+                    onChange={(e) => setHospSearch(e.target.value)}
+                    placeholder="Search hospitals…"
+                    className="modal-input"
+                  />
+                  {hospResults.length > 0 && (
+                    <ul className="mt-1 max-h-40 overflow-auto rounded-lg border border-cpcqc-purple-dark/15">
+                      {hospResults.map((h) => (
+                        <li key={h.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setHospital(h);
+                              setHospResults([]);
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-cpcqc-purple-dark hover:bg-cpcqc-purple/5"
+                          >
+                            <Building2 size={13} className="text-cpcqc-purple-dark/50" aria-hidden />
+                            {h.name}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </Field>
+
+            <Field label="Role">
+              <select
+                value={role}
+                onChange={(e) =>
+                  setRole(e.target.value as 'hospital_admin' | 'hospital_user')
+                }
+                className="modal-input"
+              >
+                <option value="hospital_admin">Hospital admin (edit roster, full access)</option>
+                <option value="hospital_user">Hospital user (view + comment)</option>
+              </select>
+            </Field>
+
+            {error && (
+              <div className="rounded-lg bg-cpcqc-pink-dark/10 px-3 py-2 text-sm text-cpcqc-pink-dark">
+                {error}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={saving}
+                className="rounded-full border border-cpcqc-purple-dark/20 px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void submit()}
+                disabled={!canSubmit}
+                className="rounded-full bg-cpcqc-purple px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90 disabled:opacity-50"
+              >
+                {saving ? 'Creating…' : 'Create account'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <style jsx>{`
+        :global(.modal-input) {
+          width: 100%;
+          border-radius: 0.5rem;
+          border: 1px solid rgba(106, 101, 135, 0.2);
+          background-color: white;
+          padding: 0.5rem 0.75rem;
+          font-size: 0.875rem;
+          color: rgb(46, 39, 87);
+        }
+        :global(.modal-input:focus) {
+          outline: none;
+          border-color: rgb(106, 101, 135);
+          box-shadow: 0 0 0 3px rgba(106, 101, 135, 0.15);
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
+        {label}
+        {required && <span className="ml-0.5 text-cpcqc-pink-dark">*</span>}
+      </span>
+      {children}
+    </label>
   );
 }
 

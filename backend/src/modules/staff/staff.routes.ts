@@ -25,6 +25,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '@/db/index.js';
 import { requireAuth, requireStaff } from '@/middleware/auth.js';
 import { HttpError } from '@/middleware/errors.js';
+import { generateTempPassword, hashPassword } from '@/modules/auth/auth.service.js';
 import {
   evaluateEnrollment,
   evaluateProgramYearById,
@@ -649,6 +650,63 @@ router.get('/users', requireAuth, requireStaff, async (req, res) => {
         : null,
       additionalCount: grantCounts.get(r.id) ?? 0,
     })),
+  });
+});
+
+// Create a new hospital champion account. PMs use this from the Access tab to
+// onboard a champion without the bulk CLI. Generates a strong temp password
+// and returns it ONCE so the PM can relay it; the champion rotates it via
+// Account → Change password on first login.
+router.post('/users', requireAuth, requireStaff, async (req, res) => {
+  const body = z
+    .object({
+      firstName: z.string().trim().min(1).max(120),
+      lastName: z.string().trim().max(120).optional(),
+      email: z.string().trim().toLowerCase().email().max(254),
+      hospitalId: z.string().uuid(),
+      role: z.enum(['hospital_admin', 'hospital_user']).default('hospital_admin'),
+    })
+    .parse(req.body);
+
+  const hospital = await db.query.hospitals.findFirst({
+    where: eq(schema.hospitals.id, body.hospitalId),
+  });
+  if (!hospital) throw new HttpError(404, 'Hospital not found');
+
+  // Friendly pre-check; the unique index on lower(email) is the backstop.
+  const existing = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(sql`lower(${schema.users.email}) = ${body.email}`)
+    .limit(1);
+  if (existing.length) {
+    throw new HttpError(409, 'An account with that email already exists.');
+  }
+
+  const tempPassword = generateTempPassword();
+  const passwordHash = await hashPassword(tempPassword);
+  const id = uuid();
+  await db.insert(schema.users).values({
+    id,
+    email: body.email,
+    passwordHash,
+    firstName: body.firstName,
+    lastName: body.lastName || null,
+    role: body.role,
+    hospitalId: body.hospitalId,
+  });
+
+  res.status(201).json({
+    user: {
+      id,
+      email: body.email,
+      firstName: body.firstName,
+      lastName: body.lastName ?? null,
+      role: body.role,
+      hospital: { id: hospital.id, name: hospital.name },
+    },
+    // Plaintext, shown once to the PM to relay. Never stored.
+    tempPassword,
   });
 });
 
