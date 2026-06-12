@@ -655,6 +655,47 @@ router.get('/users', requireAuth, requireStaff, async (req, res) => {
   });
 });
 
+// Email-delivery diagnostic. Sends a fixed test message and reports whether
+// it actually went out — so staff can verify the email provider end-to-end
+// (and distinguish "no provider configured" from "provider rejected it").
+router.post('/email-test', requireAuth, requireStaff, async (req, res) => {
+  const { toEmail } = z.object({ toEmail: z.string().trim().email() }).parse(req.body);
+  const configured = !!env.SENDGRID_API_KEY;
+
+  const result = await sendEmail({
+    toEmail,
+    subject: 'CPCQC Engagement Tracker — test email',
+    kind: 'admin.test',
+    body:
+      'This is a test email from the CPCQC Engagement Tracker.\n\n' +
+      'If you received it, outbound email is working — champion welcome emails, ' +
+      'interest-form confirmations, and acceptance notices will send.\n\n' +
+      'You can ignore this message.',
+  });
+
+  // Pull the recorded reason when it didn't send.
+  let error: string | null = null;
+  if (!result.sent) {
+    if (!configured) {
+      error =
+        'No email provider is configured (SENDGRID_API_KEY is not set), so email is logged only. ' +
+        'Set up SendGrid + a verified sender to enable real delivery.';
+    } else {
+      const row = await db.query.notifications.findFirst({
+        where: eq(schema.notifications.id, result.id),
+      });
+      error = row?.error ?? 'Send failed — check the server logs.';
+    }
+  }
+
+  res.json({
+    configured,
+    sent: result.sent,
+    fromAddress: env.EMAIL_FROM,
+    error,
+  });
+});
+
 // Create a new hospital champion account. PMs use this from the Access tab to
 // onboard a champion without the bulk CLI. Generates a strong temp password
 // and returns it ONCE so the PM can relay it; the champion rotates it via

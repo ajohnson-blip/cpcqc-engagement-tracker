@@ -158,6 +158,8 @@ export default function StaffUsersPage() {
         </div>
       )}
 
+      <EmailDeliveryCard />
+
       {manageUser && (
         <ManageAccessModal
           user={manageUser}
@@ -173,6 +175,102 @@ export default function StaffUsersPage() {
         />
       )}
     </div>
+  );
+}
+
+interface EmailTestResult {
+  configured: boolean;
+  sent: boolean;
+  fromAddress: string;
+  error: string | null;
+}
+
+function EmailDeliveryCard() {
+  const [email, setEmail] = useState('');
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<EmailTestResult | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function sendTest() {
+    if (!email.trim()) return;
+    setErr(null);
+    setResult(null);
+    setSending(true);
+    try {
+      const res = await api.post<EmailTestResult>('/staff/email-test', {
+        toEmail: email.trim(),
+      });
+      setResult(res);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not run the test.');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <section className="mt-8 rounded-2xl bg-white p-5 shadow-card ring-1 ring-cpcqc-purple-dark/5">
+      <h2 className="font-rounded text-sm font-bold uppercase tracking-wide text-cpcqc-purple-dark/80">
+        Email delivery check
+      </h2>
+      <p className="mt-1 max-w-2xl text-sm text-cpcqc-purple-dark/70">
+        Send a test email to confirm outbound delivery is working. Champion welcome emails,
+        interest-form confirmations, and acceptance notices all depend on this.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@cpcqc.org"
+          className="min-w-[16rem] flex-1 rounded-lg border border-cpcqc-purple-dark/20 px-3 py-2 text-sm text-cpcqc-purple-dark focus:border-cpcqc-purple focus:outline-none focus:ring-2 focus:ring-cpcqc-purple/30"
+        />
+        <button
+          type="button"
+          onClick={() => void sendTest()}
+          disabled={sending || !email.trim()}
+          className="rounded-full bg-cpcqc-purple px-4 py-2 text-sm font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90 disabled:opacity-50"
+        >
+          {sending ? 'Sending…' : 'Send test'}
+        </button>
+      </div>
+
+      {err && (
+        <div className="mt-3 rounded-lg bg-cpcqc-pink-dark/10 px-3 py-2 text-sm text-cpcqc-pink-dark">
+          {err}
+        </div>
+      )}
+
+      {result && (
+        <div
+          className={
+            'mt-3 rounded-lg px-3 py-2 text-sm ' +
+            (result.sent
+              ? 'bg-cpcqc-teal-dark/10 text-cpcqc-purple-dark'
+              : 'bg-cpcqc-orange-dark/10 text-cpcqc-orange-dark')
+          }
+        >
+          {result.sent ? (
+            <>
+              <strong>Sent.</strong> Check {email.trim()} (and spam). Outbound email is working —
+              from <code className="font-mono">{result.fromAddress}</code>.
+            </>
+          ) : (
+            <>
+              <strong>Not sent.</strong> {result.error}
+              {!result.configured && (
+                <div className="mt-1 text-xs text-cpcqc-orange-dark/90">
+                  The app uses SendGrid. You'll need a SendGrid account, a verified sender for{' '}
+                  <code className="font-mono">{result.fromAddress}</code>, and the{' '}
+                  <code className="font-mono">SENDGRID_API_KEY</code> env var set on the backend
+                  service.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
