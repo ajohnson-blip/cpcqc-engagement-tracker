@@ -20,7 +20,7 @@ const EnvSchema = z.object({
     .default('false'),
 
   SENDGRID_API_KEY: z.string().optional(),
-  EMAIL_FROM: z.string().email().default('engagement@qi.cpcqc.org'),
+  EMAIL_FROM: z.string().email().default('qi@cpcqc.org'),
 
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
 });

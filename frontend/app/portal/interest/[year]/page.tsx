@@ -393,7 +393,7 @@ export default function AnnualInterestRealPage() {
               </div>
               <div className="mt-0.5 text-sm text-cpcqc-purple-dark/80">
                 CPCQC will follow up with the detailed, initiative-specific Enrollment
-                Form(s) and onboarding details. Questions? engagement@qi.cpcqc.org
+                Form(s) and onboarding details. Questions? qi@cpcqc.org
               </div>
             </div>
           </div>
@@ -482,7 +482,7 @@ export default function AnnualInterestRealPage() {
             <>
               <strong>The {programYear} interest window closed</strong> on{' '}
               {fmtDate(windowResp.window.closesAt)}. {existing
-                ? 'Your submission is shown below; reach out to engagement@qi.cpcqc.org if you need to make a change.'
+                ? 'Your submission is shown below; reach out to qi@cpcqc.org if you need to make a change.'
                 : 'Contact CPCQC if you missed the window and need to submit late.'}
             </>
           )}

@@ -28,8 +28,8 @@ function SetPasswordInner() {
         <p className="mt-3 text-cpcqc-purple-dark/80">
           This page should be opened from the link in your CPCQC welcome email. If the link is
           broken, contact{' '}
-          <a className="text-cpcqc-purple underline" href="mailto:engagement@qi.cpcqc.org">
-            engagement@qi.cpcqc.org
+          <a className="text-cpcqc-purple underline" href="mailto:qi@cpcqc.org">
+            qi@cpcqc.org
           </a>{' '}
           for a fresh one.
         </p>
@@ -84,7 +84,7 @@ function SetPasswordInner() {
       if (err instanceof ApiError) {
         setError(
           err.status === 400
-            ? 'This link has expired or already been used. Request a fresh one from engagement@qi.cpcqc.org.'
+            ? 'This link has expired or already been used. Request a fresh one from qi@cpcqc.org.'
             : err.message,
         );
       } else {

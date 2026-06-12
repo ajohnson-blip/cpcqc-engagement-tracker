@@ -107,9 +107,9 @@ export default function LoginPage() {
               Need help? Email{' '}
               <a
                 className="text-cpcqc-purple underline decoration-cpcqc-purple/40 underline-offset-2 hover:decoration-cpcqc-purple"
-                href="mailto:engagement@qi.cpcqc.org"
+                href="mailto:qi@cpcqc.org"
               >
-                engagement@qi.cpcqc.org
+                qi@cpcqc.org
               </a>
             </p>
           </div>

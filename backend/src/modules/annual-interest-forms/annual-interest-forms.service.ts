@@ -754,7 +754,7 @@ async function sendSubmissionEmails(form: InterestFormShape, wasUpdate: boolean)
       `A CPCQC program manager will review all submissions and follow up with the detailed initiative-specific Enrollment Forms for the cohorts you're accepted into.\n\n` +
       `Your submission:\n${summary}\n\n` +
       `You can update your submission until the window closes by signing in to the tracker and visiting the 2027 Interest page.\n\n` +
-      `Questions? engagement@qi.cpcqc.org`,
+      `Questions? qi@cpcqc.org`,
   });
 
   // CPCQC staff notification. Same payload, plus the hospital name so the
@@ -792,7 +792,7 @@ async function sendAcceptanceEmail(form: InterestFormShape): Promise<void> {
       `What's next: CPCQC will follow up with the detailed, initiative-specific ` +
       `Enrollment Form(s) for each accepted initiative, along with onboarding ` +
       `details and key dates.\n\n` +
-      `Questions? engagement@qi.cpcqc.org`,
+      `Questions? qi@cpcqc.org`,
   });
 }
 
