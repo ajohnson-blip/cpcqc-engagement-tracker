@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
@@ -8,6 +8,8 @@ import { MessageSquareWarning, Building2 } from 'lucide-react';
 import { Logo } from './logo';
 import { ReportIssueModal } from './report-issue-modal';
 import { useAuth } from '@/lib/auth-context';
+import { api } from '@/lib/api';
+import type { EnrollmentWindowResponse } from '@/lib/types';
 
 interface NavItem {
   href: string;
@@ -19,10 +21,8 @@ const HOSPITAL_NAV: NavItem[] = [
   { href: '/portal/tasks', label: 'My Tasks' },
 ];
 
-// Year-round, lower-visual-weight chip for the annual interest form. The
-// big purple banner on /portal handles attention during the open window;
-// this chip is the always-available way for someone to get back to the
-// form after dismissing the banner.
+// The interest-form nav chip only appears while the window is OPEN — we don't
+// surface the form before it's time for hospitals to act on it.
 const INTEREST_PROGRAM_YEAR = 2027;
 const INTEREST_NAV_HREF = `/portal/interest/${INTEREST_PROGRAM_YEAR}`;
 
@@ -31,7 +31,24 @@ export function PortalHeader() {
   const { user, hospitalName, hospitals, activeHospitalId, setActiveHospitalId, signOut } =
     useAuth();
   const [showReportIssue, setShowReportIssue] = useState(false);
+  const [interestOpen, setInterestOpen] = useState(false);
   const multiHospital = hospitals.length > 1;
+
+  // Show the interest chip only when the window is open. Quietly best-effort:
+  // if the window can't be fetched, the chip just stays hidden.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<EnrollmentWindowResponse>(
+        `/portal/annual-interest-forms/window?programYear=${INTEREST_PROGRAM_YEAR}`,
+      )
+      .then((w) => !cancelled && setInterestOpen(w.windowState === 'open'))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const interestActive =
     pathname === INTEREST_NAV_HREF || pathname.startsWith(INTEREST_NAV_HREF + '/');
 
@@ -60,17 +77,19 @@ export function PortalHeader() {
               </Link>
             );
           })}
-          <Link
-            href={INTEREST_NAV_HREF}
-            className={clsx(
-              'ml-2 inline-flex items-center gap-1 rounded-full border px-3 py-1.5 font-rounded text-xs font-semibold uppercase tracking-wide transition',
-              interestActive
-                ? 'border-cpcqc-purple bg-cpcqc-purple/10 text-cpcqc-purple-dark'
-                : 'border-cpcqc-purple-dark/20 text-cpcqc-purple-dark/80 hover:bg-cpcqc-purple-dark/5',
-            )}
-          >
-            {INTEREST_PROGRAM_YEAR} Interest
-          </Link>
+          {interestOpen && (
+            <Link
+              href={INTEREST_NAV_HREF}
+              className={clsx(
+                'ml-2 inline-flex items-center gap-1 rounded-full border px-3 py-1.5 font-rounded text-xs font-semibold uppercase tracking-wide transition',
+                interestActive
+                  ? 'border-cpcqc-purple bg-cpcqc-purple/10 text-cpcqc-purple-dark'
+                  : 'border-cpcqc-purple-dark/20 text-cpcqc-purple-dark/80 hover:bg-cpcqc-purple-dark/5',
+              )}
+            >
+              {INTEREST_PROGRAM_YEAR} Interest
+            </Link>
+          )}
         </nav>
 
         <div className="flex items-center gap-3 text-sm">

@@ -42,15 +42,14 @@ export default function PortalHomePage() {
   const [interestWindow, setInterestWindow] = useState<EnrollmentWindowResponse | null>(null);
   const [interestSubmission, setInterestSubmission] = useState<AnnualInterestForm | null>(null);
   // Per-tab dismissal of the interest banner — soft "I saw it" rather than a
-  // persistent preference. The permanent nav chip is the persistent affordance.
+  // persistent preference.
   const [interestBannerDismissed, setInterestBannerDismissed] = useState(false);
-  // Show the banner during the open window (big purple CTA) AND during the
-  // pre-window phase (quieter "opens soon" pill) so hospitals know the form
-  // is coming. Hidden after the close date.
+  // Only surface the interest-form banner while the window is actually OPEN.
+  // We deliberately do NOT show a pre-window "opens soon" teaser — it's too
+  // early for hospitals to think about the form before the window opens.
+  // Hidden before the open date and after the close date.
   const interestState = interestWindow?.windowState;
-  const showInterestBanner =
-    (interestState === 'open' || interestState === 'before') &&
-    !interestBannerDismissed;
+  const showInterestBanner = interestState === 'open' && !interestBannerDismissed;
   // Countdown — only meaningful while open. daysLeft<=7 flips copy to urgency.
   const daysLeft = interestWindow ? daysUntilUtc(interestWindow.window.closesAt) : null;
   const closingSoon =
@@ -105,50 +104,6 @@ export default function PortalHomePage() {
       {error && (
         <div className="mb-6 rounded-xl bg-cpcqc-pink-dark/10 p-4 text-sm text-cpcqc-pink-dark">
           Couldn't load your enrollments: {error}
-        </div>
-      )}
-
-      {showInterestBanner && interestWindow && interestState === 'before' && (
-        // "Opens soon" variant — quiet teal pill. Hospital is signed in early;
-        // we want to tell them the window is coming without nagging.
-        <div className="mb-6 overflow-hidden rounded-2xl bg-cpcqc-cream-dark/30 shadow-sm ring-1 ring-cpcqc-purple-dark/10">
-          <div className="flex items-start justify-between gap-4 p-5 sm:items-center">
-            <div className="flex items-start gap-3 sm:items-center">
-              <CalendarDays
-                size={22}
-                className="mt-0.5 shrink-0 text-cpcqc-orange-dark sm:mt-0"
-                aria-hidden
-              />
-              <div>
-                <div className="font-rounded text-base font-extrabold text-cpcqc-purple-dark">
-                  {INTEREST_PROGRAM_YEAR} enrollment opens{' '}
-                  {fmtBannerDate(interestWindow.window.opensAt)}
-                </div>
-                <div className="mt-0.5 text-sm text-cpcqc-purple-dark/75">
-                  You can preview the interest form now; submissions accepted{' '}
-                  {fmtBannerDate(interestWindow.window.opensAt)} through{' '}
-                  {fmtBannerDate(interestWindow.window.closesAt)},{' '}
-                  {interestWindow.window.closesAt.slice(0, 4)}.
-                </div>
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <Link
-                href={`/portal/interest/${INTEREST_PROGRAM_YEAR}`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-cpcqc-purple-dark/20 bg-white px-4 py-2 font-rounded text-sm font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-cream"
-              >
-                Preview form <ArrowRight size={14} aria-hidden />
-              </Link>
-              <button
-                type="button"
-                onClick={() => setInterestBannerDismissed(true)}
-                aria-label="Dismiss"
-                className="rounded-full p-1.5 text-cpcqc-purple-dark/60 hover:bg-cpcqc-purple-dark/5 hover:text-cpcqc-purple-dark"
-              >
-                <X size={16} aria-hidden />
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
