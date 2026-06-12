@@ -59,7 +59,9 @@ export function credentialsEmail(p: CredentialsEmailParams): {
       `annually in at least one CPCQC-led quality improvement initiative.\n\n` +
       `With the updated Engagement Tracker now available, we are sending your sign-in ` +
       `information so you can reset your password and access the platform.`;
-    changeLine = '';
+    changeLine =
+      `After signing in, please set a new password under Account → Change password. ` +
+      `The temporary password above is for first-time access only.`;
     closing = `Please reach out to the CPCQC team if you have any questions or need support.`;
   } else if (p.reason === 'welcome') {
     intro =
