@@ -49,6 +49,15 @@ export interface UserHospitalsResponse {
   additionalHospitals: Array<{ id: string; name: string }>;
 }
 
+export interface MyRosterMember {
+  id: string;
+  name: string;
+  role: string | null;
+  email: string | null;
+  phone: string | null;
+  initiative: { code: string; name: string } | null;
+}
+
 export interface CreateChampionResponse {
   user: {
     id: string;

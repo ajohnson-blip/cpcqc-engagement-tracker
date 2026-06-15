@@ -26,7 +26,6 @@ import type {
   StaffUserListItem,
   UserHospitalsResponse,
   CreateChampionResponse,
-  UserRole,
 } from '@/lib/types';
 
 export default function StaffUsersPage() {
@@ -468,9 +467,11 @@ function CreateChampionModal({
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<Extract<UserRole, 'hospital_admin' | 'hospital_user'>>(
-    'hospital_admin',
-  );
+  // Champion's roster title. Dropdown of common roles + "Other" → free text
+  // (the long tail: CNO, VP of Nursing, etc.).
+  const [roleSelect, setRoleSelect] = useState('');
+  const [roleOther, setRoleOther] = useState('');
+  const championRole = roleSelect === 'Other' ? roleOther.trim() : roleSelect;
   const [hospital, setHospital] = useState<{ id: string; name: string } | null>(null);
   const [hospSearch, setHospSearch] = useState('');
   const [hospResults, setHospResults] = useState<Array<{ id: string; name: string }>>([]);
@@ -508,7 +509,8 @@ function CreateChampionModal({
     };
   }, [hospSearch, hospital]);
 
-  const canSubmit = firstName.trim() && email.trim() && hospital && initiativeCode && !saving;
+  const canSubmit =
+    firstName.trim() && email.trim() && hospital && initiativeCode && championRole && !saving;
 
   async function submit() {
     if (!canSubmit || !hospital || !initiativeCode) return;
@@ -521,7 +523,7 @@ function CreateChampionModal({
         email: email.trim(),
         hospitalId: hospital.id,
         initiativeCode,
-        role,
+        championRole,
       });
       setCreated(res);
       onCreated();
@@ -732,17 +734,31 @@ function CreateChampionModal({
               </span>
             </Field>
 
-            <Field label="Role">
+            <Field label="Role" required>
               <select
-                value={role}
-                onChange={(e) =>
-                  setRole(e.target.value as 'hospital_admin' | 'hospital_user')
-                }
+                value={roleSelect}
+                onChange={(e) => setRoleSelect(e.target.value)}
                 className="modal-input"
               >
-                <option value="hospital_admin">Hospital admin (edit roster, full access)</option>
-                <option value="hospital_user">Hospital user (view + comment)</option>
+                <option value="">Select…</option>
+                <option value="Clinical Lead">Clinical Lead</option>
+                <option value="QI Champion">QI Champion</option>
+                <option value="Data Champion">Data Champion</option>
+                <option value="Provider Champion">Provider Champion</option>
+                <option value="L&D Champion">L&amp;D Champion</option>
+                <option value="C-Suite Sponsor">C-Suite Sponsor</option>
+                <option value="Primary Contact">Primary Contact</option>
+                <option value="Other">Other…</option>
               </select>
+              {roleSelect === 'Other' && (
+                <input
+                  type="text"
+                  value={roleOther}
+                  onChange={(e) => setRoleOther(e.target.value)}
+                  placeholder="e.g. VP of Nursing, CNO"
+                  className="modal-input mt-2"
+                />
+              )}
             </Field>
 
             {error && (

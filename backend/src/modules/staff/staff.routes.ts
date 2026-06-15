@@ -715,6 +715,12 @@ router.post('/users', requireAuth, requireStaff, async (req, res) => {
       // Which initiative this person champions — hospitals can have distinct
       // champions per initiative. Used to add them to that initiative's roster.
       initiativeCode: z.enum(['TTT', 'SPARK', 'SOAR', 'NEST']),
+      // The champion's roster title (e.g. "QI Champion", "Data Champion").
+      // Free text so the long tail (CNO, VP of Nursing, etc.) is supported.
+      championRole: z.string().trim().min(1).max(120),
+      // Account permission level. The portal doesn't differentiate these for
+      // hospital users today, so it's not exposed in the UI; defaults to admin
+      // for parity with the existing accounts.
       role: z.enum(['hospital_admin', 'hospital_user']).default('hospital_admin'),
     })
     .parse(req.body);
@@ -772,7 +778,7 @@ router.post('/users', requireAuth, requireStaff, async (req, res) => {
   if (existingRoster.length) {
     await db
       .update(schema.hospitalStaffMembers)
-      .set({ email: body.email, updatedAt: new Date() })
+      .set({ email: body.email, role: body.championRole, updatedAt: new Date() })
       .where(eq(schema.hospitalStaffMembers.id, existingRoster[0]!.id));
   } else {
     await db.insert(schema.hospitalStaffMembers).values({
@@ -780,6 +786,7 @@ router.post('/users', requireAuth, requireStaff, async (req, res) => {
       hospitalId: body.hospitalId,
       initiativeId: initiative.id,
       name: championName,
+      role: body.championRole,
       email: body.email,
     });
   }

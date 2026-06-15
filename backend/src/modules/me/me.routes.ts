@@ -128,6 +128,49 @@ router.get('/enrollments', requireAuth, async (req, res) => {
   res.json({ enrollments: out });
 });
 
+// Read-only champion roster for the user's (active) hospital — powers the
+// portal Team tab. Hospitals view their own roster; CPCQC owns edits, so
+// there's no write path here (corrections flow through Report issue).
+router.get('/roster', requireAuth, async (req, res) => {
+  if (req.auth!.hospitalIds.length === 0) {
+    res.json({ roster: [] });
+    return;
+  }
+  const requested = z.string().uuid().optional().parse(req.query.hospitalId);
+  const hospitalId = resolveActiveHospitalId(req.auth!, requested);
+
+  const rows = await db
+    .select({
+      id: schema.hospitalStaffMembers.id,
+      name: schema.hospitalStaffMembers.name,
+      role: schema.hospitalStaffMembers.role,
+      email: schema.hospitalStaffMembers.email,
+      phone: schema.hospitalStaffMembers.phone,
+      initiativeCode: schema.initiatives.code,
+      initiativeName: schema.initiatives.name,
+    })
+    .from(schema.hospitalStaffMembers)
+    .leftJoin(
+      schema.initiatives,
+      eq(schema.initiatives.id, schema.hospitalStaffMembers.initiativeId),
+    )
+    .where(eq(schema.hospitalStaffMembers.hospitalId, hospitalId))
+    .orderBy(schema.hospitalStaffMembers.name);
+
+  res.json({
+    roster: rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      role: r.role,
+      email: r.email,
+      phone: r.phone,
+      initiative: r.initiativeCode
+        ? { code: r.initiativeCode, name: r.initiativeName }
+        : null,
+    })),
+  });
+});
+
 router.get('/tasks', requireAuth, async (req, res) => {
   if (req.auth!.hospitalIds.length === 0) {
     res.json({ tasks: [] });

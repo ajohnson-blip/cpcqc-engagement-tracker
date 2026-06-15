@@ -19,6 +19,7 @@ interface NavItem {
 const HOSPITAL_NAV: NavItem[] = [
   { href: '/portal', label: 'Overview' },
   { href: '/portal/tasks', label: 'My Tasks' },
+  { href: '/portal/team', label: 'Team' },
   { href: '/portal/requirements', label: 'Requirements' },
 ];
 
