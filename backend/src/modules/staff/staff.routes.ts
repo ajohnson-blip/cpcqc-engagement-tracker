@@ -21,7 +21,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { db, schema } from '@/db/index.js';
 import { env } from '@/config/env.js';
 import { requireAuth, requireStaff } from '@/middleware/auth.js';
@@ -645,6 +645,30 @@ router.get('/users', requireAuth, requireStaff, async (req, res) => {
     ).map((h) => [h.id, h.name]),
   );
 
+  // Champion roster title(s) per user, matched by email. A champion can hold
+  // a role on more than one initiative's roster, so we collect the distinct
+  // set. The roster is small (~240 rows), so loading it all and mapping in
+  // memory is cheaper than a per-user join.
+  const rolesByEmail = new Map<string, Set<string>>();
+  const rosterRows = await db
+    .select({
+      email: schema.hospitalStaffMembers.email,
+      role: schema.hospitalStaffMembers.role,
+    })
+    .from(schema.hospitalStaffMembers)
+    .where(
+      and(
+        isNotNull(schema.hospitalStaffMembers.email),
+        isNotNull(schema.hospitalStaffMembers.role),
+      ),
+    );
+  for (const rr of rosterRows) {
+    if (!rr.email || !rr.role) continue;
+    const key = rr.email.toLowerCase();
+    if (!rolesByEmail.has(key)) rolesByEmail.set(key, new Set());
+    rolesByEmail.get(key)!.add(rr.role);
+  }
+
   res.json({
     users: rows.map((r) => ({
       id: r.id,
@@ -652,6 +676,7 @@ router.get('/users', requireAuth, requireStaff, async (req, res) => {
       firstName: r.firstName,
       lastName: r.lastName,
       role: r.role,
+      championRoles: Array.from(rolesByEmail.get(r.email.toLowerCase()) ?? []).sort(),
       primaryHospital: r.primaryHospitalId
         ? { id: r.primaryHospitalId, name: hospitalNameById.get(r.primaryHospitalId) ?? '—' }
         : null,

@@ -39,6 +39,8 @@ export interface StaffUserListItem {
   firstName: string | null;
   lastName: string | null;
   role: UserRole;
+  // Champion roster title(s), matched by email — may span initiatives.
+  championRoles: string[];
   primaryHospital: { id: string; name: string } | null;
   additionalCount: number;
 }

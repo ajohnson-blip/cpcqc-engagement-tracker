@@ -117,6 +117,7 @@ export default function StaffUsersPage() {
             <thead className="bg-cpcqc-cream-dark/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
               <tr>
                 <th className="px-4 py-3">User</th>
+                <th className="px-4 py-3">Role</th>
                 <th className="px-4 py-3">Primary hospital</th>
                 <th className="px-4 py-3">Extra access</th>
                 <th className="px-4 py-3 text-right">Action</th>
@@ -130,6 +131,13 @@ export default function StaffUsersPage() {
                       {[u.firstName, u.lastName].filter(Boolean).join(' ') || '—'}
                     </div>
                     <div className="text-xs text-cpcqc-purple-dark/70">{u.email}</div>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-cpcqc-purple-dark/80">
+                    {u.championRoles.length > 0 ? (
+                      u.championRoles.join(', ')
+                    ) : (
+                      <span className="text-cpcqc-purple-dark/40">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-sm text-cpcqc-purple-dark/80">
                     {u.primaryHospital?.name ?? '—'}
