@@ -712,6 +712,9 @@ router.post('/users', requireAuth, requireStaff, async (req, res) => {
       lastName: z.string().trim().max(120).optional(),
       email: z.string().trim().toLowerCase().email().max(254),
       hospitalId: z.string().uuid(),
+      // Which initiative this person champions — hospitals can have distinct
+      // champions per initiative. Used to add them to that initiative's roster.
+      initiativeCode: z.enum(['TTT', 'SPARK', 'SOAR', 'NEST']),
       role: z.enum(['hospital_admin', 'hospital_user']).default('hospital_admin'),
     })
     .parse(req.body);
@@ -720,6 +723,11 @@ router.post('/users', requireAuth, requireStaff, async (req, res) => {
     where: eq(schema.hospitals.id, body.hospitalId),
   });
   if (!hospital) throw new HttpError(404, 'Hospital not found');
+
+  const initiative = await db.query.initiatives.findFirst({
+    where: eq(schema.initiatives.code, body.initiativeCode),
+  });
+  if (!initiative) throw new HttpError(400, 'Unknown initiative');
 
   // Friendly pre-check; the unique index on lower(email) is the backstop.
   const existing = await db
@@ -743,6 +751,38 @@ router.post('/users', requireAuth, requireStaff, async (req, res) => {
     role: body.role,
     hospitalId: body.hospitalId,
   });
+
+  // Add them to the chosen initiative's roster so they appear in the right
+  // group on the hospital detail page. Dedup on (hospital, initiative,
+  // lower(name)) — matches the roster importer/editor — so a champion already
+  // on the roster (e.g. from a workbook) gets their email filled in rather
+  // than duplicated.
+  const championName = [body.firstName, body.lastName].filter(Boolean).join(' ');
+  const existingRoster = await db
+    .select({ id: schema.hospitalStaffMembers.id })
+    .from(schema.hospitalStaffMembers)
+    .where(
+      and(
+        eq(schema.hospitalStaffMembers.hospitalId, body.hospitalId),
+        eq(schema.hospitalStaffMembers.initiativeId, initiative.id),
+        sql`lower(${schema.hospitalStaffMembers.name}) = lower(${championName})`,
+      ),
+    )
+    .limit(1);
+  if (existingRoster.length) {
+    await db
+      .update(schema.hospitalStaffMembers)
+      .set({ email: body.email, updatedAt: new Date() })
+      .where(eq(schema.hospitalStaffMembers.id, existingRoster[0]!.id));
+  } else {
+    await db.insert(schema.hospitalStaffMembers).values({
+      id: uuid(),
+      hospitalId: body.hospitalId,
+      initiativeId: initiative.id,
+      name: championName,
+      email: body.email,
+    });
+  }
 
   // Email the champion their sign-in details directly.
   const url = loginUrl();
@@ -776,6 +816,7 @@ router.post('/users', requireAuth, requireStaff, async (req, res) => {
       lastName: body.lastName ?? null,
       role: body.role,
       hospital: { id: hospital.id, name: hospital.name },
+      initiative: { code: initiative.code, name: initiative.name },
     },
     emailed,
     loginUrl: url,

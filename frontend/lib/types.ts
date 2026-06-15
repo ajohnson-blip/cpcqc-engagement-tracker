@@ -57,6 +57,7 @@ export interface CreateChampionResponse {
     lastName: string | null;
     role: UserRole;
     hospital: { id: string; name: string };
+    initiative: { code: string; name: string };
   };
   // True when the welcome email went out. When false (dev / delivery failure),
   // tempPassword is returned so the PM can relay it manually.

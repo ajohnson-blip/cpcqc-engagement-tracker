@@ -474,6 +474,7 @@ function CreateChampionModal({
   const [hospital, setHospital] = useState<{ id: string; name: string } | null>(null);
   const [hospSearch, setHospSearch] = useState('');
   const [hospResults, setHospResults] = useState<Array<{ id: string; name: string }>>([]);
+  const [initiativeCode, setInitiativeCode] = useState<'' | 'TTT' | 'SPARK' | 'SOAR' | 'NEST'>('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreateChampionResponse | null>(null);
@@ -507,10 +508,10 @@ function CreateChampionModal({
     };
   }, [hospSearch, hospital]);
 
-  const canSubmit = firstName.trim() && email.trim() && hospital && !saving;
+  const canSubmit = firstName.trim() && email.trim() && hospital && initiativeCode && !saving;
 
   async function submit() {
-    if (!canSubmit || !hospital) return;
+    if (!canSubmit || !hospital || !initiativeCode) return;
     setError(null);
     setSaving(true);
     try {
@@ -519,6 +520,7 @@ function CreateChampionModal({
         lastName: lastName.trim() || undefined,
         email: email.trim(),
         hospitalId: hospital.id,
+        initiativeCode,
         role,
       });
       setCreated(res);
@@ -575,8 +577,9 @@ function CreateChampionModal({
                   />
                   <span>
                     We've emailed <strong>{created.user.email}</strong> their sign-in details for{' '}
-                    <strong>{created.user.hospital.name}</strong>. They'll set their own password
-                    on first login — nothing more for you to do.
+                    <strong>{created.user.hospital.name}</strong>, and added them to the{' '}
+                    <strong>{created.user.initiative.code}</strong> roster. They'll set their own
+                    password on first login — nothing more for you to do.
                   </span>
                 </div>
                 <p className="text-xs text-cpcqc-purple-dark/60">
@@ -705,6 +708,28 @@ function CreateChampionModal({
                   )}
                 </>
               )}
+            </Field>
+
+            <Field label="Initiative" required>
+              <select
+                value={initiativeCode}
+                onChange={(e) =>
+                  setInitiativeCode(
+                    e.target.value as '' | 'TTT' | 'SPARK' | 'SOAR' | 'NEST',
+                  )
+                }
+                className="modal-input"
+              >
+                <option value="">Select…</option>
+                <option value="TTT">TTT — Turning the Tide</option>
+                <option value="SPARK">SPARK — Postpartum Discharge Transitions</option>
+                <option value="SOAR">SOAR — Primary Cesarean Reduction</option>
+                <option value="NEST">NEST — Infant Safe Sleep</option>
+              </select>
+              <span className="mt-1 block text-xs text-cpcqc-purple-dark/60">
+                Which initiative this person champions — they'll be added to that
+                initiative's roster for the hospital.
+              </span>
             </Field>
 
             <Field label="Role">
