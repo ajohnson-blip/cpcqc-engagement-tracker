@@ -21,7 +21,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
-import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '@/db/index.js';
 import { env } from '@/config/env.js';
 import { requireAuth, requireStaff } from '@/middleware/auth.js';
@@ -600,6 +600,9 @@ router.get('/users', requireAuth, requireStaff, async (req, res) => {
   const search = z.string().trim().max(200).optional().parse(req.query.search);
   const conditions = [
     inArray(schema.users.role, ['hospital_user', 'hospital_admin'] as const),
+    // Hide removed champions — a deactivated account can't sign in and
+    // shouldn't clutter the list. (It's recoverable; see the deactivate route.)
+    isNull(schema.users.deactivatedAt),
   ];
   if (search) {
     const like = `%${search.toLowerCase()}%`;
@@ -863,6 +866,51 @@ router.post('/users/:userId/reset-password', requireAuth, requireStaff, async (r
   const userId = z.string().uuid().parse(req.params.userId);
   const result = await resetPasswordAndEmail(userId, 'reset');
   res.json(result);
+});
+
+/**
+ * Remove (deactivate) a champion. Soft-delete: sets deactivated_at so the
+ * account can no longer sign in (login filters on it) and revokes any live
+ * sessions, but the user row, roster entry, and audit history stay intact —
+ * so this is reversible and doesn't orphan compliance records. Only hospital
+ * champions can be removed here; CPCQC staff/admin accounts are off-limits.
+ */
+router.post('/users/:userId/deactivate', requireAuth, requireStaff, async (req, res) => {
+  const userId = z.string().uuid().parse(req.params.userId);
+  const user = await db.query.users.findFirst({ where: eq(schema.users.id, userId) });
+  if (!user) throw new HttpError(404, 'User not found');
+  if (user.role !== 'hospital_user' && user.role !== 'hospital_admin') {
+    throw new HttpError(400, 'Only hospital champion accounts can be removed here.');
+  }
+  if (user.deactivatedAt) {
+    res.json({ id: user.id, deactivatedAt: user.deactivatedAt.toISOString() });
+    return;
+  }
+
+  const now = new Date();
+  await db
+    .update(schema.users)
+    .set({ deactivatedAt: now, updatedAt: now })
+    .where(eq(schema.users.id, userId));
+
+  // Kill any live sessions immediately (the 15-min access token aside).
+  await db
+    .update(schema.refreshTokens)
+    .set({ revokedAt: now })
+    .where(and(eq(schema.refreshTokens.userId, userId), isNull(schema.refreshTokens.revokedAt)));
+
+  await db.insert(schema.auditLog).values({
+    id: uuid(),
+    actorUserId: req.auth?.userId ?? null,
+    actorRole: req.auth?.role ?? null,
+    action: 'user.deactivate',
+    entityType: 'user',
+    entityId: userId,
+    diff: { deactivatedAt: { from: null, to: now.toISOString() } },
+    note: `Champion ${user.email} removed from access.`,
+  });
+
+  res.json({ id: userId, deactivatedAt: now.toISOString() });
 });
 
 // A single user's hospital access — primary + additional grants.

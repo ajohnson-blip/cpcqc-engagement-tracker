@@ -17,6 +17,7 @@ import {
   Plus,
   Trash2,
   UserPlus,
+  UserX,
   Copy,
   CheckCircle2,
   KeyRound,
@@ -34,6 +35,7 @@ export default function StaffUsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [manageUser, setManageUser] = useState<StaffUserListItem | null>(null);
   const [resetUser, setResetUser] = useState<StaffUserListItem | null>(null);
+  const [removeUser, setRemoveUser] = useState<StaffUserListItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   // Bumped after a create to re-run the list query.
   const [reloadKey, setReloadKey] = useState(0);
@@ -63,6 +65,10 @@ export default function StaffUsersPage() {
           )
         : prev,
     );
+  }
+
+  function dropUserFromList(userId: string) {
+    setUsers((prev) => (prev ? prev.filter((u) => u.id !== userId) : prev));
   }
 
   return (
@@ -168,6 +174,14 @@ export default function StaffUsersPage() {
                       >
                         Manage access →
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setRemoveUser(u)}
+                        className="inline-flex items-center gap-1 font-semibold text-cpcqc-pink-dark/80 hover:text-cpcqc-pink-dark hover:underline"
+                        title="Remove this champion's access"
+                      >
+                        <UserX size={12} aria-hidden /> Remove
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -196,6 +210,17 @@ export default function StaffUsersPage() {
 
       {resetUser && (
         <ResetPasswordModal user={resetUser} onClose={() => setResetUser(null)} />
+      )}
+
+      {removeUser && (
+        <RemoveChampionModal
+          user={removeUser}
+          onClose={() => setRemoveUser(null)}
+          onRemoved={() => {
+            dropUserFromList(removeUser.id);
+            setRemoveUser(null);
+          }}
+        />
       )}
     </div>
   );
@@ -462,6 +487,103 @@ function EmailDeliveryCard() {
         </div>
       )}
     </section>
+  );
+}
+
+function RemoveChampionModal({
+  user,
+  onClose,
+  onRemoved,
+}: {
+  user: StaffUserListItem;
+  onClose: () => void;
+  onRemoved: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  async function doRemove() {
+    setError(null);
+    setBusy(true);
+    try {
+      await api.post(`/staff/users/${user.id}/deactivate`, {});
+      onRemoved();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not remove this champion.');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 grid place-items-center bg-cpcqc-purple-dark/40 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-card">
+        <div className="h-1.5 w-full bg-cpcqc-pink-dark" />
+        <div className="flex items-start justify-between gap-4 px-6 pt-5">
+          <h2 className="font-rounded text-xl font-extrabold text-cpcqc-purple-dark">
+            Remove champion
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-1 text-cpcqc-purple-dark/60 hover:bg-cpcqc-purple-dark/5"
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-4 px-6 pb-5 pt-4">
+          {error && (
+            <div className="rounded-lg bg-cpcqc-pink-dark/10 px-3 py-2 text-sm text-cpcqc-pink-dark">
+              {error}
+            </div>
+          )}
+          <p className="text-sm text-cpcqc-purple-dark/80">
+            Remove <strong>{name}</strong> ({user.email})? They&rsquo;ll immediately lose access
+            and any active session is signed out.
+          </p>
+          <p className="text-xs text-cpcqc-purple-dark/60">
+            Their roster entry and history stay intact — this only revokes the login. CPCQC can
+            restore the account later if needed.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              className="rounded-full border border-cpcqc-purple-dark/20 px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void doRemove()}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-full bg-cpcqc-pink-dark px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-cpcqc-pink-dark/90 disabled:opacity-50"
+            >
+              <UserX size={14} aria-hidden />
+              {busy ? 'Removing…' : 'Remove champion'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
