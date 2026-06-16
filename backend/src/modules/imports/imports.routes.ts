@@ -16,6 +16,7 @@ import ExcelJS from 'exceljs';
 import { requireAuth, requireStaff } from '@/middleware/auth.js';
 import { HttpError } from '@/middleware/errors.js';
 import { importPmWorkbook } from './pm-workbook.service.js';
+import { runSparkRedcapSync } from '@/modules/redcap/spark-sync.service.js';
 
 const router = Router();
 
@@ -64,5 +65,23 @@ router.post(
     res.json(result);
   },
 );
+
+/**
+ * POST /staff/imports/redcap/spark?dryRun=true|false
+ *
+ * Pulls the SPARK quarterly_measures form from REDCap and maps it onto each
+ * SPARK-active hospital's quarterly data_submission tasks. Dry-run returns the
+ * preview without writing. No request body.
+ */
+router.post('/redcap/spark', requireAuth, requireStaff, express.json(), async (req, res) => {
+  // Default to a dry-run unless the caller explicitly passes dryRun=false. These
+  // are official compliance records, so "apply" must be a deliberate choice.
+  const dryRun = req.query.dryRun !== 'false';
+  const result = await runSparkRedcapSync({
+    dryRun,
+    actorUserId: req.auth?.userId ?? null,
+  });
+  res.json(result);
+});
 
 export default router;

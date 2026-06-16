@@ -77,6 +77,63 @@ export interface CreateChampionResponse {
   tempPassword: string | null;
 }
 
+// ---------- SPARK REDCap sync (staff imports) ----------
+
+export type SparkSyncCategory =
+  | 'counting'
+  | 'complete_late'
+  | 'complete_nodate'
+  | 'incomplete'
+  | 'not_submitted'
+  | 'pending';
+
+export type SyncTaskStatus = 'not_started' | 'current_activities' | 'complete' | 'needs_revision';
+export type SyncTaskOutcome = 'on_time' | 'late' | 'attended' | 'missed' | 'not_submitted' | null;
+
+export interface SparkSyncRow {
+  dagCode: string;
+  hospitalId: string | null;
+  hospitalName: string;
+  quarter: string;
+  category: SparkSyncCategory;
+  submitted: boolean;
+  complete: boolean;
+  pctComplete: number | null;
+  onTime: boolean | null;
+  daysFromDeadline: number | null;
+  submissionDate: string | null;
+  missingTotal: number;
+  missingSummary: string | null;
+  duplicateRecords: boolean;
+  primaryRecordId: string | null;
+  currentStatus: SyncTaskStatus;
+  currentOutcome: SyncTaskOutcome;
+  newStatus: SyncTaskStatus;
+  newOutcome: SyncTaskOutcome;
+  willChange: boolean;
+  note: string;
+}
+
+export interface SparkSyncResult {
+  dryRun: boolean;
+  fetchedAt: string;
+  programYear: number;
+  quartersInScope: string[];
+  recordsFetched: number;
+  rows: SparkSyncRow[];
+  warnings: string[];
+  counts: {
+    willChange: number;
+    counting: number;
+    completeLate: number;
+    incomplete: number;
+    notSubmitted: number;
+    pending: number;
+    duplicates: number;
+    unchanged: number;
+  };
+}
+
 export type RequirementStatus = 'on_track' | 'at_risk' | 'met' | 'not_met';
 
 export interface RequirementResult {

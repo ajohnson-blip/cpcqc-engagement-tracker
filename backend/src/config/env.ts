@@ -23,6 +23,12 @@ const EnvSchema = z.object({
   EMAIL_FROM: z.string().email().default('qi@cpcqc.org'),
 
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
+
+  // REDCap (Vanderbilt) integration. The API URL is shared across all CPCQC
+  // REDCap projects; each project has its own per-project token. Tokens are
+  // SECRETS — set them as Render environment variables, never in code.
+  REDCAP_API_URL: z.string().url().default('https://redcap.vumc.org/api/'),
+  REDCAP_SPARK_TOKEN: z.string().optional(),
 });
 
 const parsed = EnvSchema.safeParse(process.env);
