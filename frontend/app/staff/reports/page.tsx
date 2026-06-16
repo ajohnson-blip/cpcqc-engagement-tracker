@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Download, FileText, FileSpreadsheet } from 'lucide-react';
+import { Download, FileText, FileSpreadsheet, Users, Copy, Check, Mail } from 'lucide-react';
 import { api, getAccessToken } from '@/lib/api';
-import type { InitiativeHospitalsResponse } from '@/lib/types';
+import type { InitiativeHospitalsResponse, ChampionContact, ChampionContactsResponse } from '@/lib/types';
 
 const INITIATIVES = ['TTT', 'SPARK', 'SOAR', 'NEST'] as const;
 
@@ -131,11 +131,189 @@ export default function StaffReportsPage() {
         />
       </div>
 
+      <ChampionContactsCard />
+
       <p className="mt-8 max-w-2xl text-xs text-cpcqc-purple-dark/60">
         Reports compile data from the engagement tracker on demand. For the legal end-of-year
         CDPHE submission, run after Dec 31 so every requirement is finalized as Met or Not Met.
       </p>
     </div>
+  );
+}
+
+const CONTACT_INITIATIVES = ['all', 'TTT', 'SPARK', 'SOAR', 'NEST'] as const;
+type ContactInitiative = (typeof CONTACT_INITIATIVES)[number];
+
+function csvCell(v: string | null): string {
+  const s = (v ?? '').replace(/"/g, '""');
+  return /[",\n]/.test(s) ? `"${s}"` : s;
+}
+
+function ChampionContactsCard() {
+  const [initiative, setInitiative] = useState<ContactInitiative>('all');
+  const [contacts, setContacts] = useState<ChampionContact[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setContacts(null);
+    setError(null);
+    setCopied(false);
+    const qp = initiative === 'all' ? '' : `?initiative=${initiative}`;
+    api
+      .get<ChampionContactsResponse>(`/reports/champion-contacts${qp}`)
+      .then((d) => !cancelled && setContacts(d.contacts))
+      .catch((e: Error) => !cancelled && setError(e.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [initiative]);
+
+  // De-duped, non-empty emails — what you'd paste into a To/BCC field.
+  const emails = Array.from(
+    new Set((contacts ?? []).map((c) => c.email?.trim()).filter((e): e is string => !!e).map((e) => e.toLowerCase())),
+  );
+  const withEmail = (contacts ?? []).filter((c) => c.email?.trim()).length;
+
+  function downloadCsv() {
+    if (!contacts) return;
+    const header = ['Hospital', 'Region', 'Initiative', 'Name', 'Role', 'Email', 'Phone'];
+    const lines = [
+      header.join(','),
+      ...contacts.map((c) =>
+        [c.hospital, c.region, c.initiativeCode, c.name, c.role, c.email, c.phone]
+          .map(csvCell)
+          .join(','),
+      ),
+    ];
+    // Prepend a BOM so Excel reads UTF-8 correctly.
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `cpcqc-champion-contacts-${initiative}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    }, 1000);
+  }
+
+  async function copyEmails() {
+    try {
+      await navigator.clipboard.writeText(emails.join('; '));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Could not copy to clipboard.');
+    }
+  }
+
+  return (
+    <section className="mt-10 overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-cpcqc-purple-dark/5">
+      <div className="h-1 w-full bg-cpcqc-teal-dark" />
+      <div className="p-5">
+        <h2 className="inline-flex items-center gap-2 font-rounded text-lg font-extrabold text-cpcqc-purple-dark">
+          <Users size={18} aria-hidden /> Champion contacts
+        </h2>
+        <p className="mt-1 max-w-2xl text-sm text-cpcqc-purple-dark/70">
+          The champion roster as a contact list — for emailing a cohort or building a mail
+          merge. Filter by initiative, then download a CSV or copy every email at once.
+        </p>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <div className="inline-flex items-center gap-2 rounded-full bg-cpcqc-cream/60 p-1 ring-1 ring-cpcqc-purple-dark/10">
+            {CONTACT_INITIATIVES.map((code) => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => setInitiative(code)}
+                className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide transition ${
+                  initiative === code
+                    ? 'bg-cpcqc-purple text-white'
+                    : 'text-cpcqc-purple-dark hover:bg-cpcqc-purple/10'
+                }`}
+              >
+                {code === 'all' ? 'All' : code}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            disabled={!contacts || contacts.length === 0}
+            onClick={downloadCsv}
+            className="inline-flex items-center gap-1.5 rounded-full bg-cpcqc-purple px-4 py-2 font-rounded text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-cpcqc-purple/90 disabled:opacity-50"
+          >
+            <FileSpreadsheet size={14} aria-hidden /> CSV <Download size={14} aria-hidden />
+          </button>
+          <button
+            type="button"
+            disabled={emails.length === 0}
+            onClick={() => void copyEmails()}
+            className="inline-flex items-center gap-1.5 rounded-full border border-cpcqc-purple-dark/20 px-4 py-2 text-sm font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5 disabled:opacity-50"
+          >
+            {copied ? <Check size={14} aria-hidden /> : <Mail size={14} aria-hidden />}
+            {copied ? 'Copied' : `Copy ${emails.length} email${emails.length === 1 ? '' : 's'}`}
+          </button>
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-lg bg-cpcqc-pink-dark/10 px-3 py-2 text-sm text-cpcqc-pink-dark">
+            {error}
+          </div>
+        )}
+
+        {contacts === null && !error ? (
+          <p className="mt-4 text-sm text-cpcqc-purple-dark/60">Loading…</p>
+        ) : contacts && contacts.length === 0 ? (
+          <p className="mt-4 text-sm text-cpcqc-purple-dark/60">
+            No champions on the roster for this filter.
+          </p>
+        ) : contacts ? (
+          <>
+            <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-cpcqc-purple-dark/60">
+              {contacts.length} contact{contacts.length === 1 ? '' : 's'} · {withEmail} with email
+            </p>
+            <div className="mt-2 max-h-96 overflow-auto rounded-xl border border-cpcqc-purple-dark/10">
+              <table className="w-full text-left text-sm">
+                <thead className="sticky top-0 bg-cpcqc-cream/60 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
+                  <tr>
+                    <th className="px-3 py-2">Hospital</th>
+                    <th className="px-3 py-2">Initiative</th>
+                    <th className="px-3 py-2">Name</th>
+                    <th className="px-3 py-2">Role</th>
+                    <th className="px-3 py-2">Email</th>
+                    <th className="px-3 py-2">Phone</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {contacts.map((c, i) => (
+                    <tr key={i} className="border-t border-cpcqc-purple-dark/10">
+                      <td className="px-3 py-2 text-cpcqc-purple-dark/80">{c.hospital}</td>
+                      <td className="px-3 py-2 text-cpcqc-purple-dark/80">{c.initiativeCode ?? '—'}</td>
+                      <td className="px-3 py-2 font-semibold text-cpcqc-purple-dark">{c.name}</td>
+                      <td className="px-3 py-2 text-cpcqc-purple-dark/80">{c.role ?? '—'}</td>
+                      <td className="px-3 py-2">
+                        {c.email ? (
+                          <a href={`mailto:${c.email}`} className="text-cpcqc-purple hover:underline">
+                            {c.email}
+                          </a>
+                        ) : (
+                          <span className="text-cpcqc-pink-dark/70">missing</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-cpcqc-purple-dark/80">{c.phone ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

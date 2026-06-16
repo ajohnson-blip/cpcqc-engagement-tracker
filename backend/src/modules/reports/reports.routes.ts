@@ -5,6 +5,7 @@ import {
   assembleAnnualReport,
   assembleHospitalReport,
   assembleInitiativeReport,
+  getChampionContacts,
 } from './reports.service.js';
 import { renderAnnualReportXlsx } from './reports-xlsx.js';
 import { renderAnnualReportPdf } from './reports-pdf.js';
@@ -81,6 +82,17 @@ router.get('/initiative/:code', requireAuth, requireStaff, async (req, res) => {
     setDownloadHeaders(res, 'pdf', `cpcqc-${code}-${programYear}`);
     res.send(buffer);
   }
+});
+
+// Champion contact list (roster) for emailing/outreach. JSON; the UI builds CSV
+// + a copy-emails list client-side. Optional ?initiative=TTT|SPARK|SOAR|NEST.
+router.get('/champion-contacts', requireAuth, requireStaff, async (req, res) => {
+  const initiative = z
+    .enum(['TTT', 'SPARK', 'SOAR', 'NEST'])
+    .optional()
+    .parse(req.query.initiative || undefined);
+  const contacts = await getChampionContacts(initiative);
+  res.json({ initiative: initiative ?? null, contacts });
 });
 
 export default router;

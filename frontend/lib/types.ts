@@ -134,6 +134,22 @@ export interface SparkSyncResult {
   };
 }
 
+export interface ChampionContact {
+  hospital: string;
+  region: string | null;
+  initiativeCode: string | null;
+  initiativeName: string | null;
+  name: string;
+  role: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
+export interface ChampionContactsResponse {
+  initiative: 'TTT' | 'SPARK' | 'SOAR' | 'NEST' | null;
+  contacts: ChampionContact[];
+}
+
 export type RequirementStatus = 'on_track' | 'at_risk' | 'met' | 'not_met';
 
 export interface RequirementResult {

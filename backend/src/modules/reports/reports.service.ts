@@ -363,3 +363,57 @@ export async function assembleInitiativeReport(
     totals,
   };
 }
+
+// ---------- Champion contact list ----------
+
+export interface ChampionContact {
+  hospital: string;
+  region: string | null;
+  initiativeCode: string | null;
+  initiativeName: string | null;
+  name: string;
+  role: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
+/**
+ * Flat champion contact list from the roster (hospital_staff_members), joined
+ * to hospital + initiative. Optionally scoped to a single initiative. Sorted by
+ * hospital, then initiative, then name — the order PMs expect when pulling a
+ * list to email a cohort. Rows without an email are kept (the UI separates
+ * "contacts" from "with email" so PMs can see the gaps).
+ */
+export async function getChampionContacts(
+  initiativeCode?: 'TTT' | 'SPARK' | 'SOAR' | 'NEST',
+): Promise<ChampionContact[]> {
+  const rows = await db
+    .select({
+      hospital: schema.hospitals.name,
+      region: schema.hospitals.region,
+      initiativeCode: schema.initiatives.code,
+      initiativeName: schema.initiatives.name,
+      name: schema.hospitalStaffMembers.name,
+      role: schema.hospitalStaffMembers.role,
+      email: schema.hospitalStaffMembers.email,
+      phone: schema.hospitalStaffMembers.phone,
+    })
+    .from(schema.hospitalStaffMembers)
+    .innerJoin(schema.hospitals, eq(schema.hospitals.id, schema.hospitalStaffMembers.hospitalId))
+    .leftJoin(
+      schema.initiatives,
+      eq(schema.initiatives.id, schema.hospitalStaffMembers.initiativeId),
+    );
+
+  const filtered = initiativeCode
+    ? rows.filter((r) => r.initiativeCode === initiativeCode)
+    : rows;
+
+  return filtered.sort((a, b) => {
+    const h = a.hospital.localeCompare(b.hospital);
+    if (h !== 0) return h;
+    const i = (a.initiativeCode ?? '~').localeCompare(b.initiativeCode ?? '~');
+    if (i !== 0) return i;
+    return a.name.localeCompare(b.name);
+  });
+}
