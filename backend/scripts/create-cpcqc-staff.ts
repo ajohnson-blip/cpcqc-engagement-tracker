@@ -80,6 +80,20 @@ const STAFF: StaffSeed[] = [
   { email: 'sbanchefsky@cpcqc.org', firstName: 'Sarah', lastName: 'Banchefsky',
     title: 'Data Program Manager',
     assignments: [] },
+  // Org leadership added 2026 — Director + CEO get admin; data analyst is
+  // standard staff (like the Data Program Manager above). Luis is at CHA
+  // (Colorado Hospital Association), hence the non-@cpcqc.org address.
+  { email: 'ajohnson@cpcqc.org', firstName: 'Amber', lastName: 'Johnson',
+    role: 'cpcqc_admin',
+    title: 'Director of Quality Improvement',
+    assignments: [] },
+  { email: 'ralderfer@cpcqc.org', firstName: 'Rebecca', lastName: 'Alderfer',
+    role: 'cpcqc_admin',
+    title: 'CEO',
+    assignments: [] },
+  { email: 'luis.montes@cha.com', firstName: 'Luis', lastName: 'Montes',
+    title: 'Data Analyst',
+    assignments: [] },
 ];
 
 async function findOrCreateUser(rec: StaffSeed, passwordHash: string) {
