@@ -198,6 +198,7 @@ export default function StaffUsersPage() {
           user={manageUser}
           onClose={() => setManageUser(null)}
           onChanged={(delta) => bumpAdditionalCount(manageUser.id, delta)}
+          onSaved={() => setReloadKey((k) => k + 1)}
         />
       )}
 
@@ -959,18 +960,87 @@ function Field({
   );
 }
 
+// Common roster titles, offered as suggestions when editing a champion's role.
+// Free text is still allowed (the field is an <input> backed by this datalist).
+const CHAMPION_ROLE_OPTIONS = [
+  'Clinical Lead',
+  'QI Champion',
+  'Data Champion',
+  'Provider Champion',
+  'L&D Champion',
+  'C-Suite Sponsor',
+  'Primary Contact',
+];
+
 function ManageAccessModal({
   user,
   onClose,
   onChanged,
+  onSaved,
 }: {
   user: StaffUserListItem;
   onClose: () => void;
   onChanged: (delta: number) => void;
+  onSaved: () => void;
 }) {
   const [data, setData] = useState<UserHospitalsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Editable contact details + per-initiative roster title.
+  const [form, setForm] = useState<{
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+  } | null>(null);
+  const [roles, setRoles] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Seed the edit form once, when the user's data first arrives.
+  useEffect(() => {
+    if (data && !form) {
+      setForm({
+        firstName: data.user.firstName ?? '',
+        lastName: data.user.lastName ?? '',
+        email: data.user.email,
+        phone: data.phone ?? '',
+      });
+      setRoles(Object.fromEntries(data.rosterEntries.map((r) => [r.id, r.role ?? ''])));
+    }
+  }, [data, form]);
+
+  async function saveDetails() {
+    if (!form || !data) return;
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await api.patch(`/staff/users/${user.id}`, {
+        firstName: form.firstName,
+        lastName: form.lastName,
+        email: form.email,
+        phone: form.phone,
+        rosterRoles: data.rosterEntries.map((r) => ({ id: r.id, role: roles[r.id] ?? '' })),
+      });
+      const fresh = await api.get<UserHospitalsResponse>(`/staff/users/${user.id}/hospitals`);
+      setData(fresh);
+      setForm({
+        firstName: fresh.user.firstName ?? '',
+        lastName: fresh.user.lastName ?? '',
+        email: fresh.user.email,
+        phone: fresh.phone ?? '',
+      });
+      setRoles(Object.fromEntries(fresh.rosterEntries.map((r) => [r.id, r.role ?? ''])));
+      setSaved(true);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not save changes.');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   // Add-hospital picker.
   const [pickerSearch, setPickerSearch] = useState('');
@@ -1083,6 +1153,111 @@ function ManageAccessModal({
           {error && (
             <div className="rounded-lg bg-cpcqc-pink-dark/10 px-3 py-2 text-sm text-cpcqc-pink-dark">
               {error}
+            </div>
+          )}
+
+          {/* Editable contact details + role */}
+          {form && (
+            <div className="rounded-xl border border-cpcqc-purple-dark/15 bg-cpcqc-cream-dark/20 p-3">
+              <div className="mb-2 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/60">
+                Contact details &amp; role
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  className="modal-input"
+                  placeholder="First name"
+                  value={form.firstName}
+                  onChange={(e) => {
+                    setForm({ ...form, firstName: e.target.value });
+                    setSaved(false);
+                  }}
+                />
+                <input
+                  className="modal-input"
+                  placeholder="Last name"
+                  value={form.lastName}
+                  onChange={(e) => {
+                    setForm({ ...form, lastName: e.target.value });
+                    setSaved(false);
+                  }}
+                />
+              </div>
+              <input
+                type="email"
+                className="modal-input mt-2"
+                placeholder="Email"
+                value={form.email}
+                onChange={(e) => {
+                  setForm({ ...form, email: e.target.value });
+                  setSaved(false);
+                }}
+              />
+              <p className="mt-1 text-xs text-cpcqc-purple-dark/55">
+                This is also their sign-in email — changing it changes how they log in.
+              </p>
+
+              {data && data.rosterEntries.length > 0 ? (
+                <>
+                  <input
+                    className="modal-input mt-2"
+                    placeholder="Phone"
+                    value={form.phone}
+                    onChange={(e) => {
+                      setForm({ ...form, phone: e.target.value });
+                      setSaved(false);
+                    }}
+                  />
+                  <div className="mt-3 space-y-2">
+                    <div className="text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/60">
+                      Role by initiative
+                    </div>
+                    {data.rosterEntries.map((r) => (
+                      <div key={r.id} className="flex items-center gap-2">
+                        <span className="w-16 shrink-0 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
+                          {r.initiativeCode ?? '—'}
+                        </span>
+                        <input
+                          list="champion-role-options"
+                          className="modal-input flex-1"
+                          placeholder="e.g. QI Champion"
+                          value={roles[r.id] ?? ''}
+                          onChange={(e) => {
+                            setRoles({ ...roles, [r.id]: e.target.value });
+                            setSaved(false);
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="mt-2 text-xs italic text-cpcqc-purple-dark/50">
+                  No initiative roster entry yet — phone &amp; role live on the roster, so add them
+                  from the hospital&rsquo;s roster.
+                </p>
+              )}
+
+              <datalist id="champion-role-options">
+                {CHAMPION_ROLE_OPTIONS.map((o) => (
+                  <option key={o} value={o} />
+                ))}
+              </datalist>
+
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void saveDetails()}
+                  disabled={saving}
+                  className="rounded-full bg-cpcqc-purple px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90 disabled:opacity-50"
+                >
+                  {saving ? 'Saving…' : 'Save details'}
+                </button>
+                {saved && (
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                    <CheckCircle2 size={14} aria-hidden /> Saved
+                  </span>
+                )}
+              </div>
             </div>
           )}
 

@@ -933,13 +933,129 @@ router.get('/users/:userId/hospitals', requireAuth, requireStaff, async (req, re
     ? await db.query.hospitals.findFirst({ where: eq(schema.hospitals.id, user.hospitalId) })
     : null;
 
+  // Roster entries for this person, matched by email. Title (role) is per
+  // (hospital, initiative), so a champion on several initiatives has several
+  // rows with possibly different titles — each is editable. Phone lives on the
+  // roster (the account has no phone), so we surface the first one we find.
+  const rosterRows = user.email
+    ? await db
+        .select({
+          id: schema.hospitalStaffMembers.id,
+          role: schema.hospitalStaffMembers.role,
+          phone: schema.hospitalStaffMembers.phone,
+          initiativeCode: schema.initiatives.code,
+          initiativeName: schema.initiatives.name,
+        })
+        .from(schema.hospitalStaffMembers)
+        .leftJoin(
+          schema.initiatives,
+          eq(schema.initiatives.id, schema.hospitalStaffMembers.initiativeId),
+        )
+        .where(sql`lower(${schema.hospitalStaffMembers.email}) = lower(${user.email})`)
+    : [];
+
   res.json({
-    user: { id: user.id, email: user.email, role: user.role },
+    user: {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+    },
+    phone: rosterRows.find((r) => r.phone)?.phone ?? null,
+    rosterEntries: rosterRows.map((r) => ({
+      id: r.id,
+      role: r.role,
+      initiativeCode: r.initiativeCode,
+      initiativeName: r.initiativeName,
+    })),
     primaryHospital: primary ? { id: primary.id, name: primary.name } : null,
     additionalHospitals: grants
       .map((g) => ({ id: g.hospitalId, name: g.name }))
       .sort((a, b) => a.name.localeCompare(b.name)),
   });
+});
+
+/**
+ * Update a champion's contact details (name, email, phone) and roster title(s).
+ * The account and roster are separate tables (login vs contact list), so this
+ * writes to both: name/email on the user account, and name/email/phone + the
+ * per-initiative title on every roster row matched by the champion's email.
+ * Email is also the sign-in username, so changing it changes how they log in.
+ */
+router.patch('/users/:userId', requireAuth, requireStaff, async (req, res) => {
+  const userId = z.string().uuid().parse(req.params.userId);
+  const body = z
+    .object({
+      firstName: z.string().trim().max(120).optional(),
+      lastName: z.string().trim().max(120).optional(),
+      email: z.string().trim().email().max(200).optional(),
+      phone: z.string().trim().max(60).optional(),
+      rosterRoles: z
+        .array(z.object({ id: z.string().uuid(), role: z.string().trim().max(120) }))
+        .optional(),
+    })
+    .parse(req.body);
+
+  const user = await db.query.users.findFirst({ where: eq(schema.users.id, userId) });
+  if (!user) throw new HttpError(404, 'User not found');
+  if (user.role !== 'hospital_user' && user.role !== 'hospital_admin') {
+    throw new HttpError(400, 'Only hospital champion accounts can be edited here.');
+  }
+
+  const oldEmail = user.email;
+  const newEmail = body.email ?? oldEmail;
+
+  // Email is the unique login username — guard against collisions.
+  if (newEmail.toLowerCase() !== oldEmail.toLowerCase()) {
+    const clash = await db.query.users.findFirst({
+      where: and(
+        sql`lower(${schema.users.email}) = lower(${newEmail})`,
+        sql`${schema.users.id} <> ${userId}`,
+      ),
+    });
+    if (clash) throw new HttpError(409, 'Another account already uses that email.');
+  }
+
+  const now = new Date();
+  const firstName = body.firstName ?? user.firstName ?? null;
+  const lastName = body.lastName ?? user.lastName ?? null;
+  await db
+    .update(schema.users)
+    .set({ firstName, lastName, email: newEmail, updatedAt: now })
+    .where(eq(schema.users.id, userId));
+
+  // Sync the roster rows for this person (matched by their OLD email). Title is
+  // set per-row from rosterRoles; name/email/phone are person-level.
+  const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+  const roleById = new Map((body.rosterRoles ?? []).map((r) => [r.id, r.role]));
+  const matched = await db
+    .select({ id: schema.hospitalStaffMembers.id })
+    .from(schema.hospitalStaffMembers)
+    .where(sql`lower(${schema.hospitalStaffMembers.email}) = lower(${oldEmail})`);
+  for (const row of matched) {
+    const patch: Record<string, unknown> = { email: newEmail, updatedAt: now };
+    if (fullName) patch['name'] = fullName;
+    if (body.phone !== undefined) patch['phone'] = body.phone || null;
+    if (roleById.has(row.id)) patch['role'] = roleById.get(row.id) || null;
+    await db
+      .update(schema.hospitalStaffMembers)
+      .set(patch)
+      .where(eq(schema.hospitalStaffMembers.id, row.id));
+  }
+
+  await db.insert(schema.auditLog).values({
+    id: uuid(),
+    actorUserId: req.auth?.userId ?? null,
+    actorRole: req.auth?.role ?? null,
+    action: 'user.update_contact',
+    entityType: 'user',
+    entityId: userId,
+    diff: { email: { from: oldEmail, to: newEmail }, name: { to: fullName } },
+    note: `Updated champion contact/role for ${newEmail}.`,
+  });
+
+  res.json({ id: userId, email: newEmail, firstName, lastName });
 });
 
 // Grant a user access to an additional hospital.

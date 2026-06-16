@@ -45,8 +45,23 @@ export interface StaffUserListItem {
   additionalCount: number;
 }
 
+export interface RosterRoleEntry {
+  id: string;
+  role: string | null;
+  initiativeCode: string | null;
+  initiativeName: string | null;
+}
+
 export interface UserHospitalsResponse {
-  user: { id: string; email: string; role: UserRole };
+  user: {
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+    role: UserRole;
+  };
+  phone: string | null;
+  rosterEntries: RosterRoleEntry[];
   primaryHospital: { id: string; name: string } | null;
   additionalHospitals: Array<{ id: string; name: string }>;
 }
