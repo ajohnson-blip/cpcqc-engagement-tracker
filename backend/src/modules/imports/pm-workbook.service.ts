@@ -30,6 +30,7 @@ import { db, schema } from '@/db/index.js';
 import { quarterOf } from '@/utils/period.js';
 import { effectiveHraQuarters, hraScheduleOverrideFor } from '@/modules/compliance/hra.js';
 import { computeCurrentStageForEnrollment } from '@/modules/stages/stage-resolver.js';
+import { parseAttendanceNote } from './attendance-note.js';
 
 export interface PmImportResult {
   dryRun: boolean;
@@ -574,6 +575,25 @@ async function processMeetingAttendance(ctx: ProcessContext, sheet: ExcelJS.Work
 
     const isAnnualForum = (meetingType ?? '').toLowerCase() === 'annual forum';
 
+    // Read explicit attendance from the Notes dropdown. Monthly Cohort rows must
+    // say "attended" or "did not attend" (the new convention lists every
+    // hospital). Annual Forum still lists only attendees, so a blank/neutral
+    // note there means attended.
+    let attendance = parseAttendanceNote(notes ?? '');
+    if (attendance === null) {
+      if (isAnnualForum) {
+        attendance = 'attended';
+      } else {
+        ctx.errors.push({
+          sheet: SHEET,
+          rowNumber,
+          reason: `Notes must be "attended" or "did not attend" (got "${(notes ?? '').trim()}")`,
+        });
+        continue;
+      }
+    }
+    const attended = attendance === 'attended';
+
     const hospitalId = ctx.lookups.hospitalsByName.get((hospital ?? '').toLowerCase());
     if (!hospitalId) {
       ctx.errors.push({
@@ -636,35 +656,35 @@ async function processMeetingAttendance(ctx: ProcessContext, sheet: ExcelJS.Work
         continue;
       }
 
-      // Monthly active model: one task per month, status='complete' + outcome='attended'
-      // when the hospital attended any meeting that month. Sustainability still uses
-      // the legacy "attendances array" structure since multiple per quarter are possible.
+      // Monthly active model: one task per month — outcome reflects the row's
+      // explicit attendance ('attended' counts; 'missed' is recorded but doesn't).
+      // Sustainability keeps the "attendances array" structure since several
+      // monthly rows can land in one quarter; that quarter counts as attended if
+      // ANY of its meetings were attended (attended wins, never downgraded).
       const isMonthly = cohortForTrack?.track !== 'sustainability';
+      const entry = {
+        meetingDate,
+        type: meetingType || 'Monthly Cohort',
+        attended,
+        source: 'pm-backfill',
+      };
       let newPayload: Record<string, unknown>;
+      let outcome: 'attended' | 'missed';
       if (isMonthly) {
-        newPayload = {
-          meetingDate,
-          type: meetingType || 'Monthly Cohort',
-          ...(notes ? { notes } : {}),
-          source: 'pm-backfill',
-        };
+        newPayload = entry;
+        outcome = attended ? 'attended' : 'missed';
       } else {
         const existingPayload = (ti.payload as Record<string, unknown> | null) ?? {};
         const previousAttendances = Array.isArray(existingPayload['attendances'])
-          ? (existingPayload['attendances'] as unknown[])
+          ? (existingPayload['attendances'] as Array<Record<string, unknown>>)
           : [];
-        newPayload = {
-          ...existingPayload,
-          attendances: [
-            ...previousAttendances,
-            {
-              meetingDate,
-              type: meetingType || 'Monthly Cohort',
-              ...(notes ? { notes } : {}),
-              source: 'pm-backfill',
-            },
-          ],
-        };
+        // Dedupe by meetingDate so re-importing the same file doesn't pile up rows.
+        const attendances = [
+          ...previousAttendances.filter((a) => a['meetingDate'] !== meetingDate),
+          entry,
+        ];
+        newPayload = { ...existingPayload, attendances };
+        outcome = attendances.some((a) => a['attended'] === true) ? 'attended' : 'missed';
       }
 
       if (ctx.dryRun) {
@@ -675,10 +695,10 @@ async function processMeetingAttendance(ctx: ProcessContext, sheet: ExcelJS.Work
         ti,
         {
           status: 'complete',
-          // Explicitly set 'attended' (rather than leaving the prior value)
-          // so a re-import clears any stale 'missed' outcome from manual
-          // edits or older importer versions.
-          outcome: 'attended',
+          // Always set the outcome explicitly so a re-import reconciles stale
+          // values (e.g. a hospital that previously attended but is now marked
+          // "did not attend", or vice versa).
+          outcome,
           completedOn: meetingDate,
           payload: newPayload,
         },
