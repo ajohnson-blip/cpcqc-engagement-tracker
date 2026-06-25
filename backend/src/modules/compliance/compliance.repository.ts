@@ -20,6 +20,18 @@ import {
   type ProgramYearThresholds,
 } from './compliance.service.js';
 
+/** Map a task period ('2026-Q1' or monthly '2026-03') to its quarter label ('Q1'). */
+function periodToQuarterLabel(period: string): string | null {
+  const q = /^\d{4}-Q([1-4])$/.exec(period);
+  if (q) return `Q${q[1]}`;
+  const m = /^\d{4}-(\d{2})$/.exec(period);
+  if (m) {
+    const month = parseInt(m[1]!, 10);
+    if (month >= 1 && month <= 12) return `Q${Math.ceil(month / 3)}`;
+  }
+  return null;
+}
+
 export interface ComplianceForProgramYear {
   programYearId: string;
   programYear: number;
@@ -60,10 +72,10 @@ export async function evaluateProgramYearById(
   // Excludes 'late' and 'missed' outcomes: those are recorded for the audit
   // trail but do not satisfy the compliance threshold. NULL outcome (legacy
   // imports + pre-outcome-field rows) is still counted, preserving back-compat.
-  const completedCountsRaw = await db
+  const compliantRows = await db
     .select({
       taskType: schema.taskTemplates.taskType,
-      count: sql<number>`count(*)::int`,
+      period: schema.taskInstances.period,
     })
     .from(schema.taskInstances)
     .innerJoin(
@@ -76,12 +88,17 @@ export async function evaluateProgramYearById(
         eq(schema.taskInstances.status, 'complete'),
         sql`(${schema.taskInstances.outcome} IS NULL OR ${schema.taskInstances.outcome} IN ('on_time', 'attended'))`,
       ),
-    )
-    .groupBy(schema.taskTemplates.taskType);
+    );
 
   const countsByType = new Map<string, number>();
-  for (const row of completedCountsRaw) {
-    countsByType.set(row.taskType, row.count);
+  const quartersByType = new Map<string, Set<string>>();
+  for (const row of compliantRows) {
+    countsByType.set(row.taskType, (countsByType.get(row.taskType) ?? 0) + 1);
+    const q = periodToQuarterLabel(row.period);
+    if (q) {
+      if (!quartersByType.has(row.taskType)) quartersByType.set(row.taskType, new Set());
+      quartersByType.get(row.taskType)!.add(q);
+    }
   }
 
   const progress: ProgramYearProgress = {
@@ -104,6 +121,8 @@ export async function evaluateProgramYearById(
   const result = evaluateProgramYear(thresholds, progress, {
     programYear: py.year,
     asOf,
+    advisingQuartersDone: [...(quartersByType.get('qi_advising') ?? [])],
+    meetingQuartersDone: [...(quartersByType.get('meeting_attendance') ?? [])],
   });
 
   return {

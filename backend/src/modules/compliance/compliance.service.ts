@@ -86,6 +86,15 @@ export interface EvaluationContext {
   programYear: number;
   /** Today (or as-of date) for pace calculations. */
   asOf: Date;
+  /**
+   * Quarter labels (e.g. ['Q1','Q2']) of the QI advising sessions actually
+   * completed. When provided, advising is evaluated SLOT-BASED (a missed
+   * specific quarter flags at_risk even if a later one was done early). When
+   * omitted, advising falls back to count-based pacing.
+   */
+  advisingQuartersDone?: readonly string[];
+  /** Same idea for quarterly cohort meetings (sustainability track). */
+  meetingQuartersDone?: readonly string[];
 }
 
 export interface RequirementResult {
@@ -232,7 +241,12 @@ export function evaluateProgramYear(
         progress.meetingsAttended,
         ctx.programYear,
         ctx.asOf,
-        meetingLabels,
+        {
+          ...meetingLabels,
+          completedQuarters: ctx.meetingQuartersDone
+            ? new Set(ctx.meetingQuartersDone)
+            : undefined,
+        },
       );
     }
     return evaluateThreshold(
@@ -255,7 +269,13 @@ export function evaluateProgramYear(
         progress.advisingCompleted,
         ctx.programYear,
         ctx.asOf,
-        { itemLabel: 'advising session', itemLabelPlural: 'advising sessions' },
+        {
+          itemLabel: 'advising session',
+          itemLabelPlural: 'advising sessions',
+          completedQuarters: ctx.advisingQuartersDone
+            ? new Set(ctx.advisingQuartersDone)
+            : undefined,
+        },
       )
     : evaluateThreshold(
         progress.advisingCompleted,

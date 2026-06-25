@@ -122,18 +122,58 @@ export function evaluateQuarterlyMilestones(
   completed: number,
   programYear: number,
   asOf: Date,
-  options: { itemLabel: string; itemLabelPlural: string },
+  options: {
+    itemLabel: string;
+    itemLabelPlural: string;
+    /**
+     * When supplied, switches to SLOT-BASED evaluation: each scheduled quarter
+     * is checked individually, so a specific quarter that's past its deadline
+     * and not in this set flags at_risk even if a later quarter was completed
+     * early. (Without it, evaluation is count-based — used by the HRA schedule.)
+     */
+    completedQuarters?: ReadonlySet<string>;
+  },
 ): RequirementResult {
   const required = quarters.length;
   const nowMs = asOf.getTime();
-  let expected = 0;
-  for (const q of quarters) {
+  const dueQuarters = quarters.filter((q) => {
     const qn = quarterToNum(q);
-    if (qn == null) continue; // skip unrecognized labels rather than crash
-    if (quarterEndMs(programYear, qn) < nowMs) expected += 1;
-  }
+    return qn != null && quarterEndMs(programYear, qn) < nowMs;
+  });
+  const expected = dueQuarters.length;
   const yearEnded = expected === required;
 
+  // Slot-based: a missed specific quarter can't be masked by completing a later
+  // quarter early. Used for QI advising 1:1s and quarterly cohort meetings.
+  if (options.completedQuarters) {
+    const done = options.completedQuarters;
+    const doneInScope = quarters.filter((q) => done.has(q)).length;
+    const missedDue = dueQuarters.filter((q) => !done.has(q));
+    if (doneInScope >= required) {
+      return { status: 'met', current: doneInScope, required, expected: required };
+    }
+    if (yearEnded) {
+      return {
+        status: 'not_met',
+        current: doneInScope,
+        required,
+        expected: required,
+        reason: `Year ended with ${doneInScope} of ${required} ${options.itemLabelPlural} complete.`,
+      };
+    }
+    if (missedDue.length > 0) {
+      return {
+        status: 'at_risk',
+        current: doneInScope,
+        required,
+        expected,
+        reason: `Missed ${missedDue.join(', ')} ${options.itemLabel} deadline(s); ${doneInScope} of ${required} complete.`,
+      };
+    }
+    return { status: 'on_track', current: doneInScope, required, expected };
+  }
+
+  // Count-based fallback (HRA schedule, and any caller without per-quarter data).
   if (completed >= required) {
     return { status: 'met', current: completed, required, expected: required };
   }

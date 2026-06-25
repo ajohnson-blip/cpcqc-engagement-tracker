@@ -346,3 +346,76 @@ describe('withdrawn / unenrolled hospitals', () => {
     expect(result.meetings.status).toBe('on_track');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Slot-based per-quarter milestones (advising 1:1s + quarterly cohort meetings).
+// Regression for: a missed Q1 must flag at_risk even when a later quarter was
+// completed early (the "Wray" case).
+// ---------------------------------------------------------------------------
+describe('slot-based quarterly milestones', () => {
+  // June 18: Q1's deadline (Mar 31) has passed; Q2's (Jun 30) has not.
+  const afterQ1BeforeQ2 = (extra: Partial<EvaluationContext> = {}): EvaluationContext => ({
+    programYear: 2026,
+    asOf: new Date('2026-06-18T12:00:00Z'),
+    ...extra,
+  });
+
+  it('advising: missed Q1 is at_risk even though Q2 was done early (the Wray case)', () => {
+    const progress = enrolled({ advisingCompleted: 1 }); // only the Q2 session counts
+    // Count-based fallback (no per-quarter data) masks the miss as on_track…
+    expect(
+      evaluateProgramYear(activeThresholds, progress, afterQ1BeforeQ2()).advising.status,
+    ).toBe('on_track');
+    // …but slot-based sees Q1 specifically missing → at_risk.
+    const result = evaluateProgramYear(
+      activeThresholds,
+      progress,
+      afterQ1BeforeQ2({ advisingQuartersDone: ['Q2'] }),
+    );
+    expect(result.advising.status).toBe('at_risk');
+  });
+
+  it('advising: Q1 done on time is on_track', () => {
+    const result = evaluateProgramYear(
+      activeThresholds,
+      enrolled({ advisingCompleted: 1 }),
+      afterQ1BeforeQ2({ advisingQuartersDone: ['Q1'] }),
+    );
+    expect(result.advising.status).toBe('on_track');
+  });
+
+  it('advising: all four done by year end is met; a missed quarter is not_met', () => {
+    expect(
+      evaluateProgramYear(activeThresholds, enrolled({ advisingCompleted: 4 }), {
+        programYear: 2026,
+        asOf: new Date('2027-01-15T12:00:00Z'),
+        advisingQuartersDone: ['Q1', 'Q2', 'Q3', 'Q4'],
+      }).advising.status,
+    ).toBe('met');
+    expect(
+      evaluateProgramYear(activeThresholds, enrolled({ advisingCompleted: 3 }), {
+        programYear: 2026,
+        asOf: new Date('2027-01-15T12:00:00Z'),
+        advisingQuartersDone: ['Q1', 'Q2', 'Q3'],
+      }).advising.status,
+    ).toBe('not_met');
+  });
+
+  it('sustainability advising (Q2/Q4): not penalized in June — Q2 deadline has not passed', () => {
+    const result = evaluateProgramYear(
+      sustainabilityThresholds,
+      enrolled(),
+      afterQ1BeforeQ2({ advisingQuartersDone: [] }),
+    );
+    expect(result.advising.status).toBe('on_track');
+  });
+
+  it('quarterly cohort meetings: a missed Q1 meeting flags at_risk too', () => {
+    const result = evaluateProgramYear(
+      sustainabilityThresholds,
+      enrolled({ meetingsAttended: 1 }),
+      afterQ1BeforeQ2({ meetingQuartersDone: ['Q2'] }),
+    );
+    expect(result.meetings.status).toBe('at_risk');
+  });
+});
