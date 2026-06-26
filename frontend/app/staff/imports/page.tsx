@@ -17,6 +17,7 @@ import type {
   NestSyncResult,
   NestSyncRow,
   NestSyncCategory,
+  SyncDisposition,
 } from '@/lib/types';
 
 interface RowError {
@@ -291,30 +292,135 @@ const CATEGORY_META: Record<
   pending: { label: 'Pending', className: 'bg-slate-100 text-slate-600' },
 };
 
+// ---- Human-in-the-loop overrides (shared by both REDCap sync cards) ----
+
+const SYNC_DISPOSITIONS: ReadonlyArray<{ value: SyncDisposition; label: string }> = [
+  { value: 'counts', label: 'Counts' },
+  { value: 'late', label: 'Late' },
+  { value: 'incomplete', label: 'Incomplete' },
+  { value: 'not_submitted', label: 'Not submitted' },
+  { value: 'pending', label: 'Pending' },
+];
+
+function categoryToDisposition(category: string): SyncDisposition {
+  switch (category) {
+    case 'counting':
+    case 'complete_nodate':
+      return 'counts';
+    case 'complete_late':
+      return 'late';
+    case 'incomplete':
+      return 'incomplete';
+    case 'not_submitted':
+      return 'not_submitted';
+    default:
+      return 'pending';
+  }
+}
+
+type OverrideMap = Record<string, { disposition?: SyncDisposition; comment?: string }>;
+
+/** Build the overrides array to POST: only rows the PM changed or commented on. */
+function buildOverridesPayload(
+  rows: ReadonlyArray<{ taskId: string; category: string }>,
+  overrides: OverrideMap,
+): Array<{ taskId: string; disposition: SyncDisposition; comment: string }> {
+  const out: Array<{ taskId: string; disposition: SyncDisposition; comment: string }> = [];
+  for (const r of rows) {
+    const def = categoryToDisposition(r.category);
+    const disposition = overrides[r.taskId]?.disposition ?? def;
+    const comment = overrides[r.taskId]?.comment ?? '';
+    if (disposition !== def || comment.trim() !== '') out.push({ taskId: r.taskId, disposition, comment });
+  }
+  return out;
+}
+
+/** Editable status + comment cells for a preview row (disabled once applied). */
+function OverrideCells({
+  row,
+  overrides,
+  setOverrides,
+  editable,
+}: {
+  row: { taskId: string; category: string };
+  overrides: OverrideMap;
+  setOverrides: (fn: (o: OverrideMap) => OverrideMap) => void;
+  editable: boolean;
+}) {
+  const def = categoryToDisposition(row.category);
+  const disposition = overrides[row.taskId]?.disposition ?? def;
+  const comment = overrides[row.taskId]?.comment ?? '';
+  const overridden = disposition !== def;
+  return (
+    <>
+      <td className="px-3 py-2">
+        <select
+          value={disposition}
+          disabled={!editable}
+          onChange={(e) =>
+            setOverrides((o) => ({
+              ...o,
+              [row.taskId]: { ...o[row.taskId], disposition: e.target.value as SyncDisposition },
+            }))
+          }
+          className={`rounded-md border px-2 py-1 text-xs font-semibold disabled:opacity-70 ${
+            overridden ? 'border-amber-400 bg-amber-50 text-amber-900' : 'border-cpcqc-purple-dark/20 bg-white'
+          }`}
+        >
+          {SYNC_DISPOSITIONS.map((d) => (
+            <option key={d.value} value={d.value}>
+              {d.label}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="px-3 py-2">
+        <input
+          type="text"
+          value={comment}
+          disabled={!editable}
+          placeholder={overridden ? 'Rationale (required)' : 'Rationale…'}
+          onChange={(e) =>
+            setOverrides((o) => ({
+              ...o,
+              [row.taskId]: { ...o[row.taskId], comment: e.target.value },
+            }))
+          }
+          className={`w-44 rounded-md border px-2 py-1 text-xs disabled:opacity-70 ${
+            overridden && !comment.trim()
+              ? 'border-amber-400 bg-amber-50'
+              : 'border-cpcqc-purple-dark/20 bg-white'
+          }`}
+        />
+      </td>
+    </>
+  );
+}
+
 function SparkRedcapSync() {
   const [loading, setLoading] = useState<false | 'preview' | 'apply'>(false);
   const [result, setResult] = useState<SparkSyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [overrides, setOverrides] = useState<OverrideMap>({});
 
   async function run(dryRun: boolean) {
     setLoading(dryRun ? 'preview' : 'apply');
     setError(null);
     try {
       const token = getAccessToken();
-      const res = await fetch(
-        `/api/staff/imports/redcap/spark?dryRun=${dryRun ? 'true' : 'false'}`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        },
-      );
+      const res = await fetch(`/api/staff/imports/redcap/spark?dryRun=${dryRun ? 'true' : 'false'}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: dryRun
+          ? undefined
+          : JSON.stringify({ overrides: buildOverridesPayload(result?.rows ?? [], overrides) }),
+      });
       if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as
-          | { error?: { message?: string } }
-          | null;
+        const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
         throw new Error(body?.error?.message ?? `Sync failed (${res.status})`);
       }
+      if (dryRun) setOverrides({}); // fresh preview clears prior edits
       setResult((await res.json()) as SparkSyncResult);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -323,6 +429,8 @@ function SparkRedcapSync() {
     }
   }
 
+  const editable = result?.dryRun ?? false;
+  const overrideCount = result ? buildOverridesPayload(result.rows, overrides).length : 0;
   const byQuarter = (result?.rows ?? []).reduce<Record<string, SparkSyncRow[]>>((acc, r) => {
     (acc[r.quarter] ??= []).push(r);
     return acc;
@@ -337,8 +445,8 @@ function SparkRedcapSync() {
         <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
           Pull SPARK quarterly data straight from REDCap and update each hospital&rsquo;s
           data-submission tasks — no spreadsheet needed. A submission counts only when it is{' '}
-          <strong>complete and on time</strong>. Always preview first; nothing is written until
-          you apply.
+          <strong>complete and on time</strong>. In the preview you can <strong>override any
+          status</strong> and add a rationale before applying; nothing is written until you apply.
         </p>
       </header>
 
@@ -360,8 +468,7 @@ function SparkRedcapSync() {
               {result.counts.willChange === 1 ? '' : 's'}.
             </span>
           ) : (
-            result &&
-            result.counts.willChange > 0 && (
+            result && (
               <button
                 type="button"
                 disabled={loading !== false}
@@ -369,11 +476,14 @@ function SparkRedcapSync() {
                 className="inline-flex items-center gap-2 rounded-full bg-cpcqc-pink px-5 py-2.5 font-rounded text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-cpcqc-pink/90 disabled:opacity-50"
               >
                 <AlertTriangle size={16} aria-hidden />
-                {loading === 'apply'
-                  ? 'Applying…'
-                  : `Apply ${result.counts.willChange} change${result.counts.willChange === 1 ? '' : 's'}`}
+                {loading === 'apply' ? 'Applying…' : 'Apply changes'}
               </button>
             )
+          )}
+          {result && result.dryRun && overrideCount > 0 && (
+            <span className="text-xs font-semibold text-amber-700">
+              {overrideCount} manual override{overrideCount === 1 ? '' : 's'} pending
+            </span>
           )}
         </div>
 
@@ -441,20 +551,26 @@ function SparkRedcapSync() {
                       <thead className="bg-cpcqc-cream/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
                         <tr>
                           <th className="px-3 py-2">Hospital</th>
-                          <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2">System</th>
+                          <th className="px-3 py-2">Status (override)</th>
+                          <th className="px-3 py-2">Comments</th>
                           <th className="px-3 py-2">Submitted</th>
-                          <th className="px-3 py-2">% complete</th>
-                          <th className="px-3 py-2">Change</th>
+                          <th className="px-3 py-2">%</th>
                           <th className="px-3 py-2">Detail</th>
                         </tr>
                       </thead>
                       <tbody>
                         {rows.map((r) => {
                           const meta = CATEGORY_META[r.category];
+                          const isOverridden =
+                            (overrides[r.taskId]?.disposition ?? categoryToDisposition(r.category)) !==
+                            categoryToDisposition(r.category);
                           return (
                             <tr
                               key={`${r.dagCode}-${r.quarter}`}
-                              className={`border-t border-cpcqc-purple-dark/10 ${r.willChange ? 'bg-cpcqc-purple/5' : ''}`}
+                              className={`border-t border-cpcqc-purple-dark/10 ${
+                                isOverridden ? 'bg-amber-50' : r.willChange ? 'bg-cpcqc-purple/5' : ''
+                              }`}
                             >
                               <td className="px-3 py-2 font-semibold text-cpcqc-purple-dark">
                                 {r.hospitalName}
@@ -465,33 +581,23 @@ function SparkRedcapSync() {
                                 )}
                               </td>
                               <td className="px-3 py-2">
-                                <span
-                                  className={`inline-block rounded-full px-2 py-0.5 text-xs font-bold ${meta.className}`}
-                                >
+                                <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-bold ${meta.className}`}>
                                   {meta.label}
                                 </span>
                               </td>
+                              <OverrideCells
+                                row={r}
+                                overrides={overrides}
+                                setOverrides={setOverrides}
+                                editable={editable}
+                              />
                               <td className="px-3 py-2 text-cpcqc-purple-dark/80">
                                 {r.submissionDate ?? (r.submitted ? '(no date)' : '—')}
                               </td>
                               <td className="px-3 py-2 text-cpcqc-purple-dark/80">
                                 {r.pctComplete === null ? '—' : `${r.pctComplete}%`}
                               </td>
-                              <td className="px-3 py-2 text-xs">
-                                {r.willChange ? (
-                                  <span className="font-semibold text-cpcqc-purple-dark">
-                                    {r.currentStatus}
-                                    {r.currentOutcome ? `/${r.currentOutcome}` : ''} →{' '}
-                                    {r.newStatus}
-                                    {r.newOutcome ? `/${r.newOutcome}` : ''}
-                                  </span>
-                                ) : (
-                                  <span className="text-cpcqc-purple-dark/40">no change</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-xs text-cpcqc-purple-dark/70">
-                                {r.note}
-                              </td>
+                              <td className="px-3 py-2 text-xs text-cpcqc-purple-dark/70">{r.note}</td>
                             </tr>
                           );
                         })}
@@ -525,6 +631,7 @@ function NestRedcapSync() {
   const [loading, setLoading] = useState<false | 'preview' | 'apply'>(false);
   const [result, setResult] = useState<NestSyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [overrides, setOverrides] = useState<OverrideMap>({});
 
   async function run(dryRun: boolean) {
     setLoading(dryRun ? 'preview' : 'apply');
@@ -534,12 +641,16 @@ function NestRedcapSync() {
       const res = await fetch(`/api/staff/imports/redcap/nest?dryRun=${dryRun ? 'true' : 'false'}`, {
         method: 'POST',
         credentials: 'include',
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: dryRun
+          ? undefined
+          : JSON.stringify({ overrides: buildOverridesPayload(result?.rows ?? [], overrides) }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
         throw new Error(body?.error?.message ?? `Sync failed (${res.status})`);
       }
+      if (dryRun) setOverrides({});
       setResult((await res.json()) as NestSyncResult);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -548,6 +659,8 @@ function NestRedcapSync() {
     }
   }
 
+  const editable = result?.dryRun ?? false;
+  const overrideCount = result ? buildOverridesPayload(result.rows, overrides).length : 0;
   const byPeriod = (result?.rows ?? []).reduce<Record<string, NestSyncRow[]>>((acc, r) => {
     (acc[r.period] ??= []).push(r);
     return acc;
@@ -562,7 +675,8 @@ function NestRedcapSync() {
         <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
           Pull NEST monthly data (safe-sleep audit + chart reviews) straight from REDCap. A month
           counts only when <strong>both forms are submitted, every row is complete, and it&rsquo;s on
-          time</strong>. Always preview first; nothing is written until you apply.
+          time</strong>. In the preview you can <strong>override any status</strong> and add a
+          rationale before applying; nothing is written until you apply.
         </p>
       </header>
 
@@ -584,8 +698,7 @@ function NestRedcapSync() {
               {result.counts.willChange === 1 ? '' : 's'}.
             </span>
           ) : (
-            result &&
-            result.counts.willChange > 0 && (
+            result && (
               <button
                 type="button"
                 disabled={loading !== false}
@@ -593,11 +706,14 @@ function NestRedcapSync() {
                 className="inline-flex items-center gap-2 rounded-full bg-cpcqc-pink px-5 py-2.5 font-rounded text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-cpcqc-pink/90 disabled:opacity-50"
               >
                 <AlertTriangle size={16} aria-hidden />
-                {loading === 'apply'
-                  ? 'Applying…'
-                  : `Apply ${result.counts.willChange} change${result.counts.willChange === 1 ? '' : 's'}`}
+                {loading === 'apply' ? 'Applying…' : 'Apply changes'}
               </button>
             )
+          )}
+          {result && result.dryRun && overrideCount > 0 && (
+            <span className="text-xs font-semibold text-amber-700">
+              {overrideCount} manual override{overrideCount === 1 ? '' : 's'} pending
+            </span>
           )}
         </div>
 
@@ -660,20 +776,26 @@ function NestRedcapSync() {
                       <thead className="bg-cpcqc-cream/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
                         <tr>
                           <th className="px-3 py-2">Hospital</th>
-                          <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2">System</th>
+                          <th className="px-3 py-2">Status (override)</th>
+                          <th className="px-3 py-2">Comments</th>
                           <th className="px-3 py-2">SSP</th>
                           <th className="px-3 py-2">Chart</th>
-                          <th className="px-3 py-2">Change</th>
                           <th className="px-3 py-2">Detail</th>
                         </tr>
                       </thead>
                       <tbody>
                         {rows.map((r) => {
                           const meta = NEST_CATEGORY_META[r.category];
+                          const isOverridden =
+                            (overrides[r.taskId]?.disposition ?? categoryToDisposition(r.category)) !==
+                            categoryToDisposition(r.category);
                           return (
                             <tr
                               key={`${r.dagCode}-${r.period}`}
-                              className={`border-t border-cpcqc-purple-dark/10 ${r.willChange ? 'bg-cpcqc-purple/5' : ''}`}
+                              className={`border-t border-cpcqc-purple-dark/10 ${
+                                isOverridden ? 'bg-amber-50' : r.willChange ? 'bg-cpcqc-purple/5' : ''
+                              }`}
                             >
                               <td className="px-3 py-2 font-semibold text-cpcqc-purple-dark">
                                 {r.hospitalName}
@@ -683,22 +805,17 @@ function NestRedcapSync() {
                                   {meta.label}
                                 </span>
                               </td>
+                              <OverrideCells
+                                row={r}
+                                overrides={overrides}
+                                setOverrides={setOverrides}
+                                editable={editable}
+                              />
                               <td className="px-3 py-2 text-cpcqc-purple-dark/80">
                                 {r.sspSubmitted ? `${r.sspComplete}/${r.sspRows}` : '—'}
                               </td>
                               <td className="px-3 py-2 text-cpcqc-purple-dark/80">
                                 {r.chartSubmitted ? `${r.chartComplete}/${r.chartRows}` : '—'}
-                              </td>
-                              <td className="px-3 py-2 text-xs">
-                                {r.willChange ? (
-                                  <span className="font-semibold text-cpcqc-purple-dark">
-                                    {r.currentStatus}
-                                    {r.currentOutcome ? `/${r.currentOutcome}` : ''} → {r.newStatus}
-                                    {r.newOutcome ? `/${r.newOutcome}` : ''}
-                                  </span>
-                                ) : (
-                                  <span className="text-cpcqc-purple-dark/40">no change</span>
-                                )}
                               </td>
                               <td className="px-3 py-2 text-xs text-cpcqc-purple-dark/70">{r.note}</td>
                             </tr>

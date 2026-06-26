@@ -18,6 +18,30 @@ import { HttpError } from '@/middleware/errors.js';
 import { importPmWorkbook } from './pm-workbook.service.js';
 import { runSparkRedcapSync } from '@/modules/redcap/spark-sync.service.js';
 import { runNestRedcapSync } from '@/modules/redcap/nest-sync.service.js';
+import { type SyncOverride } from '@/modules/redcap/sync-overrides.js';
+
+// PM overrides posted with an apply: per-task disposition + rationale.
+const overridesBodySchema = z
+  .object({
+    overrides: z
+      .array(
+        z.object({
+          taskId: z.string().uuid(),
+          disposition: z.enum(['counts', 'late', 'incomplete', 'not_submitted', 'pending']),
+          comment: z.string().max(2000).optional().default(''),
+        }),
+      )
+      .optional(),
+  })
+  .optional();
+
+function parseOverrides(body: unknown): Map<string, SyncOverride> | undefined {
+  const parsed = overridesBodySchema.parse(body ?? {});
+  if (!parsed?.overrides?.length) return undefined;
+  return new Map(
+    parsed.overrides.map((o) => [o.taskId, { disposition: o.disposition, comment: o.comment }]),
+  );
+}
 
 const router = Router();
 
@@ -81,6 +105,7 @@ router.post('/redcap/spark', requireAuth, requireStaff, express.json(), async (r
   const result = await runSparkRedcapSync({
     dryRun,
     actorUserId: req.auth?.userId ?? null,
+    overrides: dryRun ? undefined : parseOverrides(req.body),
   });
   res.json(result);
 });
@@ -97,6 +122,7 @@ router.post('/redcap/nest', requireAuth, requireStaff, express.json(), async (re
   const result = await runNestRedcapSync({
     dryRun,
     actorUserId: req.auth?.userId ?? null,
+    overrides: dryRun ? undefined : parseOverrides(req.body),
   });
   res.json(result);
 });

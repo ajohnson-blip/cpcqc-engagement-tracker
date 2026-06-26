@@ -105,7 +105,11 @@ export type SparkSyncCategory =
 export type SyncTaskStatus = 'not_started' | 'current_activities' | 'complete' | 'needs_revision';
 export type SyncTaskOutcome = 'on_time' | 'late' | 'attended' | 'missed' | 'not_submitted' | null;
 
+export type SyncDisposition = 'counts' | 'late' | 'incomplete' | 'not_submitted' | 'pending';
+
 export interface SparkSyncRow {
+  taskId: string;
+  overridden: boolean;
   dagCode: string;
   hospitalId: string | null;
   hospitalName: string;
@@ -174,6 +178,8 @@ export type NestSyncCategory =
   | 'pending';
 
 export interface NestSyncRow {
+  taskId: string;
+  overridden: boolean;
   dagCode: string;
   hospitalId: string | null;
   hospitalName: string;

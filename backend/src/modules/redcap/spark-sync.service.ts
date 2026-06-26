@@ -29,6 +29,7 @@ import {
   type SparkCell,
   type MissingBySection,
 } from './spark-engagement.js';
+import { dispositionToTask, type SyncOverride } from './sync-overrides.js';
 
 /**
  * REDCap SPARK Data Access Group → our canonical hospital name. Verified against
@@ -66,11 +67,14 @@ type TaskStatus = 'not_started' | 'current_activities' | 'complete' | 'needs_rev
 type TaskOutcome = 'on_time' | 'late' | 'attended' | 'missed' | 'not_submitted' | null;
 
 export interface SparkSyncRow {
+  taskId: string;
   dagCode: string;
   hospitalId: string | null;
   hospitalName: string;
   quarter: string;
   category: SparkSyncCategory;
+  /** True when a PM override (not the computed value) is being applied. */
+  overridden: boolean;
   submitted: boolean;
   complete: boolean;
   pctComplete: number | null;
@@ -247,6 +251,8 @@ export interface RunSparkSyncOptions {
   dryRun: boolean;
   programYear?: number;
   actorUserId?: string | null;
+  /** PM overrides keyed by task instance id (apply only). */
+  overrides?: Map<string, SyncOverride>;
 }
 
 export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<SparkSyncResult> {
@@ -355,16 +361,44 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
       }
 
       const decision = decide(cell, quarter, today);
+      const override = opts.overrides?.get(ti.id);
+
+      // A PM override (if present) wins over the computed value.
+      let finalStatus: TaskStatus;
+      let finalOutcome: TaskOutcome;
+      let finalCompletedOn: string | null;
+      let finalNote: string;
+      if (override) {
+        const t = dispositionToTask(override.disposition, cell?.submissionDate ?? null, today);
+        finalStatus = t.status;
+        finalOutcome = t.outcome;
+        finalCompletedOn = t.completedOn;
+        finalNote = override.comment.trim() || decision.note;
+      } else if (decision.leaveUntouched) {
+        finalStatus = ti.status;
+        finalOutcome = ti.outcome;
+        finalCompletedOn = ti.completedOn;
+        finalNote = decision.note;
+      } else {
+        finalStatus = decision.status;
+        finalOutcome = decision.outcome;
+        finalCompletedOn = decision.completedOn;
+        finalNote = decision.note;
+      }
+
       const willChange =
-        !decision.leaveUntouched &&
-        (decision.status !== ti.status || decision.outcome !== ti.outcome);
+        finalStatus !== ti.status ||
+        finalOutcome !== ti.outcome ||
+        (!!override && finalNote !== (ti.staffNote ?? ''));
 
       rows.push({
+        taskId: ti.id,
         dagCode: dag,
         hospitalId: hospital.id,
         hospitalName,
         quarter,
         category: decision.category,
+        overridden: !!override,
         submitted: cell?.submitted ?? false,
         complete: cell?.complete ?? false,
         pctComplete: cell ? cell.pctComplete : null,
@@ -377,20 +411,20 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
         primaryRecordId: cell?.primaryRecordId ?? null,
         currentStatus: ti.status,
         currentOutcome: ti.outcome,
-        newStatus: decision.leaveUntouched ? ti.status : decision.status,
-        newOutcome: decision.leaveUntouched ? ti.outcome : decision.outcome,
+        newStatus: finalStatus,
+        newOutcome: finalOutcome,
         willChange,
-        note: decision.note,
+        note: finalNote,
       });
 
       if (!opts.dryRun && willChange) {
         await updateTaskInstance(
           ti,
           {
-            status: decision.status,
-            outcome: decision.outcome,
-            completedOn: decision.completedOn,
-            note: decision.note,
+            status: finalStatus,
+            outcome: finalOutcome,
+            completedOn: finalCompletedOn,
+            note: finalNote,
             payload: {
               source: 'REDCap',
               event: quarter,
@@ -406,6 +440,16 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
               duplicateRecords: cell?.duplicateRecords ?? false,
               dataRecordIds: cell?.dataRecordIds ?? [],
               syncedAt: fetchedAt,
+              ...(override
+                ? {
+                    override: {
+                      disposition: override.disposition,
+                      comment: override.comment,
+                      computedCategory: decision.category,
+                      byUserId: opts.actorUserId ?? null,
+                    },
+                  }
+                : {}),
             },
           },
           opts.actorUserId ?? null,

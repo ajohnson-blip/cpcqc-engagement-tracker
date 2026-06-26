@@ -30,6 +30,7 @@ import {
   CHART_FORM,
   type NestCell,
 } from './nest-engagement.js';
+import { dispositionToTask, type SyncOverride } from './sync-overrides.js';
 
 /**
  * REDCap NEST Data Access Group → our canonical hospital name. Verified against
@@ -61,11 +62,14 @@ type TaskStatus = 'not_started' | 'current_activities' | 'complete' | 'needs_rev
 type TaskOutcome = 'on_time' | 'late' | 'attended' | 'missed' | 'not_submitted' | null;
 
 export interface NestSyncRow {
+  taskId: string;
   dagCode: string;
   hospitalId: string | null;
   hospitalName: string;
   period: string; // "2026-03"
   category: NestSyncCategory;
+  /** True when a PM override (not the computed value) is being applied. */
+  overridden: boolean;
   sspSubmitted: boolean;
   chartSubmitted: boolean;
   bothSubmitted: boolean;
@@ -230,6 +234,8 @@ export interface RunNestSyncOptions {
   dryRun: boolean;
   programYear?: number;
   actorUserId?: string | null;
+  /** PM overrides keyed by task instance id (apply only). */
+  overrides?: Map<string, SyncOverride>;
 }
 
 export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestSyncResult> {
@@ -337,15 +343,44 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
       }
 
       const decision = decide(cell, deadline, today);
+      const override = opts.overrides?.get(ti.id);
+      const subDate = cell?.earliestSubmissionDate ?? null;
+
+      let finalStatus: TaskStatus;
+      let finalOutcome: TaskOutcome;
+      let finalCompletedOn: string | null;
+      let finalNote: string;
+      if (override) {
+        const t = dispositionToTask(override.disposition, subDate, today);
+        finalStatus = t.status;
+        finalOutcome = t.outcome;
+        finalCompletedOn = t.completedOn;
+        finalNote = override.comment.trim() || decision.note;
+      } else if (decision.leaveUntouched) {
+        finalStatus = ti.status;
+        finalOutcome = ti.outcome;
+        finalCompletedOn = ti.completedOn;
+        finalNote = decision.note;
+      } else {
+        finalStatus = decision.status;
+        finalOutcome = decision.outcome;
+        finalCompletedOn = decision.completedOn;
+        finalNote = decision.note;
+      }
+
       const willChange =
-        !decision.leaveUntouched && (decision.status !== ti.status || decision.outcome !== ti.outcome);
+        finalStatus !== ti.status ||
+        finalOutcome !== ti.outcome ||
+        (!!override && finalNote !== (ti.staffNote ?? ''));
 
       rows.push({
+        taskId: ti.id,
         dagCode: dag,
         hospitalId: hospital.id,
         hospitalName,
         period,
         category: decision.category,
+        overridden: !!override,
         sspSubmitted: cell?.ssp.submitted ?? false,
         chartSubmitted: cell?.chart.submitted ?? false,
         bothSubmitted: cell?.bothSubmitted ?? false,
@@ -356,23 +391,23 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
         chartComplete: cell?.chart.nComplete ?? 0,
         onTime: cell?.onTime ?? null,
         daysFromDeadline: cell?.daysFromDeadline ?? null,
-        submissionDate: cell?.earliestSubmissionDate ?? null,
+        submissionDate: subDate,
         currentStatus: ti.status,
         currentOutcome: ti.outcome,
-        newStatus: decision.leaveUntouched ? ti.status : decision.status,
-        newOutcome: decision.leaveUntouched ? ti.outcome : decision.outcome,
+        newStatus: finalStatus,
+        newOutcome: finalOutcome,
         willChange,
-        note: decision.note,
+        note: finalNote,
       });
 
       if (!opts.dryRun && willChange) {
         await updateTaskInstance(
           ti,
           {
-            status: decision.status,
-            outcome: decision.outcome,
-            completedOn: decision.completedOn,
-            note: decision.note,
+            status: finalStatus,
+            outcome: finalOutcome,
+            completedOn: finalCompletedOn,
+            note: finalNote,
             payload: {
               source: 'REDCap',
               program: 'NEST',
@@ -383,8 +418,18 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
               chart: { rows: cell?.chart.nRows ?? 0, complete: cell?.chart.nComplete ?? 0 },
               onTime: cell?.onTime ?? null,
               daysFromDeadline: cell?.daysFromDeadline ?? null,
-              submissionDate: cell?.earliestSubmissionDate ?? null,
+              submissionDate: subDate,
               syncedAt: fetchedAt,
+              ...(override
+                ? {
+                    override: {
+                      disposition: override.disposition,
+                      comment: override.comment,
+                      computedCategory: decision.category,
+                      byUserId: opts.actorUserId ?? null,
+                    },
+                  }
+                : {}),
             },
           },
           opts.actorUserId ?? null,
