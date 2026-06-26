@@ -165,6 +165,58 @@ export interface ChampionContactsResponse {
   contacts: ChampionContact[];
 }
 
+export type NestSyncCategory =
+  | 'counting'
+  | 'complete_late'
+  | 'complete_nodate'
+  | 'incomplete'
+  | 'not_submitted'
+  | 'pending';
+
+export interface NestSyncRow {
+  dagCode: string;
+  hospitalId: string | null;
+  hospitalName: string;
+  period: string;
+  category: NestSyncCategory;
+  sspSubmitted: boolean;
+  chartSubmitted: boolean;
+  bothSubmitted: boolean;
+  dataComplete: boolean;
+  sspRows: number;
+  sspComplete: number;
+  chartRows: number;
+  chartComplete: number;
+  onTime: boolean | null;
+  daysFromDeadline: number | null;
+  submissionDate: string | null;
+  currentStatus: SyncTaskStatus;
+  currentOutcome: SyncTaskOutcome;
+  newStatus: SyncTaskStatus;
+  newOutcome: SyncTaskOutcome;
+  willChange: boolean;
+  note: string;
+}
+
+export interface NestSyncResult {
+  dryRun: boolean;
+  fetchedAt: string;
+  programYear: number;
+  periodsInScope: string[];
+  recordsFetched: number;
+  rows: NestSyncRow[];
+  warnings: string[];
+  counts: {
+    willChange: number;
+    counting: number;
+    completeLate: number;
+    incomplete: number;
+    notSubmitted: number;
+    pending: number;
+    unchanged: number;
+  };
+}
+
 export type RequirementStatus = 'on_track' | 'at_risk' | 'met' | 'not_met';
 
 export interface RequirementResult {

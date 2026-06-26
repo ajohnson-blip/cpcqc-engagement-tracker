@@ -11,6 +11,8 @@ export interface ExportRecordsOptions {
   token: string;
   /** Restrict to one instrument, e.g. 'quarterly_measures'. */
   form?: string;
+  /** Restrict to several instruments (e.g. NEST's two repeating forms). */
+  forms?: string[];
   /** Defaults to env.REDCAP_API_URL. */
   apiUrl?: string;
 }
@@ -37,7 +39,8 @@ export async function exportRecords(opts: ExportRecordsOptions): Promise<RedcapR
   // the structural columns (record_id, redcap_event_name, DAG) back; REDCap then
   // returns the UNION of the named field and every field on the named form.
   body.append('fields[0]', 'record_id');
-  if (opts.form) body.append('forms[0]', opts.form);
+  const formList = [...(opts.form ? [opts.form] : []), ...(opts.forms ?? [])];
+  formList.forEach((f, i) => body.append(`forms[${i}]`, f));
 
   let res: Response;
   try {

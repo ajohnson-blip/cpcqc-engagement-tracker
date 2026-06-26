@@ -17,6 +17,7 @@ import { requireAuth, requireStaff } from '@/middleware/auth.js';
 import { HttpError } from '@/middleware/errors.js';
 import { importPmWorkbook } from './pm-workbook.service.js';
 import { runSparkRedcapSync } from '@/modules/redcap/spark-sync.service.js';
+import { runNestRedcapSync } from '@/modules/redcap/nest-sync.service.js';
 
 const router = Router();
 
@@ -78,6 +79,22 @@ router.post('/redcap/spark', requireAuth, requireStaff, express.json(), async (r
   // are official compliance records, so "apply" must be a deliberate choice.
   const dryRun = req.query.dryRun !== 'false';
   const result = await runSparkRedcapSync({
+    dryRun,
+    actorUserId: req.auth?.userId ?? null,
+  });
+  res.json(result);
+});
+
+/**
+ * POST /staff/imports/redcap/nest?dryRun=true|false
+ *
+ * Pulls the NEST monthly forms (safe_sleep_audit + chart_reviews) from REDCap
+ * and maps them onto each NEST-active hospital's monthly data_submission tasks.
+ * Dry-run by default. No request body.
+ */
+router.post('/redcap/nest', requireAuth, requireStaff, express.json(), async (req, res) => {
+  const dryRun = req.query.dryRun !== 'false';
+  const result = await runNestRedcapSync({
     dryRun,
     actorUserId: req.auth?.userId ?? null,
   });

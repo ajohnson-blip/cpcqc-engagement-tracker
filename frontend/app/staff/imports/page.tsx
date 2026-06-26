@@ -10,7 +10,14 @@ import {
   Database,
 } from 'lucide-react';
 import { getAccessToken } from '@/lib/api';
-import type { SparkSyncResult, SparkSyncRow, SparkSyncCategory } from '@/lib/types';
+import type {
+  SparkSyncResult,
+  SparkSyncRow,
+  SparkSyncCategory,
+  NestSyncResult,
+  NestSyncRow,
+  NestSyncCategory,
+} from '@/lib/types';
 
 interface RowError {
   sheet: string;
@@ -178,6 +185,8 @@ export default function StaffImportsPage() {
       {result && <ResultPanel result={result} />}
 
       <SparkRedcapSync />
+
+      <NestRedcapSync />
     </div>
   );
 }
@@ -483,6 +492,215 @@ function SparkRedcapSync() {
                               <td className="px-3 py-2 text-xs text-cpcqc-purple-dark/70">
                                 {r.note}
                               </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// =====================================================================
+// NEST · REDCap sync (monthly; two forms; strict completeness)
+// =====================================================================
+
+const NEST_CATEGORY_META: Record<NestSyncCategory, { label: string; className: string }> = {
+  counting: { label: 'Counts', className: 'bg-emerald-100 text-emerald-800' },
+  complete_nodate: { label: 'Counts (no date)', className: 'bg-emerald-100 text-emerald-800' },
+  complete_late: { label: 'Late', className: 'bg-amber-100 text-amber-800' },
+  incomplete: { label: 'Incomplete', className: 'bg-orange-100 text-orange-800' },
+  not_submitted: { label: 'Not submitted', className: 'bg-red-100 text-red-700' },
+  pending: { label: 'Pending', className: 'bg-slate-100 text-slate-600' },
+};
+
+function NestRedcapSync() {
+  const [loading, setLoading] = useState<false | 'preview' | 'apply'>(false);
+  const [result, setResult] = useState<NestSyncResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run(dryRun: boolean) {
+    setLoading(dryRun ? 'preview' : 'apply');
+    setError(null);
+    try {
+      const token = getAccessToken();
+      const res = await fetch(`/api/staff/imports/redcap/nest?dryRun=${dryRun ? 'true' : 'false'}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+        throw new Error(body?.error?.message ?? `Sync failed (${res.status})`);
+      }
+      setResult((await res.json()) as NestSyncResult);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const byPeriod = (result?.rows ?? []).reduce<Record<string, NestSyncRow[]>>((acc, r) => {
+    (acc[r.period] ??= []).push(r);
+    return acc;
+  }, {});
+
+  return (
+    <section className="mt-10 border-t border-cpcqc-purple-dark/10 pt-8">
+      <header className="mb-4">
+        <h1 className="inline-flex items-center gap-2 font-rounded text-3xl font-extrabold text-cpcqc-purple-dark">
+          <Database size={26} aria-hidden /> NEST · REDCap sync
+        </h1>
+        <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
+          Pull NEST monthly data (safe-sleep audit + chart reviews) straight from REDCap. A month
+          counts only when <strong>both forms are submitted, every row is complete, and it&rsquo;s on
+          time</strong>. Always preview first; nothing is written until you apply.
+        </p>
+      </header>
+
+      <div className="rounded-2xl bg-white p-6 shadow-card ring-1 ring-cpcqc-purple-dark/5">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            disabled={loading !== false}
+            onClick={() => void run(true)}
+            className="inline-flex items-center gap-2 rounded-full bg-cpcqc-purple px-5 py-2.5 font-rounded text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-cpcqc-purple/90 disabled:opacity-50"
+          >
+            <RefreshCw size={16} aria-hidden className={loading === 'preview' ? 'animate-spin' : ''} />
+            {loading === 'preview' ? 'Pulling from REDCap…' : 'Preview from REDCap'}
+          </button>
+
+          {result && !result.dryRun ? (
+            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
+              <CheckCircle2 size={16} aria-hidden /> Applied {result.counts.willChange} change
+              {result.counts.willChange === 1 ? '' : 's'}.
+            </span>
+          ) : (
+            result &&
+            result.counts.willChange > 0 && (
+              <button
+                type="button"
+                disabled={loading !== false}
+                onClick={() => void run(false)}
+                className="inline-flex items-center gap-2 rounded-full bg-cpcqc-pink px-5 py-2.5 font-rounded text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-cpcqc-pink/90 disabled:opacity-50"
+              >
+                <AlertTriangle size={16} aria-hidden />
+                {loading === 'apply'
+                  ? 'Applying…'
+                  : `Apply ${result.counts.willChange} change${result.counts.willChange === 1 ? '' : 's'}`}
+              </button>
+            )
+          )}
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-700 ring-1 ring-red-200">
+            {error}
+          </div>
+        )}
+      </div>
+
+      {result && (
+        <div className="mt-6 rounded-2xl bg-white p-6 shadow-card ring-1 ring-cpcqc-purple-dark/5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-rounded text-lg font-extrabold text-cpcqc-purple-dark">
+              {result.dryRun ? 'Dry-run preview' : 'Applied'} · {result.programYear}
+            </h2>
+            <span className="text-xs text-cpcqc-purple-dark/60">
+              {result.recordsFetched} REDCap rows · pulled {new Date(result.fetchedAt).toLocaleString()}
+            </span>
+          </div>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <Stat
+              label={result.dryRun ? 'Will change' : 'Changed'}
+              value={result.counts.willChange}
+              tone={result.counts.willChange > 0 ? 'positive' : 'neutral'}
+            />
+            <Stat label="Counting" value={result.counts.counting} tone="positive" />
+            <Stat label="Incomplete" value={result.counts.incomplete} tone="warn" />
+            <Stat label="Late" value={result.counts.completeLate} tone="warn" />
+            <Stat label="Not submitted" value={result.counts.notSubmitted} />
+            <Stat label="Pending" value={result.counts.pending} />
+          </div>
+
+          {result.warnings.length > 0 && (
+            <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <h3 className="flex items-center gap-1.5 font-rounded text-sm font-extrabold text-amber-800">
+                <AlertTriangle size={14} aria-hidden /> {result.warnings.length} item
+                {result.warnings.length === 1 ? '' : 's'} need attention
+              </h3>
+              <ul className="mt-2 space-y-1 text-xs text-amber-900/90">
+                {result.warnings.map((w, i) => (
+                  <li key={i}>• {w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="mt-5 space-y-6">
+            {result.periodsInScope.map((p) => {
+              const rows = byPeriod[p] ?? [];
+              if (rows.length === 0) return null;
+              return (
+                <div key={p}>
+                  <h3 className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
+                    {p}
+                  </h3>
+                  <div className="mt-2 overflow-x-auto rounded-xl border border-cpcqc-purple-dark/10">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-cpcqc-cream/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
+                        <tr>
+                          <th className="px-3 py-2">Hospital</th>
+                          <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2">SSP</th>
+                          <th className="px-3 py-2">Chart</th>
+                          <th className="px-3 py-2">Change</th>
+                          <th className="px-3 py-2">Detail</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r) => {
+                          const meta = NEST_CATEGORY_META[r.category];
+                          return (
+                            <tr
+                              key={`${r.dagCode}-${r.period}`}
+                              className={`border-t border-cpcqc-purple-dark/10 ${r.willChange ? 'bg-cpcqc-purple/5' : ''}`}
+                            >
+                              <td className="px-3 py-2 font-semibold text-cpcqc-purple-dark">
+                                {r.hospitalName}
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-bold ${meta.className}`}>
+                                  {meta.label}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-cpcqc-purple-dark/80">
+                                {r.sspSubmitted ? `${r.sspComplete}/${r.sspRows}` : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-cpcqc-purple-dark/80">
+                                {r.chartSubmitted ? `${r.chartComplete}/${r.chartRows}` : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-xs">
+                                {r.willChange ? (
+                                  <span className="font-semibold text-cpcqc-purple-dark">
+                                    {r.currentStatus}
+                                    {r.currentOutcome ? `/${r.currentOutcome}` : ''} → {r.newStatus}
+                                    {r.newOutcome ? `/${r.newOutcome}` : ''}
+                                  </span>
+                                ) : (
+                                  <span className="text-cpcqc-purple-dark/40">no change</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-cpcqc-purple-dark/70">{r.note}</td>
                             </tr>
                           );
                         })}
