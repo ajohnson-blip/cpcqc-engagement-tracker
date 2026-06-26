@@ -16,7 +16,7 @@ import { HttpError } from '@/middleware/errors.js';
 import { generateTempPassword, hashPassword } from '@/modules/auth/auth.service.js';
 import { sendEmail } from '@/modules/notifications/notifications.service.js';
 
-export type CredentialsReason = 'welcome' | 'onboarding' | 'reset';
+export type CredentialsReason = 'welcome' | 'onboarding' | 'reset' | 'reminder';
 
 /** Frontend sign-in URL — CORS_ORIGIN is the frontend base (first if a list). */
 export function loginUrl(): string {
@@ -40,7 +40,9 @@ export function credentialsEmail(p: CredentialsEmailParams): {
   const subject =
     p.reason === 'reset'
       ? 'Your CPCQC Engagement Tracker password was reset'
-      : 'Your CPCQC Engagement Tracker account';
+      : p.reason === 'reminder'
+        ? 'Reminder: your CPCQC Engagement Tracker account is ready'
+        : 'Your CPCQC Engagement Tracker account';
 
   // Lead paragraph(s) explaining *why* they're getting this message now, an
   // optional change-password line, and a closing — all by reason.
@@ -71,6 +73,18 @@ export function credentialsEmail(p: CredentialsEmailParams): {
       `Please change your password right after your first sign-in (Account → Change ` +
       `password). The temporary password above is for first-time access only.`;
     closing = `Questions? qi@cpcqc.org`;
+  } else if (p.reason === 'reminder') {
+    // Follow-up to the onboarding email for champions who never signed in.
+    intro =
+      `A couple of weeks ago we emailed your sign-in details for the CPCQC Hospital ` +
+      `Engagement Tracker — the dashboard where ${p.hospitalName} tracks its perinatal QI ` +
+      `engagement toward the Senate Bill 24-175 requirement (C.R.S. § 25-52-106.5(6)(a)(II)). ` +
+      `Our records show your hospital's team hasn't signed in yet, so we're following up with a ` +
+      `fresh temporary password below in case the first message was missed.`;
+    changeLine =
+      `After signing in, please set a new password under Account → Change password. ` +
+      `The temporary password above is for first-time access only.`;
+    closing = `Need help getting in? Just reply, or reach the CPCQC team at qi@cpcqc.org.`;
   } else {
     // reset
     intro =
