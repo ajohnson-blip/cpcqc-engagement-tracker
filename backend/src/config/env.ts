@@ -30,6 +30,7 @@ const EnvSchema = z.object({
   REDCAP_API_URL: z.string().url().default('https://redcap.vumc.org/api/'),
   REDCAP_SPARK_TOKEN: z.string().optional(),
   REDCAP_NEST_TOKEN: z.string().optional(),
+  REDCAP_SOAR_TOKEN: z.string().optional(),
 });
 
 const parsed = EnvSchema.safeParse(process.env);

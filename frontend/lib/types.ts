@@ -231,6 +231,63 @@ export interface NestSyncResult {
   };
 }
 
+export type SoarSyncCategory =
+  | 'counting'
+  | 'complete_late'
+  | 'complete_nodate'
+  | 'incomplete'
+  | 'not_submitted'
+  | 'pending';
+
+export interface SoarSyncRow {
+  taskId: string;
+  overridden: boolean;
+  priorOverride: { disposition: SyncDisposition; comment: string } | null;
+  finalized: boolean;
+  finalizedAt: string | null;
+  finalizedBy: string | null;
+  dagCode: string;
+  hospitalId: string | null;
+  hospitalName: string;
+  period: string;
+  category: SoarSyncCategory;
+  ntsvSubmitted: boolean;
+  noNtsvSubmitted: boolean;
+  attestationOnly: boolean;
+  dataComplete: boolean;
+  ntsvRows: number;
+  ntsvComplete: number;
+  noNtsvRows: number;
+  onTime: boolean | null;
+  daysFromDeadline: number | null;
+  submissionDate: string | null;
+  currentStatus: SyncTaskStatus;
+  currentOutcome: SyncTaskOutcome;
+  newStatus: SyncTaskStatus;
+  newOutcome: SyncTaskOutcome;
+  willChange: boolean;
+  note: string;
+}
+
+export interface SoarSyncResult {
+  dryRun: boolean;
+  fetchedAt: string;
+  programYear: number;
+  periodsInScope: string[];
+  recordsFetched: number;
+  rows: SoarSyncRow[];
+  warnings: string[];
+  counts: {
+    willChange: number;
+    counting: number;
+    completeLate: number;
+    incomplete: number;
+    notSubmitted: number;
+    pending: number;
+    unchanged: number;
+  };
+}
+
 export type RequirementStatus = 'on_track' | 'at_risk' | 'met' | 'not_met';
 
 export interface RequirementResult {

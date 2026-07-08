@@ -8,7 +8,7 @@ import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
 
 export async function setPeriodFinalized(opts: {
-  initiativeCode: 'SPARK' | 'NEST';
+  initiativeCode: 'SPARK' | 'NEST' | 'SOAR';
   period: string; // "2026-06" or "2026-Q2"
   finalize: boolean;
   actorUserId: string | null;

@@ -18,6 +18,7 @@ import { HttpError } from '@/middleware/errors.js';
 import { importPmWorkbook } from './pm-workbook.service.js';
 import { runSparkRedcapSync } from '@/modules/redcap/spark-sync.service.js';
 import { runNestRedcapSync } from '@/modules/redcap/nest-sync.service.js';
+import { runSoarRedcapSync } from '@/modules/redcap/soar-sync.service.js';
 import { type SyncOverride } from '@/modules/redcap/sync-overrides.js';
 import { setPeriodFinalized } from '@/modules/redcap/finalize.service.js';
 
@@ -129,6 +130,24 @@ router.post('/redcap/nest', requireAuth, requireStaff, express.json(), async (re
 });
 
 /**
+ * POST /staff/imports/redcap/soar?dryRun=true|false
+ *
+ * Pulls the SOAR forms (ntsv_cesarean_section + no_ntsv_csections) from REDCap
+ * and maps them onto each SOAR-active hospital's monthly data_submission tasks.
+ * A zero-case No-NTSV attestation counts as a complete submission. Dry-run by
+ * default. No request body.
+ */
+router.post('/redcap/soar', requireAuth, requireStaff, express.json(), async (req, res) => {
+  const dryRun = req.query.dryRun !== 'false';
+  const result = await runSoarRedcapSync({
+    dryRun,
+    actorUserId: req.auth?.userId ?? null,
+    overrides: dryRun ? undefined : parseOverrides(req.body),
+  });
+  res.json(result);
+});
+
+/**
  * POST /staff/imports/redcap/finalize
  * Lock (or unlock) a program's month so the sync won't touch it again.
  * Body: { program: 'SPARK'|'NEST', period: '2026-06'|'2026-Q2', finalize: bool }
@@ -136,7 +155,7 @@ router.post('/redcap/nest', requireAuth, requireStaff, express.json(), async (re
 router.post('/redcap/finalize', requireAuth, requireStaff, express.json(), async (req, res) => {
   const body = z
     .object({
-      program: z.enum(['SPARK', 'NEST']),
+      program: z.enum(['SPARK', 'NEST', 'SOAR']),
       period: z.string().min(1).max(20),
       finalize: z.boolean(),
     })
