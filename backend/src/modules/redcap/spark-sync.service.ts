@@ -87,6 +87,10 @@ export interface SparkSyncRow {
   overridden: boolean;
   /** A prior manual override already stored on this task (preserved by the sync). */
   priorOverride: { disposition: SyncDisposition; comment: string } | null;
+  /** Finalized (locked): the sync leaves it alone; the preview shows it read-only. */
+  finalized: boolean;
+  finalizedAt: string | null;
+  finalizedBy: string | null;
   submitted: boolean;
   complete: boolean;
   pctComplete: number | null;
@@ -375,15 +379,21 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
       const decision = decide(cell, quarter, today);
       const override = opts.overrides?.get(ti.id);
       const priorOverride = readPriorOverride(ti);
+      const finalized = ti.finalizedAt != null;
 
-      // Precedence: a NEW override this session wins; otherwise a PRIOR manual
-      // override is preserved (safeguard — the sync never recomputes over a
-      // human decision); otherwise the computed value applies.
+      // Precedence: FINALIZED (locked) is untouchable; then a NEW override this
+      // session wins; then a PRIOR manual override is preserved (safeguard —
+      // the sync never recomputes over a human decision); else the computed value.
       let finalStatus: TaskStatus;
       let finalOutcome: TaskOutcome;
       let finalCompletedOn: string | null;
       let finalNote: string;
-      if (override) {
+      if (finalized) {
+        finalStatus = ti.status;
+        finalOutcome = ti.outcome;
+        finalCompletedOn = ti.completedOn;
+        finalNote = ti.staffNote ?? decision.note;
+      } else if (override) {
         const t = dispositionToTask(override.disposition, cell?.submissionDate ?? null, today);
         finalStatus = t.status;
         finalOutcome = t.outcome;
@@ -421,6 +431,9 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
         category: decision.category,
         overridden: !!override,
         priorOverride,
+        finalized,
+        finalizedAt: ti.finalizedAt ? ti.finalizedAt.toISOString() : null,
+        finalizedBy: ti.finalizedBy ?? null,
         submitted: cell?.submitted ?? false,
         complete: cell?.complete ?? false,
         pctComplete: cell ? cell.pctComplete : null,

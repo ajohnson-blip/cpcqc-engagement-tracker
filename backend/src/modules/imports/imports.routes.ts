@@ -19,6 +19,7 @@ import { importPmWorkbook } from './pm-workbook.service.js';
 import { runSparkRedcapSync } from '@/modules/redcap/spark-sync.service.js';
 import { runNestRedcapSync } from '@/modules/redcap/nest-sync.service.js';
 import { type SyncOverride } from '@/modules/redcap/sync-overrides.js';
+import { setPeriodFinalized } from '@/modules/redcap/finalize.service.js';
 
 // PM overrides posted with an apply: per-task disposition + rationale.
 const overridesBodySchema = z
@@ -123,6 +124,28 @@ router.post('/redcap/nest', requireAuth, requireStaff, express.json(), async (re
     dryRun,
     actorUserId: req.auth?.userId ?? null,
     overrides: dryRun ? undefined : parseOverrides(req.body),
+  });
+  res.json(result);
+});
+
+/**
+ * POST /staff/imports/redcap/finalize
+ * Lock (or unlock) a program's month so the sync won't touch it again.
+ * Body: { program: 'SPARK'|'NEST', period: '2026-06'|'2026-Q2', finalize: bool }
+ */
+router.post('/redcap/finalize', requireAuth, requireStaff, express.json(), async (req, res) => {
+  const body = z
+    .object({
+      program: z.enum(['SPARK', 'NEST']),
+      period: z.string().min(1).max(20),
+      finalize: z.boolean(),
+    })
+    .parse(req.body);
+  const result = await setPeriodFinalized({
+    initiativeCode: body.program,
+    period: body.period,
+    finalize: body.finalize,
+    actorUserId: req.auth?.userId ?? null,
   });
   res.json(result);
 });

@@ -423,6 +423,95 @@ function OverrideCells({
   );
 }
 
+function statusToDisposition(status: string, outcome: string | null): SyncDisposition {
+  if (status === 'not_started') return 'pending';
+  if (status === 'needs_revision') return 'incomplete';
+  if (status === 'complete') {
+    if (outcome === 'late') return 'late';
+    if (outcome === 'not_submitted') return 'not_submitted';
+    return 'counts';
+  }
+  return 'pending';
+}
+
+function dispositionLabel(d: SyncDisposition): string {
+  return SYNC_DISPOSITIONS.find((o) => o.value === d)?.label ?? d;
+}
+
+function fmtShort(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/** Read-only status + comment cells for a finalized (locked) row. */
+function LockedCells({
+  row,
+}: {
+  row: { newStatus: string; newOutcome: string | null; note: string; finalizedAt: string | null; finalizedBy: string | null };
+}) {
+  return (
+    <>
+      <td className="px-3 py-2">
+        <span className="inline-flex items-center gap-1 rounded-full bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-700">
+          🔒 {dispositionLabel(statusToDisposition(row.newStatus, row.newOutcome))}
+        </span>
+        <div className="mt-0.5 text-[10px] uppercase tracking-wide text-slate-500">
+          Finalized {fmtShort(row.finalizedAt)}
+          {row.finalizedBy ? ` · ${row.finalizedBy}` : ''}
+        </div>
+      </td>
+      <td className="px-3 py-2 text-xs text-cpcqc-purple-dark/60">{row.note}</td>
+    </>
+  );
+}
+
+/** Per-month lock control shown in each period-group header. */
+function FinalizeButton({
+  program,
+  period,
+  finalized,
+  onDone,
+}: {
+  program: 'SPARK' | 'NEST';
+  period: string;
+  finalized: boolean;
+  onDone: () => void | Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function toggle() {
+    setBusy(true);
+    try {
+      const token = getAccessToken();
+      const res = await fetch('/api/staff/imports/redcap/finalize', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ program, period, finalize: !finalized }),
+      });
+      if (!res.ok) throw new Error(`Finalize failed (${res.status})`);
+      await onDone();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => void toggle()}
+      className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide disabled:opacity-50 ${
+        finalized
+          ? 'border border-slate-300 text-slate-600 hover:bg-slate-100'
+          : 'bg-cpcqc-teal-dark text-white hover:bg-cpcqc-teal-dark/90'
+      }`}
+    >
+      {busy ? '…' : finalized ? '🔓 Unlock month' : '🔒 Finalize month'}
+    </button>
+  );
+}
+
 function SparkRedcapSync() {
   const [loading, setLoading] = useState<false | 'preview' | 'apply'>(false);
   const [result, setResult] = useState<SparkSyncResult | null>(null);
@@ -567,11 +656,15 @@ function SparkRedcapSync() {
             {result.quartersInScope.map((q) => {
               const rows = byQuarter[q] ?? [];
               if (rows.length === 0) return null;
+              const finalized = rows[0]?.finalized ?? false;
               return (
                 <div key={q}>
-                  <h3 className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
-                    {q}
-                  </h3>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
+                      {q}
+                    </h3>
+                    <FinalizeButton program="SPARK" period={q} finalized={finalized} onDone={() => run(true)} />
+                  </div>
                   <div className="mt-2 overflow-x-auto rounded-xl border border-cpcqc-purple-dark/10">
                     <table className="w-full text-left text-sm">
                       <thead className="bg-cpcqc-cream/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
@@ -611,12 +704,16 @@ function SparkRedcapSync() {
                                   {meta.label}
                                 </span>
                               </td>
-                              <OverrideCells
-                                row={r}
-                                overrides={overrides}
-                                setOverrides={setOverrides}
-                                editable={editable}
-                              />
+                              {r.finalized ? (
+                                <LockedCells row={r} />
+                              ) : (
+                                <OverrideCells
+                                  row={r}
+                                  overrides={overrides}
+                                  setOverrides={setOverrides}
+                                  editable={editable}
+                                />
+                              )}
                               <td className="px-3 py-2 text-cpcqc-purple-dark/80">
                                 {r.submissionDate ?? (r.submitted ? '(no date)' : '—')}
                               </td>
@@ -792,11 +889,15 @@ function NestRedcapSync() {
             {result.periodsInScope.map((p) => {
               const rows = byPeriod[p] ?? [];
               if (rows.length === 0) return null;
+              const finalized = rows[0]?.finalized ?? false;
               return (
                 <div key={p}>
-                  <h3 className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
-                    {p}
-                  </h3>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
+                      {p}
+                    </h3>
+                    <FinalizeButton program="NEST" period={p} finalized={finalized} onDone={() => run(true)} />
+                  </div>
                   <div className="mt-2 overflow-x-auto rounded-xl border border-cpcqc-purple-dark/10">
                     <table className="w-full text-left text-sm">
                       <thead className="bg-cpcqc-cream/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
@@ -831,12 +932,16 @@ function NestRedcapSync() {
                                   {meta.label}
                                 </span>
                               </td>
-                              <OverrideCells
-                                row={r}
-                                overrides={overrides}
-                                setOverrides={setOverrides}
-                                editable={editable}
-                              />
+                              {r.finalized ? (
+                                <LockedCells row={r} />
+                              ) : (
+                                <OverrideCells
+                                  row={r}
+                                  overrides={overrides}
+                                  setOverrides={setOverrides}
+                                  editable={editable}
+                                />
+                              )}
                               <td className="px-3 py-2 text-cpcqc-purple-dark/80">
                                 {r.sspSubmitted ? `${r.sspComplete}/${r.sspRows}` : '—'}
                               </td>

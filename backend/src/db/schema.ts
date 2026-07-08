@@ -342,6 +342,10 @@ export const taskInstances = pgTable(
     attachmentUrl: text('attachment_url'),
     payload: jsonb('payload'), // type-specific data (attendees, advising notes, HRA responses, etc.)
     updatedBy: text('updated_by'),
+    // When set, the task is "finalized" (locked): the REDCap sync will not
+    // recompute or overwrite it. Set per month via the sync's Finalize control.
+    finalizedAt: timestamp('finalized_at', { withTimezone: true }),
+    finalizedBy: text('finalized_by'),
     ...timestamps,
   },
   (t) => ({

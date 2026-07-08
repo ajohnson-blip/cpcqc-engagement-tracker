@@ -82,6 +82,10 @@ export interface NestSyncRow {
   overridden: boolean;
   /** A prior manual override already stored on this task (preserved by the sync). */
   priorOverride: { disposition: SyncDisposition; comment: string } | null;
+  /** Finalized (locked): the sync leaves it alone; the preview shows it read-only. */
+  finalized: boolean;
+  finalizedAt: string | null;
+  finalizedBy: string | null;
   sspSubmitted: boolean;
   chartSubmitted: boolean;
   bothSubmitted: boolean;
@@ -357,15 +361,21 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
       const decision = decide(cell, deadline, today);
       const override = opts.overrides?.get(ti.id);
       const priorOverride = readPriorOverride(ti);
+      const finalized = ti.finalizedAt != null;
       const subDate = cell?.earliestSubmissionDate ?? null;
 
-      // Precedence: NEW override this session > PRIOR manual override (preserved —
-      // never recomputed over) > computed value.
+      // Precedence: FINALIZED (locked) > NEW override this session > PRIOR manual
+      // override (preserved — never recomputed over) > computed value.
       let finalStatus: TaskStatus;
       let finalOutcome: TaskOutcome;
       let finalCompletedOn: string | null;
       let finalNote: string;
-      if (override) {
+      if (finalized) {
+        finalStatus = ti.status;
+        finalOutcome = ti.outcome;
+        finalCompletedOn = ti.completedOn;
+        finalNote = ti.staffNote ?? decision.note;
+      } else if (override) {
         const t = dispositionToTask(override.disposition, subDate, today);
         finalStatus = t.status;
         finalOutcome = t.outcome;
@@ -402,6 +412,9 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
         category: decision.category,
         overridden: !!override,
         priorOverride,
+        finalized,
+        finalizedAt: ti.finalizedAt ? ti.finalizedAt.toISOString() : null,
+        finalizedBy: ti.finalizedBy ?? null,
         sspSubmitted: cell?.ssp.submitted ?? false,
         chartSubmitted: cell?.chart.submitted ?? false,
         bothSubmitted: cell?.bothSubmitted ?? false,

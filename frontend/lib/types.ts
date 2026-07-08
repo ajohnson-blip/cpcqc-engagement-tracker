@@ -111,6 +111,9 @@ export interface SparkSyncRow {
   taskId: string;
   overridden: boolean;
   priorOverride: { disposition: SyncDisposition; comment: string } | null;
+  finalized: boolean;
+  finalizedAt: string | null;
+  finalizedBy: string | null;
   dagCode: string;
   hospitalId: string | null;
   hospitalName: string;
@@ -182,6 +185,9 @@ export interface NestSyncRow {
   taskId: string;
   overridden: boolean;
   priorOverride: { disposition: SyncDisposition; comment: string } | null;
+  finalized: boolean;
+  finalizedAt: string | null;
+  finalizedBy: string | null;
   dagCode: string;
   hospitalId: string | null;
   hospitalName: string;

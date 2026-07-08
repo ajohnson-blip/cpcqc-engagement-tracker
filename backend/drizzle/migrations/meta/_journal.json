@@ -127,6 +127,13 @@
       "when": 1781289576837,
       "tag": "0017_user_hospitals",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1782600000000,
+      "tag": "0018_task_finalized_columns",
+      "breakpoints": true
     }
   ]
 }
