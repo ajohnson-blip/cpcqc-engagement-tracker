@@ -30,7 +30,17 @@ import {
   CHART_FORM,
   type NestCell,
 } from './nest-engagement.js';
-import { dispositionToTask, type SyncOverride } from './sync-overrides.js';
+import { dispositionToTask, type SyncOverride, type SyncDisposition } from './sync-overrides.js';
+
+/** A prior PM override recorded in a task's payload, if any. */
+function readPriorOverride(
+  ti: typeof schema.taskInstances.$inferSelect,
+): { disposition: SyncDisposition; comment: string } | null {
+  const ov = (ti.payload as { override?: { disposition?: SyncDisposition; comment?: string } } | null)
+    ?.override;
+  if (!ov?.disposition) return null;
+  return { disposition: ov.disposition, comment: ov.comment ?? '' };
+}
 
 /**
  * REDCap NEST Data Access Group → our canonical hospital name. Verified against
@@ -70,6 +80,8 @@ export interface NestSyncRow {
   category: NestSyncCategory;
   /** True when a PM override (not the computed value) is being applied. */
   overridden: boolean;
+  /** A prior manual override already stored on this task (preserved by the sync). */
+  priorOverride: { disposition: SyncDisposition; comment: string } | null;
   sspSubmitted: boolean;
   chartSubmitted: boolean;
   bothSubmitted: boolean;
@@ -344,8 +356,11 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
 
       const decision = decide(cell, deadline, today);
       const override = opts.overrides?.get(ti.id);
+      const priorOverride = readPriorOverride(ti);
       const subDate = cell?.earliestSubmissionDate ?? null;
 
+      // Precedence: NEW override this session > PRIOR manual override (preserved —
+      // never recomputed over) > computed value.
       let finalStatus: TaskStatus;
       let finalOutcome: TaskOutcome;
       let finalCompletedOn: string | null;
@@ -356,6 +371,11 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
         finalOutcome = t.outcome;
         finalCompletedOn = t.completedOn;
         finalNote = override.comment.trim() || decision.note;
+      } else if (priorOverride) {
+        finalStatus = ti.status;
+        finalOutcome = ti.outcome;
+        finalCompletedOn = ti.completedOn;
+        finalNote = ti.staffNote ?? decision.note;
       } else if (decision.leaveUntouched) {
         finalStatus = ti.status;
         finalOutcome = ti.outcome;
@@ -381,6 +401,7 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
         period,
         category: decision.category,
         overridden: !!override,
+        priorOverride,
         sspSubmitted: cell?.ssp.submitted ?? false,
         chartSubmitted: cell?.chart.submitted ?? false,
         bothSubmitted: cell?.bothSubmitted ?? false,

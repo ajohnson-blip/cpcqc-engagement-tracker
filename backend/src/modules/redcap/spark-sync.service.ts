@@ -29,7 +29,17 @@ import {
   type SparkCell,
   type MissingBySection,
 } from './spark-engagement.js';
-import { dispositionToTask, type SyncOverride } from './sync-overrides.js';
+import { dispositionToTask, type SyncOverride, type SyncDisposition } from './sync-overrides.js';
+
+/** A prior PM override recorded in a task's payload, if any. */
+function readPriorOverride(
+  ti: typeof schema.taskInstances.$inferSelect,
+): { disposition: SyncDisposition; comment: string } | null {
+  const ov = (ti.payload as { override?: { disposition?: SyncDisposition; comment?: string } } | null)
+    ?.override;
+  if (!ov?.disposition) return null;
+  return { disposition: ov.disposition, comment: ov.comment ?? '' };
+}
 
 /**
  * REDCap SPARK Data Access Group → our canonical hospital name. Verified against
@@ -75,6 +85,8 @@ export interface SparkSyncRow {
   category: SparkSyncCategory;
   /** True when a PM override (not the computed value) is being applied. */
   overridden: boolean;
+  /** A prior manual override already stored on this task (preserved by the sync). */
+  priorOverride: { disposition: SyncDisposition; comment: string } | null;
   submitted: boolean;
   complete: boolean;
   pctComplete: number | null;
@@ -362,8 +374,11 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
 
       const decision = decide(cell, quarter, today);
       const override = opts.overrides?.get(ti.id);
+      const priorOverride = readPriorOverride(ti);
 
-      // A PM override (if present) wins over the computed value.
+      // Precedence: a NEW override this session wins; otherwise a PRIOR manual
+      // override is preserved (safeguard — the sync never recomputes over a
+      // human decision); otherwise the computed value applies.
       let finalStatus: TaskStatus;
       let finalOutcome: TaskOutcome;
       let finalCompletedOn: string | null;
@@ -374,6 +389,12 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
         finalOutcome = t.outcome;
         finalCompletedOn = t.completedOn;
         finalNote = override.comment.trim() || decision.note;
+      } else if (priorOverride) {
+        // Preserve the stored manual override untouched.
+        finalStatus = ti.status;
+        finalOutcome = ti.outcome;
+        finalCompletedOn = ti.completedOn;
+        finalNote = ti.staffNote ?? decision.note;
       } else if (decision.leaveUntouched) {
         finalStatus = ti.status;
         finalOutcome = ti.outcome;
@@ -399,6 +420,7 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
         quarter,
         category: decision.category,
         overridden: !!override,
+        priorOverride,
         submitted: cell?.submitted ?? false,
         complete: cell?.complete ?? false,
         pctComplete: cell ? cell.pctComplete : null,

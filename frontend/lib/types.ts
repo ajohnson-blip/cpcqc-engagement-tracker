@@ -110,6 +110,7 @@ export type SyncDisposition = 'counts' | 'late' | 'incomplete' | 'not_submitted'
 export interface SparkSyncRow {
   taskId: string;
   overridden: boolean;
+  priorOverride: { disposition: SyncDisposition; comment: string } | null;
   dagCode: string;
   hospitalId: string | null;
   hospitalName: string;
@@ -180,6 +181,7 @@ export type NestSyncCategory =
 export interface NestSyncRow {
   taskId: string;
   overridden: boolean;
+  priorOverride: { disposition: SyncDisposition; comment: string } | null;
   dagCode: string;
   hospitalId: string | null;
   hospitalName: string;

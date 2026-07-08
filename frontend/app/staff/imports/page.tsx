@@ -320,17 +320,35 @@ function categoryToDisposition(category: string): SyncDisposition {
 
 type OverrideMap = Record<string, { disposition?: SyncDisposition; comment?: string }>;
 
-/** Build the overrides array to POST: only rows the PM changed or commented on. */
+type OverrideRow = {
+  taskId: string;
+  category: string;
+  priorOverride: { disposition: SyncDisposition; comment: string } | null;
+};
+
+/** The status a row defaults to: a prior manual override if one exists, else
+ *  the freshly-computed value from REDCap. */
+function defaultDisposition(row: OverrideRow): SyncDisposition {
+  return row.priorOverride?.disposition ?? categoryToDisposition(row.category);
+}
+
+/** Build the overrides array to POST: exactly the rows the PM touched this
+ *  session. Untouched rows (incl. prior overrides) are left for the server,
+ *  which preserves prior overrides and computes the rest. */
 function buildOverridesPayload(
-  rows: ReadonlyArray<{ taskId: string; category: string }>,
+  rows: ReadonlyArray<OverrideRow>,
   overrides: OverrideMap,
 ): Array<{ taskId: string; disposition: SyncDisposition; comment: string }> {
+  const byId = new Map(rows.map((r) => [r.taskId, r]));
   const out: Array<{ taskId: string; disposition: SyncDisposition; comment: string }> = [];
-  for (const r of rows) {
-    const def = categoryToDisposition(r.category);
-    const disposition = overrides[r.taskId]?.disposition ?? def;
-    const comment = overrides[r.taskId]?.comment ?? '';
-    if (disposition !== def || comment.trim() !== '') out.push({ taskId: r.taskId, disposition, comment });
+  for (const taskId of Object.keys(overrides)) {
+    const r = byId.get(taskId);
+    if (!r) continue;
+    out.push({
+      taskId,
+      disposition: overrides[taskId]?.disposition ?? defaultDisposition(r),
+      comment: overrides[taskId]?.comment ?? r.priorOverride?.comment ?? '',
+    });
   }
   return out;
 }
@@ -342,15 +360,18 @@ function OverrideCells({
   setOverrides,
   editable,
 }: {
-  row: { taskId: string; category: string };
+  row: OverrideRow;
   overrides: OverrideMap;
   setOverrides: (fn: (o: OverrideMap) => OverrideMap) => void;
   editable: boolean;
 }) {
-  const def = categoryToDisposition(row.category);
-  const disposition = overrides[row.taskId]?.disposition ?? def;
-  const comment = overrides[row.taskId]?.comment ?? '';
-  const overridden = disposition !== def;
+  const computedDef = categoryToDisposition(row.category);
+  const touched = !!overrides[row.taskId];
+  const disposition = overrides[row.taskId]?.disposition ?? defaultDisposition(row);
+  const comment = overrides[row.taskId]?.comment ?? row.priorOverride?.comment ?? '';
+  // "Overridden" = the value that will apply differs from what REDCap computed.
+  const overridden = disposition !== computedDef;
+  const preserved = !!row.priorOverride && !touched;
   return (
     <>
       <td className="px-3 py-2">
@@ -373,6 +394,11 @@ function OverrideCells({
             </option>
           ))}
         </select>
+        {preserved && (
+          <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+            manual · preserved
+          </div>
+        )}
       </td>
       <td className="px-3 py-2">
         <input
@@ -563,7 +589,7 @@ function SparkRedcapSync() {
                         {rows.map((r) => {
                           const meta = CATEGORY_META[r.category];
                           const isOverridden =
-                            (overrides[r.taskId]?.disposition ?? categoryToDisposition(r.category)) !==
+                            (overrides[r.taskId]?.disposition ?? defaultDisposition(r)) !==
                             categoryToDisposition(r.category);
                           return (
                             <tr
@@ -788,7 +814,7 @@ function NestRedcapSync() {
                         {rows.map((r) => {
                           const meta = NEST_CATEGORY_META[r.category];
                           const isOverridden =
-                            (overrides[r.taskId]?.disposition ?? categoryToDisposition(r.category)) !==
+                            (overrides[r.taskId]?.disposition ?? defaultDisposition(r)) !==
                             categoryToDisposition(r.category);
                           return (
                             <tr
