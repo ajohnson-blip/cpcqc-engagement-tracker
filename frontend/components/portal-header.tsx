@@ -79,6 +79,19 @@ export function PortalHeader() {
               </Link>
             );
           })}
+          {multiHospital && (
+            <Link
+              href="/portal/rollup"
+              className={clsx(
+                'rounded-full px-4 py-2 font-rounded text-sm font-bold uppercase tracking-wide transition',
+                pathname === '/portal/rollup'
+                  ? 'bg-cpcqc-purple text-white'
+                  : 'text-cpcqc-purple-dark hover:bg-cpcqc-purple/10',
+              )}
+            >
+              System
+            </Link>
+          )}
           {interestOpen && (
             <Link
               href={INTEREST_NAV_HREF}

@@ -290,6 +290,55 @@ export interface SoarSyncResult {
 
 export type RequirementStatus = 'on_track' | 'at_risk' | 'met' | 'not_met';
 
+// ---- System rollup (health-system QI lead: all linked hospitals × initiatives) ----
+
+export interface RollupFailingRequirement {
+  requirement: string;
+  status: RequirementStatus;
+  current: number;
+  required: number;
+}
+
+export interface RollupCell {
+  hospitalId: string;
+  hospitalName: string;
+  initiativeId: string;
+  initiativeCode: string;
+  initiativeName: string;
+  enrollmentId: string;
+  enrollmentStatus: string;
+  track: 'active' | 'sustainability';
+  programYear: number | null;
+  overall: RequirementStatus | null;
+  requirements: Record<string, RequirementStatus> | null;
+  failing: RollupFailingRequirement[];
+}
+
+export interface RollupNeedsAttention {
+  hospitalId: string;
+  hospitalName: string;
+  initiativeCode: string;
+  enrollmentId: string;
+  track: 'active' | 'sustainability';
+  overall: RequirementStatus | null;
+  failing: RollupFailingRequirement[];
+}
+
+export interface SystemRollupResponse {
+  hospitals: Array<{ id: string; name: string }>;
+  initiatives: Array<{ id: string; code: string; name: string }>;
+  cells: RollupCell[];
+  needsAttention: RollupNeedsAttention[];
+  totals: {
+    hospitals: number;
+    enrollments: number;
+    met: number;
+    onTrack: number;
+    atRisk: number;
+    notMet: number;
+  };
+}
+
 export interface RequirementResult {
   status: RequirementStatus;
   current: number;

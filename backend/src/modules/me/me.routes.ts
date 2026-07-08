@@ -20,8 +20,10 @@ import {
   evaluateEnrollment,
   pickCurrentProgramYear,
 } from '@/modules/compliance/compliance.repository.js';
+import type { ProgramYearCompliance, RequirementStatus } from '@/modules/compliance/compliance.service.js';
 import { computeCohortBenchmark, type CohortBenchmark } from '@/modules/compliance/benchmarks.js';
 import { getTeamsForInitiativeIds } from '@/modules/staff/staff-team.service.js';
+import { dedupeWithdrawnDuplicates, selectOverviewRollup } from '@/modules/staff/staff.rollup.js';
 
 const router = Router();
 
@@ -126,6 +128,167 @@ router.get('/enrollments', requireAuth, async (req, res) => {
   );
 
   res.json({ enrollments: out });
+});
+
+/**
+ * GET /me/rollup — system-lead rollup across ALL the user's linked hospitals.
+ *
+ * For a health-system QI lead with multi-hospital access: one compliance cell
+ * per (hospital, initiative) for the current program year, plus a worst-first
+ * "needs attention" list. Read-only and strictly scoped to req.auth.hospitalIds
+ * — never returns data for a hospital the user isn't linked to. Reuses the exact
+ * roster-selection + compliance logic behind /staff/overview.
+ */
+const REQ_KEYS: ReadonlyArray<{
+  key: 'enrollment' | 'meetings' | 'advising' | 'dataSubmissions' | 'assessments';
+  label: string;
+}> = [
+  { key: 'enrollment', label: 'Enrollment' },
+  { key: 'meetings', label: 'Meetings' },
+  { key: 'advising', label: 'QI advising' },
+  { key: 'dataSubmissions', label: 'Data submissions' },
+  { key: 'assessments', label: 'Assessments' },
+];
+
+const ROLLUP_STATUS_ORDER: Record<RequirementStatus, number> = {
+  not_met: 0,
+  at_risk: 1,
+  on_track: 2,
+  met: 3,
+};
+
+function failingRequirements(result: ProgramYearCompliance) {
+  const fails: Array<{ requirement: string; status: RequirementStatus; current: number; required: number }> = [];
+  for (const { key, label } of REQ_KEYS) {
+    const rr = result[key];
+    if (rr && (rr.status === 'at_risk' || rr.status === 'not_met')) {
+      fails.push({ requirement: label, status: rr.status, current: rr.current, required: rr.required });
+    }
+  }
+  return fails;
+}
+
+router.get('/rollup', requireAuth, async (req, res) => {
+  const asOf = new Date();
+  const hospitalIds = req.auth!.hospitalIds;
+  const empty = {
+    hospitals: [],
+    initiatives: [],
+    cells: [],
+    needsAttention: [],
+    totals: { hospitals: 0, enrollments: 0, met: 0, onTrack: 0, atRisk: 0, notMet: 0 },
+  };
+  if (hospitalIds.length === 0) {
+    res.json(empty);
+    return;
+  }
+
+  const allEnrollments = await db
+    .select()
+    .from(schema.enrollments)
+    .where(inArray(schema.enrollments.hospitalId, hospitalIds));
+  if (allEnrollments.length === 0) {
+    res.json(empty);
+    return;
+  }
+
+  const cohorts = await db.select().from(schema.cohorts);
+  const cohortById = new Map(cohorts.map((c) => [c.id, c]));
+
+  // Same roster rules as /staff/overview, scoped to this user's hospitals: drop
+  // pre-year withdrawals, then dedupe a (hospital, initiative) that has both a
+  // current and a withdrawn enrollment.
+  const enrollments = dedupeWithdrawnDuplicates(
+    selectOverviewRollup(allEnrollments, asOf),
+    (e) => `${e.hospitalId}::${cohortById.get(e.cohortId)?.initiativeId ?? ''}`,
+  );
+
+  const hospitals = await db
+    .select()
+    .from(schema.hospitals)
+    .where(inArray(schema.hospitals.id, hospitalIds));
+  const hospitalById = new Map(hospitals.map((h) => [h.id, h]));
+  const initiatives = await db.select().from(schema.initiatives);
+  const initiativeById = new Map(initiatives.map((i) => [i.id, i]));
+
+  interface Cell {
+    hospitalId: string;
+    hospitalName: string;
+    initiativeId: string;
+    initiativeCode: string;
+    initiativeName: string;
+    enrollmentId: string;
+    enrollmentStatus: string;
+    track: 'active' | 'sustainability';
+    programYear: number | null;
+    overall: RequirementStatus | null;
+    requirements: Record<string, RequirementStatus> | null;
+    failing: Array<{ requirement: string; status: RequirementStatus; current: number; required: number }>;
+  }
+
+  const cells: Cell[] = [];
+  for (const e of enrollments) {
+    const cohort = cohortById.get(e.cohortId);
+    if (!cohort) continue;
+    const initiative = initiativeById.get(cohort.initiativeId);
+    const current = pickCurrentProgramYear(await evaluateEnrollment(e.id, asOf), asOf);
+    const result = current?.result ?? null;
+    cells.push({
+      hospitalId: e.hospitalId,
+      hospitalName: hospitalById.get(e.hospitalId)?.name ?? '(unknown)',
+      initiativeId: cohort.initiativeId,
+      initiativeCode: initiative?.code ?? '?',
+      initiativeName: initiative?.name ?? '',
+      enrollmentId: e.id,
+      enrollmentStatus: e.status,
+      track: cohort.track,
+      programYear: current?.programYear ?? null,
+      overall: result?.overall ?? null,
+      requirements: result
+        ? Object.fromEntries(
+            REQ_KEYS.map(({ key }) => [key, result[key]?.status]).filter(([, s]) => s != null) as Array<
+              [string, RequirementStatus]
+            >,
+          )
+        : null,
+      failing: result ? failingRequirements(result) : [],
+    });
+  }
+
+  // Hospitals + initiatives actually present in the matrix, sorted for display.
+  const presentHospitals = Array.from(new Map(cells.map((c) => [c.hospitalId, c.hospitalName])))
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const presentInitiatives = Array.from(
+    new Map(cells.map((c) => [c.initiativeId, { id: c.initiativeId, code: c.initiativeCode, name: c.initiativeName }])).values(),
+  ).sort((a, b) => a.code.localeCompare(b.code));
+
+  const needsAttention = cells
+    .filter((c) => c.overall === 'at_risk' || c.overall === 'not_met')
+    .sort((a, b) => {
+      const d = ROLLUP_STATUS_ORDER[a.overall!] - ROLLUP_STATUS_ORDER[b.overall!];
+      return d !== 0 ? d : a.hospitalName.localeCompare(b.hospitalName);
+    })
+    .map((c) => ({
+      hospitalId: c.hospitalId,
+      hospitalName: c.hospitalName,
+      initiativeCode: c.initiativeCode,
+      enrollmentId: c.enrollmentId,
+      track: c.track,
+      overall: c.overall,
+      failing: c.failing,
+    }));
+
+  const totals = {
+    hospitals: presentHospitals.length,
+    enrollments: cells.length,
+    met: cells.filter((c) => c.overall === 'met').length,
+    onTrack: cells.filter((c) => c.overall === 'on_track').length,
+    atRisk: cells.filter((c) => c.overall === 'at_risk').length,
+    notMet: cells.filter((c) => c.overall === 'not_met').length,
+  };
+
+  res.json({ hospitals: presentHospitals, initiatives: presentInitiatives, cells, needsAttention, totals });
 });
 
 // Read-only champion roster for the user's (active) hospital — powers the
