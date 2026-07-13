@@ -1,7 +1,7 @@
 /**
  * SOAR engagement logic — TypeScript port of Luis Montes' (CHA) SOAR module.
  * Pure, dependency-free, unit-tested. Mirrors NEST's shape but adapts to SOAR:
- *   - MONTHLY, previous-month reporting (deadline = 3rd Friday of the FOLLOWING month).
+ *   - MONTHLY, previous-month reporting (deadline = 2nd Friday of the FOLLOWING month).
  *   - PATIENT-LEVEL data: one row per NTSV cesarean on the ntsv_cesarean_section
  *     repeating instrument (NOT aggregate counts).
  *   - NO-NTSV ATTESTATION: a separate no_ntsv_csections form lets zero-case months
@@ -30,23 +30,24 @@ export const NO_NTSV_FORM = 'no_ntsv_csections';
 export type RedcapRow = Record<string, string | null | undefined>;
 
 // =====================================================================
-// Deadlines — 3rd Friday of the month AFTER the reporting month
+// Deadlines — 2nd Friday of the month AFTER the reporting month
 // =====================================================================
 
-/** 3rd Friday of the given month, as an ISO date string (UTC, date-only). */
-export function thirdFriday(year: number, month1to12: number): string {
+/** 2nd Friday of the given month, as an ISO date string (UTC, date-only). */
+export function secondFriday(year: number, month1to12: number): string {
   const first = new Date(Date.UTC(year, month1to12 - 1, 1));
   const dow = first.getUTCDay(); // 0=Sun … 5=Fri … 6=Sat
   const daysToFirstFriday = (5 - dow + 7) % 7;
-  const day = 1 + daysToFirstFriday + 14; // first Friday + 14 = third Friday
+  const day = 1 + daysToFirstFriday + 7; // first Friday + 7 = second Friday
   return new Date(Date.UTC(year, month1to12 - 1, day)).toISOString().slice(0, 10);
 }
 
-/** Deadline for a reporting month = 3rd Friday of the following month. */
+/** Deadline for a reporting month = 2nd Friday of the following month (CPCQC's
+ *  2026 SOAR schedule; matches the deadline sheet for Jun 2026 onward). */
 export function monthDeadline(year: number, month1to12: number): string {
   const nextMonth = month1to12 === 12 ? 1 : month1to12 + 1;
   const nextYear = month1to12 === 12 ? year + 1 : year;
-  return thirdFriday(nextYear, nextMonth);
+  return secondFriday(nextYear, nextMonth);
 }
 
 // =====================================================================

@@ -18,7 +18,7 @@
  * Timeliness uses the task's due_on — CPCQC's official 2026 deadline sheet, the
  * authoritative source. The sheet lists "Submit June 2026 data" onward, so the
  * early-2026 months (which carry a pre-CSV same-month placeholder due date) fall
- * back to the computed 3rd-Friday-of-the-following-month rule.
+ * back to the computed 2nd-Friday-of-the-following-month rule.
  *
  * Dry-run previews; re-running is idempotent (recomputed from REDCap each time).
  */
@@ -54,7 +54,7 @@ function isoDate(d: string | Date): string {
  * same-month placeholder (e.g. 2026-01 → 2026-01-31) that is NOT a real
  * deadline. A genuine deadline always falls in a later month than the reporting
  * period, so we honor due_on only when it does and fall back to the computed
- * 3rd-Friday rule otherwise.
+ * 2nd-Friday rule otherwise.
  */
 function resolveDeadline(period: string, dueOn: string | Date | null, programYear: number): string {
   if (dueOn) {
@@ -421,8 +421,8 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
       }
 
       // Authoritative deadline = this task's due_on (CPCQC sheet); early-2026
-      // months fall back to the computed 3rd-Friday rule. Recompute timeliness
-      // against it, overriding the grid's own 3rd-Friday computation.
+      // months fall back to the computed 2nd-Friday rule. Recompute timeliness
+      // against it, overriding the grid's own computation.
       const deadline = resolveDeadline(period, ti.dueOn, programYear);
       const subDate = cell?.earliestSubmissionDate ?? null;
       const tl = recomputeTimeliness(subDate, deadline);

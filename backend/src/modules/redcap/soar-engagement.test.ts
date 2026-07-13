@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  thirdFriday,
+  secondFriday,
   monthDeadline,
   checkNtsvRow,
   checkNoNtsvRow,
@@ -9,17 +9,17 @@ import {
   type RedcapRow,
 } from './soar-engagement.js';
 
-describe('deadlines (3rd Friday of the following month)', () => {
-  it('matches the published SOAR schedule', () => {
-    expect(monthDeadline(2026, 1)).toBe('2026-02-20'); // January → Feb 20
-    expect(monthDeadline(2026, 3)).toBe('2026-04-17'); // March → Apr 17
-    expect(monthDeadline(2026, 4)).toBe('2026-05-15'); // April → May 15
-    expect(monthDeadline(2026, 6)).toBe('2026-07-17'); // June → Jul 17
-    expect(monthDeadline(2026, 12)).toBe('2027-01-15'); // December → Jan 15 2027
+describe('deadlines (2nd Friday of the following month)', () => {
+  it('matches the CPCQC SOAR deadline sheet', () => {
+    expect(monthDeadline(2026, 1)).toBe('2026-02-13'); // January → Feb 13
+    expect(monthDeadline(2026, 3)).toBe('2026-04-10'); // March → Apr 10
+    expect(monthDeadline(2026, 4)).toBe('2026-05-08'); // April → May 8
+    expect(monthDeadline(2026, 6)).toBe('2026-07-10'); // June → Jul 10 (sheet: 7/10)
+    expect(monthDeadline(2026, 12)).toBe('2027-01-08'); // December → Jan 8 2027 (sheet: 1/8)
   });
-  it('computes the 3rd Friday', () => {
-    expect(thirdFriday(2026, 2)).toBe('2026-02-20');
-    expect(thirdFriday(2026, 1)).toBe('2026-01-16');
+  it('computes the 2nd Friday', () => {
+    expect(secondFriday(2026, 2)).toBe('2026-02-13');
+    expect(secondFriday(2026, 1)).toBe('2026-01-09');
   });
 });
 
