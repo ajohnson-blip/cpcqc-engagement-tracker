@@ -15,8 +15,10 @@
  *   - Nothing by the deadline → complete / not_submitted (documented miss).
  *   - Nothing yet, deadline not passed → left untouched (pending).
  *
- * Timeliness uses SOAR's own deadline (3rd Friday of the following month), per
- * Luis's methodology — this can differ from the task's displayed due date.
+ * Timeliness uses the task's due_on — CPCQC's official 2026 deadline sheet, the
+ * authoritative source. The sheet lists "Submit June 2026 data" onward, so the
+ * early-2026 months (which carry a pre-CSV same-month placeholder due date) fall
+ * back to the computed 3rd-Friday-of-the-following-month rule.
  *
  * Dry-run previews; re-running is idempotent (recomputed from REDCap each time).
  */
@@ -38,6 +40,40 @@ function readPriorOverride(
     ?.override;
   if (!ov?.disposition) return null;
   return { disposition: ov.disposition, comment: ov.comment ?? '' };
+}
+
+/** Drizzle `date` columns come back as ISO strings; normalize to YYYY-MM-DD. */
+function isoDate(d: string | Date): string {
+  return d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
+}
+
+/**
+ * The authoritative deadline for a reporting period. CPCQC's 2026 sheet is the
+ * source of truth, persisted as each task's due_on. But the sheet only lists
+ * "Submit June 2026 data" onward; the early-2026 months carry a pre-CSV
+ * same-month placeholder (e.g. 2026-01 → 2026-01-31) that is NOT a real
+ * deadline. A genuine deadline always falls in a later month than the reporting
+ * period, so we honor due_on only when it does and fall back to the computed
+ * 3rd-Friday rule otherwise.
+ */
+function resolveDeadline(period: string, dueOn: string | Date | null, programYear: number): string {
+  if (dueOn) {
+    const iso = isoDate(dueOn);
+    if (iso.slice(0, 7) > period) return iso;
+  }
+  return monthDeadline(programYear, parseInt(period.slice(5), 10));
+}
+
+/** onTime / daysFromDeadline of a submission relative to a deadline (ISO dates). */
+function recomputeTimeliness(
+  submissionDate: string | null,
+  deadline: string,
+): { onTime: boolean | null; daysFromDeadline: number | null } {
+  if (!submissionDate) return { onTime: null, daysFromDeadline: null };
+  const days = Math.round(
+    (Date.parse(`${submissionDate}T00:00:00Z`) - Date.parse(`${deadline}T00:00:00Z`)) / 86400000,
+  );
+  return { onTime: days <= 0, daysFromDeadline: days };
 }
 
 /**
@@ -274,19 +310,36 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
   });
   const grid = buildSoarGrid(records, { year: programYear, todayIso: today });
 
-  // Scope to months that are actionable: deadline has passed, or there's data.
-  const periodsInScope = Array.from({ length: 12 }, (_, i) => `${programYear}-${String(i + 1).padStart(2, '0')}`)
-    .filter((period) => {
-      const month = parseInt(period.slice(5), 10);
-      const deadline = monthDeadline(programYear, month);
-      const hasData = [...grid.keys()].some((k) => k.endsWith(`::${period}`));
-      return today > deadline || hasData;
-    });
-
   const hospitals = await db.select().from(schema.hospitals);
   const hospitalsByName = new Map(hospitals.map((h) => [h.name.toLowerCase(), h]));
   const soar = await db.query.initiatives.findFirst({ where: eq(schema.initiatives.code, 'SOAR') });
   if (!soar) throw new HttpError(500, 'SOAR initiative not found in the database.');
+
+  // Per-period official deadline from the task due dates (CPCQC's sheet). Used by
+  // the scope filter; the per-task loop reads each task's own due_on directly.
+  const dueRows = await db
+    .select({ period: schema.taskInstances.period, dueOn: schema.taskInstances.dueOn })
+    .from(schema.taskInstances)
+    .innerJoin(schema.taskTemplates, eq(schema.taskTemplates.id, schema.taskInstances.taskTemplateId))
+    .innerJoin(schema.programYears, eq(schema.programYears.id, schema.taskInstances.programYearId))
+    .where(
+      and(
+        eq(schema.taskTemplates.initiativeId, soar.id),
+        eq(schema.taskTemplates.taskType, 'data_submission'),
+        eq(schema.programYears.year, programYear),
+      ),
+    );
+  const periodDueOn = new Map<string, string>();
+  for (const r of dueRows) if (r.dueOn) periodDueOn.set(r.period, isoDate(r.dueOn));
+
+  // Scope to months that are actionable: the official deadline has passed, or
+  // there's data.
+  const periodsInScope = Array.from({ length: 12 }, (_, i) => `${programYear}-${String(i + 1).padStart(2, '0')}`)
+    .filter((period) => {
+      const deadline = resolveDeadline(period, periodDueOn.get(period) ?? null, programYear);
+      const hasData = [...grid.keys()].some((k) => k.endsWith(`::${period}`));
+      return today > deadline || hasData;
+    });
 
   const cohorts = await db
     .select()
@@ -340,8 +393,6 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
 
     for (const period of periodsInScope) {
       const cell = grid.get(`${dag}::${period}`);
-      const month = parseInt(period.slice(5), 10);
-      const deadline = monthDeadline(programYear, month);
 
       if (cell && cell.futureDated > 0) {
         warnings.push(
@@ -369,11 +420,20 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
         continue;
       }
 
-      const decision = decide(cell, deadline, today);
+      // Authoritative deadline = this task's due_on (CPCQC sheet); early-2026
+      // months fall back to the computed 3rd-Friday rule. Recompute timeliness
+      // against it, overriding the grid's own 3rd-Friday computation.
+      const deadline = resolveDeadline(period, ti.dueOn, programYear);
+      const subDate = cell?.earliestSubmissionDate ?? null;
+      const tl = recomputeTimeliness(subDate, deadline);
+      const effCell = cell
+        ? { ...cell, deadline, onTime: tl.onTime, daysFromDeadline: tl.daysFromDeadline }
+        : undefined;
+
+      const decision = decide(effCell, deadline, today);
       const override = opts.overrides?.get(ti.id);
       const priorOverride = readPriorOverride(ti);
       const finalized = ti.finalizedAt != null;
-      const subDate = cell?.earliestSubmissionDate ?? null;
 
       // Precedence: FINALIZED (locked) > NEW override this session > PRIOR manual
       // override (preserved — never recomputed over) > computed value.
@@ -433,8 +493,8 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
         ntsvRows: cell?.ntsv.nRows ?? 0,
         ntsvComplete: cell?.ntsv.nComplete ?? 0,
         noNtsvRows: cell?.noNtsv.nRows ?? 0,
-        onTime: cell?.onTime ?? null,
-        daysFromDeadline: cell?.daysFromDeadline ?? null,
+        onTime: effCell?.onTime ?? null,
+        daysFromDeadline: effCell?.daysFromDeadline ?? null,
         submissionDate: subDate,
         currentStatus: ti.status,
         currentOutcome: ti.outcome,
@@ -462,8 +522,8 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
               dataComplete: cell?.dataComplete ?? false,
               ntsv: { rows: cell?.ntsv.nRows ?? 0, complete: cell?.ntsv.nComplete ?? 0 },
               noNtsvRows: cell?.noNtsv.nRows ?? 0,
-              onTime: cell?.onTime ?? null,
-              daysFromDeadline: cell?.daysFromDeadline ?? null,
+              onTime: effCell?.onTime ?? null,
+              daysFromDeadline: effCell?.daysFromDeadline ?? null,
               submissionDate: subDate,
               syncedAt: fetchedAt,
               ...(override
