@@ -4,6 +4,7 @@ import {
   monthDeadline,
   checkNtsvRow,
   checkNoNtsvRow,
+  classifyRow,
   buildSoarGrid,
   type RedcapRow,
 } from './soar-engagement.js';
@@ -104,6 +105,25 @@ describe('checkNoNtsvRow — zero-case attestation', () => {
   });
 });
 
+describe('classifyRow fallback priority (Prowers Feb bug)', () => {
+  it('prefers No-NTSV when both fields are present and no repeat instrument is set', () => {
+    // Base record where a stray NTSV field bleeds onto the attestation row.
+    expect(classifyRow({ c_sect_indication_primary: '5', month_year_nontsv: '2' })).toBe('no_ntsv');
+  });
+  it('still classifies a real NTSV case (c_sect only, no attestation field) as ntsv', () => {
+    expect(classifyRow({ c_sect_indication_primary: '5' })).toBe('ntsv');
+  });
+  it('respects an explicit NTSV repeat instrument even if month_year_nontsv is also set', () => {
+    expect(
+      classifyRow({
+        redcap_repeat_instrument: 'ntsv_cesarean_section',
+        c_sect_indication_primary: '5',
+        month_year_nontsv: '2',
+      }),
+    ).toBe('ntsv');
+  });
+});
+
 describe('buildSoarGrid', () => {
   const dag = 'wray_community_dis';
   function ntsv(deliveryDate: string, submitDate: string, extra: RedcapRow = {}): RedcapRow {
@@ -159,6 +179,21 @@ describe('buildSoarGrid', () => {
     const cell = grid.get(`${dag}::2026-03`)!;
     expect(cell.attestationOnly).toBe(false);
     expect(cell.dataComplete).toBe(false);
+  });
+
+  it('a bleed row (no instrument, both fields, valid checkbox) counts as the attestation', () => {
+    const row: RedcapRow = {
+      redcap_data_access_group: dag,
+      // no redcap_repeat_instrument — base record
+      c_sect_indication_primary: '5', // stray NTSV field bleeding onto the base record
+      month_year_nontsv: '2',
+      self_report_nontsv___1: '1',
+      date: '2026-03-05',
+    };
+    const cell = buildSoarGrid([row]).get(`${dag}::2026-02`)!;
+    expect(cell.attestationOnly).toBe(true);
+    expect(cell.noNtsv.submitted).toBe(true);
+    expect(cell.dataComplete).toBe(true);
   });
 
   it('late submission → onTime false', () => {

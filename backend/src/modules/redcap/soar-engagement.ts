@@ -184,8 +184,15 @@ export function classifyRow(row: RedcapRow): 'ntsv' | 'no_ntsv' | 'other' {
   const instrument = String(row[F_REPEAT_INSTRUMENT] ?? '').trim();
   if (instrument === NTSV_FORM) return 'ntsv';
   if (instrument === NO_NTSV_FORM) return 'no_ntsv';
-  if (isFieldFilled(row['c_sect_indication_primary'])) return 'ntsv';
+  // Fallback for rows with no explicit repeat instrument — e.g. a base record
+  // where fields from more than one instrument bleed onto the same row. Check
+  // the No-NTSV field FIRST: a real NTSV case always has the repeat instrument
+  // set, so a row that reaches this fallback with month_year_nontsv populated is
+  // an attestation, even when a stray c_sect_indication_primary is also present.
+  // (Per Luis Montes / CHA: Prowers' Feb zero-case attestation was being dropped
+  // because the NTSV field was checked first.)
   if (isFieldFilled(row[NO_NTSV_MONTH_FIELD])) return 'no_ntsv';
+  if (isFieldFilled(row['c_sect_indication_primary'])) return 'ntsv';
   return 'other';
 }
 
