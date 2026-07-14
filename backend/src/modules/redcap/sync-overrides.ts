@@ -74,3 +74,50 @@ export interface SyncOverride {
 export function isHumanEdit(updatedBy: string | null | undefined): boolean {
   return updatedBy != null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i.test(updatedBy);
 }
+
+/** Drizzle `date` columns come back as ISO strings; normalize to YYYY-MM-DD. */
+export function isoDate(d: string | Date): string {
+  return d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
+}
+
+/** Last calendar day of a reporting period — "YYYY-MM" (month) or "YYYY-Qn"
+ *  (quarter) — as an ISO date. */
+export function periodEndIso(period: string): string {
+  const year = parseInt(period.slice(0, 4), 10);
+  const q = period.match(/-Q([1-4])$/);
+  const endMonth = q ? parseInt(q[1]!, 10) * 3 : parseInt(period.slice(5, 7), 10);
+  return isoDate(new Date(Date.UTC(year, endMonth, 0)));
+}
+
+/**
+ * Authoritative deadline for a reporting period. CPCQC's 2026 deadline sheet is
+ * the source of truth, persisted as each task's due_on — but only where the
+ * sheet actually lists that period. A real deadline always falls AFTER the
+ * reporting period ends; the pre-CSV placeholders (end-of-period dates on the
+ * periods the sheet doesn't cover, e.g. SPARK Q1 = 2026-03-31 or NEST Jan =
+ * 2026-01-31) do not, so we honor due_on only when it's after periodEnd and
+ * otherwise fall back to the program's computed rule.
+ */
+export function resolveDeadline(
+  dueOn: string | Date | null | undefined,
+  periodEnd: string,
+  computedFallback: string,
+): string {
+  if (dueOn) {
+    const iso = isoDate(dueOn);
+    if (iso > periodEnd) return iso;
+  }
+  return computedFallback;
+}
+
+/** onTime / daysFromDeadline of a submission relative to a deadline (ISO dates). */
+export function recomputeTimeliness(
+  submissionDate: string | null,
+  deadline: string,
+): { onTime: boolean | null; daysFromDeadline: number | null } {
+  if (!submissionDate) return { onTime: null, daysFromDeadline: null };
+  const days = Math.round(
+    (Date.parse(`${submissionDate}T00:00:00Z`) - Date.parse(`${deadline}T00:00:00Z`)) / 86400000,
+  );
+  return { onTime: days <= 0, daysFromDeadline: days };
+}

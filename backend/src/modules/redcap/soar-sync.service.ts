@@ -30,7 +30,16 @@ import { HttpError } from '@/middleware/errors.js';
 import { logger } from '@/config/logger.js';
 import { exportRecords } from './redcap.client.js';
 import { buildSoarGrid, monthDeadline, NTSV_FORM, NO_NTSV_FORM, type SoarCell } from './soar-engagement.js';
-import { dispositionToTask, isHumanEdit, type SyncOverride, type SyncDisposition } from './sync-overrides.js';
+import {
+  dispositionToTask,
+  isHumanEdit,
+  isoDate,
+  periodEndIso,
+  resolveDeadline,
+  recomputeTimeliness,
+  type SyncOverride,
+  type SyncDisposition,
+} from './sync-overrides.js';
 
 /** A prior PM override recorded in a task's payload, if any. */
 function readPriorOverride(
@@ -42,46 +51,12 @@ function readPriorOverride(
   return { disposition: ov.disposition, comment: ov.comment ?? '' };
 }
 
-/** Drizzle `date` columns come back as ISO strings; normalize to YYYY-MM-DD. */
-function isoDate(d: string | Date): string {
-  return d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
-}
-
-/**
- * The authoritative deadline for a reporting period. CPCQC's 2026 sheet is the
- * source of truth, persisted as each task's due_on. But the sheet only lists
- * "Submit June 2026 data" onward; the early-2026 months carry a pre-CSV
- * same-month placeholder (e.g. 2026-01 → 2026-01-31) that is NOT a real
- * deadline. A genuine deadline always falls in a later month than the reporting
- * period, so we honor due_on only when it does and fall back to the computed
- * 2nd-Friday rule otherwise.
- */
-function resolveDeadline(period: string, dueOn: string | Date | null, programYear: number): string {
-  if (dueOn) {
-    const iso = isoDate(dueOn);
-    if (iso.slice(0, 7) > period) return iso;
-  }
-  return monthDeadline(programYear, parseInt(period.slice(5), 10));
-}
-
 /**
  * Reporting periods under the pre-May 2026 grace: the operational definition of
  * "timely & complete" wasn't communicated to hospitals until May, so Jan–April
  * submissions are credited as complete + on time. (2026-specific.)
  */
 const GRACE_PERIODS = new Set(['2026-01', '2026-02', '2026-03', '2026-04']);
-
-/** onTime / daysFromDeadline of a submission relative to a deadline (ISO dates). */
-function recomputeTimeliness(
-  submissionDate: string | null,
-  deadline: string,
-): { onTime: boolean | null; daysFromDeadline: number | null } {
-  if (!submissionDate) return { onTime: null, daysFromDeadline: null };
-  const days = Math.round(
-    (Date.parse(`${submissionDate}T00:00:00Z`) - Date.parse(`${deadline}T00:00:00Z`)) / 86400000,
-  );
-  return { onTime: days <= 0, daysFromDeadline: days };
-}
 
 /**
  * REDCap SOAR Data Access Group → our canonical hospital name. Only the 16
@@ -355,11 +330,16 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
   const periodDueOn = new Map<string, string>();
   for (const r of dueRows) if (r.dueOn) periodDueOn.set(r.period, isoDate(r.dueOn));
 
+  // Authoritative deadline for a month = the sheet's due_on (where it's a real,
+  // later-than-month-end date), else the computed 2nd-Friday-of-next-month rule.
+  const deadlineFor = (period: string, dueOn: string | Date | null): string =>
+    resolveDeadline(dueOn, periodEndIso(period), monthDeadline(programYear, parseInt(period.slice(5), 10)));
+
   // Scope to months that are actionable: the official deadline has passed, or
   // there's data.
   const periodsInScope = Array.from({ length: 12 }, (_, i) => `${programYear}-${String(i + 1).padStart(2, '0')}`)
     .filter((period) => {
-      const deadline = resolveDeadline(period, periodDueOn.get(period) ?? null, programYear);
+      const deadline = deadlineFor(period, periodDueOn.get(period) ?? null);
       const hasData = [...grid.keys()].some((k) => k.endsWith(`::${period}`));
       return today > deadline || hasData;
     });
@@ -446,7 +426,7 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
       // Authoritative deadline = this task's due_on (CPCQC sheet); early-2026
       // months fall back to the computed 2nd-Friday rule. Recompute timeliness
       // against it, overriding the grid's own computation.
-      const deadline = resolveDeadline(period, ti.dueOn, programYear);
+      const deadline = deadlineFor(period, ti.dueOn);
       const subDate = cell?.earliestSubmissionDate ?? null;
       const tl = recomputeTimeliness(subDate, deadline);
       const effCell = cell

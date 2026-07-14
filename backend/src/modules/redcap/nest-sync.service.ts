@@ -30,7 +30,16 @@ import {
   CHART_FORM,
   type NestCell,
 } from './nest-engagement.js';
-import { dispositionToTask, isHumanEdit, type SyncOverride, type SyncDisposition } from './sync-overrides.js';
+import {
+  dispositionToTask,
+  isHumanEdit,
+  isoDate,
+  periodEndIso,
+  resolveDeadline,
+  recomputeTimeliness,
+  type SyncOverride,
+  type SyncDisposition,
+} from './sync-overrides.js';
 
 /** A prior PM override recorded in a task's payload, if any. */
 function readPriorOverride(
@@ -272,19 +281,40 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
   });
   const grid = buildNestGrid(records);
 
-  // Scope to months that are actionable: deadline has passed, or there's data.
-  const periodsInScope = Array.from({ length: 12 }, (_, i) => `${programYear}-${String(i + 1).padStart(2, '0')}`)
-    .filter((period) => {
-      const month = parseInt(period.slice(5), 10);
-      const deadline = monthDeadline(programYear, month);
-      const hasData = [...grid.keys()].some((k) => k.endsWith(`::${period}`));
-      return today > deadline || hasData;
-    });
-
   const hospitals = await db.select().from(schema.hospitals);
   const hospitalsByName = new Map(hospitals.map((h) => [h.name.toLowerCase(), h]));
   const nest = await db.query.initiatives.findFirst({ where: eq(schema.initiatives.code, 'NEST') });
   if (!nest) throw new HttpError(500, 'NEST initiative not found in the database.');
+
+  // Per-period official deadline from the task due dates (CPCQC's sheet).
+  const dueRows = await db
+    .select({ period: schema.taskInstances.period, dueOn: schema.taskInstances.dueOn })
+    .from(schema.taskInstances)
+    .innerJoin(schema.taskTemplates, eq(schema.taskTemplates.id, schema.taskInstances.taskTemplateId))
+    .innerJoin(schema.programYears, eq(schema.programYears.id, schema.taskInstances.programYearId))
+    .where(
+      and(
+        eq(schema.taskTemplates.initiativeId, nest.id),
+        eq(schema.taskTemplates.taskType, 'data_submission'),
+        eq(schema.programYears.year, programYear),
+      ),
+    );
+  const periodDueOn = new Map<string, string>();
+  for (const r of dueRows) if (r.dueOn) periodDueOn.set(r.period, isoDate(r.dueOn));
+
+  // Authoritative deadline for a month = the sheet's due_on (where it's a real,
+  // later-than-month-end date), else the computed 2nd-Friday-of-next-month rule.
+  const deadlineFor = (period: string, dueOn: string | Date | null): string =>
+    resolveDeadline(dueOn, periodEndIso(period), monthDeadline(programYear, parseInt(period.slice(5), 10)));
+
+  // Scope to months that are actionable: the official deadline has passed, or
+  // there's data.
+  const periodsInScope = Array.from({ length: 12 }, (_, i) => `${programYear}-${String(i + 1).padStart(2, '0')}`)
+    .filter((period) => {
+      const deadline = deadlineFor(period, periodDueOn.get(period) ?? null);
+      const hasData = [...grid.keys()].some((k) => k.endsWith(`::${period}`));
+      return today > deadline || hasData;
+    });
 
   const cohorts = await db
     .select()
@@ -335,8 +365,6 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
 
     for (const period of periodsInScope) {
       const cell = grid.get(`${dag}::${period}`);
-      const month = parseInt(period.slice(5), 10);
-      const deadline = monthDeadline(programYear, month);
 
       const tiRows = await db
         .select({ ti: schema.taskInstances })
@@ -358,12 +386,20 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
         continue;
       }
 
-      const decision = decide(cell, deadline, today);
+      // Authoritative deadline = this task's due_on (CPCQC sheet); recompute
+      // timeliness against it, overriding the grid's own computation.
+      const deadline = deadlineFor(period, ti.dueOn);
+      const subDate = cell?.earliestSubmissionDate ?? null;
+      const tl = recomputeTimeliness(subDate, deadline);
+      const effCell = cell
+        ? { ...cell, deadline, onTime: tl.onTime, daysFromDeadline: tl.daysFromDeadline }
+        : undefined;
+
+      const decision = decide(effCell, deadline, today);
       const override = opts.overrides?.get(ti.id);
       const priorOverride = readPriorOverride(ti);
       const finalized = ti.finalizedAt != null;
       const humanEdited = isHumanEdit(ti.updatedBy);
-      const subDate = cell?.earliestSubmissionDate ?? null;
 
       // Precedence: FINALIZED (locked) > NEW override this session > PRIOR manual
       // override > HUMAN task-UI edit (staff curation — preserved) > computed.
@@ -429,8 +465,8 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
         sspComplete: cell?.ssp.nComplete ?? 0,
         chartRows: cell?.chart.nRows ?? 0,
         chartComplete: cell?.chart.nComplete ?? 0,
-        onTime: cell?.onTime ?? null,
-        daysFromDeadline: cell?.daysFromDeadline ?? null,
+        onTime: effCell?.onTime ?? null,
+        daysFromDeadline: effCell?.daysFromDeadline ?? null,
         submissionDate: subDate,
         currentStatus: ti.status,
         currentOutcome: ti.outcome,
@@ -456,8 +492,8 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
               dataComplete: cell?.dataComplete ?? false,
               ssp: { rows: cell?.ssp.nRows ?? 0, complete: cell?.ssp.nComplete ?? 0 },
               chart: { rows: cell?.chart.nRows ?? 0, complete: cell?.chart.nComplete ?? 0 },
-              onTime: cell?.onTime ?? null,
-              daysFromDeadline: cell?.daysFromDeadline ?? null,
+              onTime: effCell?.onTime ?? null,
+              daysFromDeadline: effCell?.daysFromDeadline ?? null,
               submissionDate: subDate,
               syncedAt: fetchedAt,
               ...(override

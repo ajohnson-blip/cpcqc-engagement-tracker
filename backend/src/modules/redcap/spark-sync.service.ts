@@ -29,7 +29,15 @@ import {
   type SparkCell,
   type MissingBySection,
 } from './spark-engagement.js';
-import { dispositionToTask, isHumanEdit, type SyncOverride, type SyncDisposition } from './sync-overrides.js';
+import {
+  dispositionToTask,
+  isHumanEdit,
+  periodEndIso,
+  resolveDeadline,
+  recomputeTimeliness,
+  type SyncOverride,
+  type SyncDisposition,
+} from './sync-overrides.js';
 
 /** A prior PM override recorded in a task's payload, if any. */
 function readPriorOverride(
@@ -149,9 +157,7 @@ interface Decision {
   note: string;
 }
 
-function decide(cell: SparkCell | undefined, quarter: string, today: string): Decision {
-  const meta = DEADLINES[quarter];
-  const deadline = meta?.deadline ?? null;
+function decide(cell: SparkCell | undefined, deadline: string | null, today: string): Decision {
   const deadlinePassed = deadline ? today > deadline : false;
 
   if (!cell || !cell.submitted) {
@@ -376,7 +382,18 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
         continue;
       }
 
-      const decision = decide(cell, quarter, today);
+      // Authoritative deadline = this task's due_on (CPCQC sheet: SPARK Q2–Q4 =
+      // 7/7, 10/7, 1/7), else the computed rule (Q1 isn't in the sheet). Recompute
+      // timeliness against it, overriding the grid's own computation.
+      const deadline = resolveDeadline(
+        ti.dueOn,
+        periodEndIso(quarter),
+        DEADLINES[quarter]?.deadline ?? periodEndIso(quarter),
+      );
+      const tl = recomputeTimeliness(cell?.submissionDate ?? null, deadline);
+      const effCell = cell ? { ...cell, onTime: tl.onTime, daysFromDeadline: tl.daysFromDeadline } : undefined;
+
+      const decision = decide(effCell, deadline, today);
       const override = opts.overrides?.get(ti.id);
       const priorOverride = readPriorOverride(ti);
       const finalized = ti.finalizedAt != null;
@@ -445,8 +462,8 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
         submitted: cell?.submitted ?? false,
         complete: cell?.complete ?? false,
         pctComplete: cell ? cell.pctComplete : null,
-        onTime: cell?.onTime ?? null,
-        daysFromDeadline: cell?.daysFromDeadline ?? null,
+        onTime: effCell?.onTime ?? null,
+        daysFromDeadline: effCell?.daysFromDeadline ?? null,
         submissionDate: cell?.submissionDate ?? null,
         missingTotal: cell?.missing.total ?? 0,
         missingSummary: cell ? missingSummary(cell.missing) : null,
@@ -475,8 +492,8 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
               submitted: cell?.submitted ?? false,
               complete: cell?.complete ?? false,
               pctComplete: cell?.pctComplete ?? null,
-              onTime: cell?.onTime ?? null,
-              daysFromDeadline: cell?.daysFromDeadline ?? null,
+              onTime: effCell?.onTime ?? null,
+              daysFromDeadline: effCell?.daysFromDeadline ?? null,
               submissionDate: cell?.submissionDate ?? null,
               missing: cell?.missing ?? null,
               primaryRecordId: cell?.primaryRecordId ?? null,

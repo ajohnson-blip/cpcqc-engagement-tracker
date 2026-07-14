@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { dispositionToTask, categoryToDisposition, isHumanEdit } from './sync-overrides.js';
+import {
+  dispositionToTask,
+  categoryToDisposition,
+  isHumanEdit,
+  periodEndIso,
+  resolveDeadline,
+} from './sync-overrides.js';
 
 describe('dispositionToTask', () => {
   it('maps each disposition to the right task state', () => {
@@ -55,5 +61,36 @@ describe('isHumanEdit', () => {
   it('treats null/undefined (never edited) as non-human', () => {
     expect(isHumanEdit(null)).toBe(false);
     expect(isHumanEdit(undefined)).toBe(false);
+  });
+});
+
+describe('periodEndIso', () => {
+  it('handles monthly periods', () => {
+    expect(periodEndIso('2026-01')).toBe('2026-01-31');
+    expect(periodEndIso('2026-02')).toBe('2026-02-28');
+    expect(periodEndIso('2026-06')).toBe('2026-06-30');
+  });
+  it('handles quarterly periods', () => {
+    expect(periodEndIso('2026-Q1')).toBe('2026-03-31');
+    expect(periodEndIso('2026-Q2')).toBe('2026-06-30');
+    expect(periodEndIso('2026-Q4')).toBe('2026-12-31');
+  });
+});
+
+describe('resolveDeadline', () => {
+  it('honors due_on when it is after the period ends (a real CSV deadline)', () => {
+    // SPARK Q2: sheet says 7/7, period ends 6/30 → use the sheet.
+    expect(resolveDeadline('2026-07-07', periodEndIso('2026-Q2'), '2026-07-10')).toBe('2026-07-07');
+    // NEST June: sheet says 7/10, period ends 6/30 → use the sheet.
+    expect(resolveDeadline('2026-07-10', periodEndIso('2026-06'), '2026-07-10')).toBe('2026-07-10');
+  });
+  it('falls back to the computed rule for pre-CSV same-period placeholders', () => {
+    // SPARK Q1 placeholder 3/31 is not after the 3/31 quarter end → computed.
+    expect(resolveDeadline('2026-03-31', periodEndIso('2026-Q1'), '2026-04-10')).toBe('2026-04-10');
+    // NEST Jan placeholder 1/31 is not after the 1/31 month end → computed.
+    expect(resolveDeadline('2026-01-31', periodEndIso('2026-01'), '2026-02-13')).toBe('2026-02-13');
+  });
+  it('falls back when due_on is missing', () => {
+    expect(resolveDeadline(null, periodEndIso('2026-06'), '2026-07-10')).toBe('2026-07-10');
   });
 });
