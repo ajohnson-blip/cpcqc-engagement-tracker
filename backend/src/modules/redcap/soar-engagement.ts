@@ -96,6 +96,14 @@ export function isFieldFilled(value: unknown): boolean {
   return String(value).trim() !== '';
 }
 
+/** A date field is usable only when it's a real ISO date. Corrupt entries (junk
+ *  typed into the field) must not be treated as a submission date. */
+export function isValidDate(value: unknown): boolean {
+  if (!isFieldFilled(value)) return false;
+  const s = String(value).trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
+}
+
 /** REDCap exports checkboxes as `field___1`, `field___2`, … — "filled" = any ≥1 checked. */
 export function isCheckboxFilled(row: RedcapRow, prefix: string): boolean {
   for (const [k, v] of Object.entries(row)) {
@@ -208,24 +216,25 @@ export interface FormRollup {
   pctComplete: number;
   allComplete: boolean;
   earliestDate: string | null;
+  /** True when a row's date field held a value that wasn't a valid date. */
+  invalidDate: boolean;
 }
 
 function rollup(rows: RedcapRow[], check: (r: RedcapRow) => RowCheck): FormRollup {
   if (rows.length === 0) {
-    return { submitted: false, nRows: 0, nComplete: 0, pctComplete: 0, allComplete: false, earliestDate: null };
+    return { submitted: false, nRows: 0, nComplete: 0, pctComplete: 0, allComplete: false, earliestDate: null, invalidDate: false };
   }
   const nComplete = rows.reduce((n, r) => n + (check(r).complete ? 1 : 0), 0);
-  const dates = rows
-    .map((r) => (isFieldFilled(r[F_SUBMIT_DATE]) ? String(r[F_SUBMIT_DATE]).trim() : null))
-    .filter((d): d is string => d !== null)
-    .sort();
+  const filled = rows.map((r) => String(r[F_SUBMIT_DATE] ?? '').trim()).filter((d) => d !== '');
+  const valid = filled.filter((d) => isValidDate(d)).sort();
   return {
     submitted: true,
     nRows: rows.length,
     nComplete,
     pctComplete: Math.round((nComplete / rows.length) * 1000) / 10,
     allComplete: nComplete === rows.length,
-    earliestDate: dates[0] ?? null,
+    earliestDate: valid[0] ?? null,
+    invalidDate: valid.length < filled.length,
   };
 }
 
@@ -241,6 +250,8 @@ export interface SoarCell {
   /** NTSV rows whose delivery_date is after "today" — likely typos. */
   futureDated: number;
   earliestSubmissionDate: string | null;
+  /** A row on either form had a filled-but-invalid submission date. */
+  invalidDate: boolean;
   onTime: boolean | null;
   daysFromDeadline: number | null;
   deadline: string;
@@ -319,6 +330,7 @@ export function buildSoarGrid(rows: RedcapRow[], opts: BuildGridOptions = {}): M
       dataComplete,
       futureDated,
       earliestSubmissionDate: earliest,
+      invalidDate: ntsv.invalidDate || noNtsv.invalidDate,
       onTime: days === null ? null : days <= 0,
       daysFromDeadline: days,
       deadline,

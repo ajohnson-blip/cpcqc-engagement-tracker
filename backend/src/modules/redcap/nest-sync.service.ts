@@ -26,8 +26,11 @@ import { exportRecords } from './redcap.client.js';
 import {
   buildNestGrid,
   monthDeadline,
+  eventToPeriod,
   SSP_FORM,
   CHART_FORM,
+  F_EVENT,
+  F_REPEAT_INSTRUMENT,
   type NestCell,
 } from './nest-engagement.js';
 import {
@@ -330,6 +333,23 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
   const rows: NestSyncRow[] = [];
   const warnings: string[] = [];
 
+  // Safety net: a data row on either repeating form whose event maps to no month
+  // is being SILENTLY DROPPED (the class of bug where SPARK's "aprjune" slug
+  // wasn't recognized and all of Q2 vanished). Surface it instead of losing data.
+  const unrecognizedEvents = new Set<string>();
+  for (const r of records) {
+    const instrument = String(r[F_REPEAT_INSTRUMENT] ?? '').trim();
+    if (instrument !== SSP_FORM && instrument !== CHART_FORM) continue;
+    const ev = String(r[F_EVENT] ?? '').trim();
+    if (!ev || eventToPeriod(ev) !== null) continue;
+    unrecognizedEvents.add(ev);
+  }
+  for (const ev of unrecognizedEvents) {
+    warnings.push(
+      `REDCap event "${ev}" has NEST data but isn't recognized as a month — its rows are being SKIPPED. The event→period mapping needs updating.`,
+    );
+  }
+
   const seenDags = new Set(
     records.map((r) => String(r['redcap_data_access_group'] ?? '').trim()).filter(Boolean),
   );
@@ -395,6 +415,12 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
       const effCell = cell
         ? { ...cell, deadline, onTime: tl.onTime, daysFromDeadline: tl.daysFromDeadline }
         : undefined;
+
+      if (cell?.invalidDate) {
+        warnings.push(
+          `${hospitalName} ${period}: a submission-date field isn't a valid date — timeliness may be affected. Fix the date in REDCap.`,
+        );
+      }
 
       const decision = decide(effCell, deadline, today);
       const override = opts.overrides?.get(ti.id);

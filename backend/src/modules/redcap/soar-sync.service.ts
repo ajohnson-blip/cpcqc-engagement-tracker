@@ -450,6 +450,11 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
           `${hospitalName} ${period}: ${cell.futureDated} NTSV row(s) have a future delivery_date — possible data-entry typo.`,
         );
       }
+      if (cell?.invalidDate) {
+        warnings.push(
+          `${hospitalName} ${period}: a submission-date field isn't a valid date — timeliness may be affected. Fix the date in REDCap.`,
+        );
+      }
 
       const tiRows = await db
         .select({ ti: schema.taskInstances })

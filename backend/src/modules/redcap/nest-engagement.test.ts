@@ -142,4 +142,12 @@ describe('buildNestGrid', () => {
     ];
     expect(buildNestGrid(rows).size).toBe(0);
   });
+
+  it('ignores a corrupt date (invalidDate flag, no bogus timeliness)', () => {
+    const grid = buildNestGrid([ssp('#C@9J&ikv$fU%!KF'), chart('2026-04-05')]);
+    const cell = grid.get(`${dag}::2026-03`)!;
+    expect(cell.invalidDate).toBe(true);
+    expect(cell.ssp.earliestDate).toBeNull(); // the junk date is dropped
+    expect(cell.earliestSubmissionDate).toBe('2026-04-05'); // valid chart date wins
+  });
 });

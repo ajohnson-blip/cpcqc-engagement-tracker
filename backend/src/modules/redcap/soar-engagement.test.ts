@@ -201,6 +201,13 @@ describe('buildSoarGrid', () => {
     expect(grid.get(`${dag}::2026-03`)!.onTime).toBe(false); // past 2026-04-17
   });
 
+  it('ignores a corrupt submission date (invalidDate flag, timeliness N/A)', () => {
+    const cell = buildSoarGrid([ntsv('2026-03-10', '#C@9J&ikv$fU%!KF')]).get(`${dag}::2026-03`)!;
+    expect(cell.invalidDate).toBe(true);
+    expect(cell.earliestSubmissionDate).toBeNull();
+    expect(cell.onTime).toBeNull();
+  });
+
   it('flags future-dated deliveries when todayIso is given', () => {
     const grid = buildSoarGrid([ntsv('2026-12-03', '2026-07-05')], { todayIso: '2026-07-08' });
     expect(grid.get(`${dag}::2026-12`)!.futureDated).toBe(1);
