@@ -29,7 +29,7 @@ import {
   type SparkCell,
   type MissingBySection,
 } from './spark-engagement.js';
-import { dispositionToTask, type SyncOverride, type SyncDisposition } from './sync-overrides.js';
+import { dispositionToTask, isHumanEdit, type SyncOverride, type SyncDisposition } from './sync-overrides.js';
 
 /** A prior PM override recorded in a task's payload, if any. */
 function readPriorOverride(
@@ -380,10 +380,12 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
       const override = opts.overrides?.get(ti.id);
       const priorOverride = readPriorOverride(ti);
       const finalized = ti.finalizedAt != null;
+      const humanEdited = isHumanEdit(ti.updatedBy);
 
       // Precedence: FINALIZED (locked) is untouchable; then a NEW override this
-      // session wins; then a PRIOR manual override is preserved (safeguard —
-      // the sync never recomputes over a human decision); else the computed value.
+      // session wins; then a PRIOR manual override is preserved; then a HUMAN
+      // task-UI edit is preserved (staff curation — the sync never recomputes
+      // over a human decision); else the computed value.
       let finalStatus: TaskStatus;
       let finalOutcome: TaskOutcome;
       let finalCompletedOn: string | null;
@@ -401,6 +403,12 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
         finalNote = override.comment.trim() || decision.note;
       } else if (priorOverride) {
         // Preserve the stored manual override untouched.
+        finalStatus = ti.status;
+        finalOutcome = ti.outcome;
+        finalCompletedOn = ti.completedOn;
+        finalNote = ti.staffNote ?? decision.note;
+      } else if (humanEdited) {
+        // Preserve a manual task-UI edit untouched.
         finalStatus = ti.status;
         finalOutcome = ti.outcome;
         finalCompletedOn = ti.completedOn;

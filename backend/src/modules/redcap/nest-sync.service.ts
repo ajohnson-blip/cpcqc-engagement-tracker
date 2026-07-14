@@ -30,7 +30,7 @@ import {
   CHART_FORM,
   type NestCell,
 } from './nest-engagement.js';
-import { dispositionToTask, type SyncOverride, type SyncDisposition } from './sync-overrides.js';
+import { dispositionToTask, isHumanEdit, type SyncOverride, type SyncDisposition } from './sync-overrides.js';
 
 /** A prior PM override recorded in a task's payload, if any. */
 function readPriorOverride(
@@ -362,10 +362,11 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
       const override = opts.overrides?.get(ti.id);
       const priorOverride = readPriorOverride(ti);
       const finalized = ti.finalizedAt != null;
+      const humanEdited = isHumanEdit(ti.updatedBy);
       const subDate = cell?.earliestSubmissionDate ?? null;
 
       // Precedence: FINALIZED (locked) > NEW override this session > PRIOR manual
-      // override (preserved — never recomputed over) > computed value.
+      // override > HUMAN task-UI edit (staff curation — preserved) > computed.
       let finalStatus: TaskStatus;
       let finalOutcome: TaskOutcome;
       let finalCompletedOn: string | null;
@@ -382,6 +383,11 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
         finalCompletedOn = t.completedOn;
         finalNote = override.comment.trim() || decision.note;
       } else if (priorOverride) {
+        finalStatus = ti.status;
+        finalOutcome = ti.outcome;
+        finalCompletedOn = ti.completedOn;
+        finalNote = ti.staffNote ?? decision.note;
+      } else if (humanEdited) {
         finalStatus = ti.status;
         finalOutcome = ti.outcome;
         finalCompletedOn = ti.completedOn;

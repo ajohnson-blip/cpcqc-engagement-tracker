@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dispositionToTask, categoryToDisposition } from './sync-overrides.js';
+import { dispositionToTask, categoryToDisposition, isHumanEdit } from './sync-overrides.js';
 
 describe('dispositionToTask', () => {
   it('maps each disposition to the right task state', () => {
@@ -39,5 +39,21 @@ describe('categoryToDisposition (dropdown default)', () => {
     expect(categoryToDisposition('incomplete')).toBe('incomplete');
     expect(categoryToDisposition('not_submitted')).toBe('not_submitted');
     expect(categoryToDisposition('pending')).toBe('pending');
+  });
+});
+
+describe('isHumanEdit', () => {
+  it('treats a user-id (UUID) as a human edit', () => {
+    expect(isHumanEdit('67436309-c5ac-41e7-a74c-5105d28a15d9')).toBe(true);
+  });
+  it('treats system writers as non-human', () => {
+    expect(isHumanEdit('redcap-soar-sync')).toBe(false);
+    expect(isHumanEdit('redcap-nest-sync')).toBe(false);
+    expect(isHumanEdit('pm-data-importer')).toBe(false);
+    expect(isHumanEdit('due-date-2026')).toBe(false);
+  });
+  it('treats null/undefined (never edited) as non-human', () => {
+    expect(isHumanEdit(null)).toBe(false);
+    expect(isHumanEdit(undefined)).toBe(false);
   });
 });

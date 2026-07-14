@@ -62,3 +62,15 @@ export interface SyncOverride {
   disposition: SyncDisposition;
   comment: string;
 }
+
+/**
+ * A task last written by a PERSON (via the task-management UI) rather than a
+ * system importer/sync. `task_instances.updated_by` holds the actor's user id (a
+ * UUID) for manual edits and a fixed label (redcap-*-sync, pm-data-importer,
+ * due-date-2026, seed…) for system writes. CPCQC staff curate compliance by hand,
+ * so the REDCap syncs treat a human edit as authoritative and never recompute
+ * over it — the same way they preserve a REDCap-card override.
+ */
+export function isHumanEdit(updatedBy: string | null | undefined): boolean {
+  return updatedBy != null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i.test(updatedBy);
+}

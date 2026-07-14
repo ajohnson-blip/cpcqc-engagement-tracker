@@ -30,7 +30,7 @@ import { HttpError } from '@/middleware/errors.js';
 import { logger } from '@/config/logger.js';
 import { exportRecords } from './redcap.client.js';
 import { buildSoarGrid, monthDeadline, NTSV_FORM, NO_NTSV_FORM, type SoarCell } from './soar-engagement.js';
-import { dispositionToTask, type SyncOverride, type SyncDisposition } from './sync-overrides.js';
+import { dispositionToTask, isHumanEdit, type SyncOverride, type SyncDisposition } from './sync-overrides.js';
 
 /** A prior PM override recorded in a task's payload, if any. */
 function readPriorOverride(
@@ -70,18 +70,6 @@ function resolveDeadline(period: string, dueOn: string | Date | null, programYea
  * submissions are credited as complete + on time. (2026-specific.)
  */
 const GRACE_PERIODS = new Set(['2026-01', '2026-02', '2026-03', '2026-04']);
-
-/**
- * A task last written by a PERSON (via the task-management UI) rather than by a
- * system importer/sync. `updated_by` holds the actor's user id (a UUID) for
- * manual edits and a fixed label (redcap-*-sync, pm-data-importer, due-date-2026,
- * seed…) for system writes. Manual edits are authoritative — CPCQC staff curate
- * compliance by hand (e.g. the pre-May grace) — so the sync must never recompute
- * over them, the same way it preserves a REDCap-card override.
- */
-function isHumanEdit(updatedBy: string | null): boolean {
-  return updatedBy != null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i.test(updatedBy);
-}
 
 /** onTime / daysFromDeadline of a submission relative to a deadline (ISO dates). */
 function recomputeTimeliness(
