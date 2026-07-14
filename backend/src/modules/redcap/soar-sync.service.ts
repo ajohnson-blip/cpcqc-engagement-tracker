@@ -37,6 +37,7 @@ import {
   periodEndIso,
   resolveDeadline,
   recomputeTimeliness,
+  toIsoDateOrNull,
   type SyncOverride,
   type SyncDisposition,
 } from './sync-overrides.js';
@@ -293,7 +294,7 @@ async function updateTaskInstance(
     .set({
       status: patch.status,
       outcome: patch.outcome,
-      completedOn: patch.completedOn,
+      completedOn: toIsoDateOrNull(patch.completedOn),
       staffNote: patch.note,
       payload: patch.payload,
       updatedBy: 'redcap-soar-sync',

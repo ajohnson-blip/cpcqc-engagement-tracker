@@ -264,6 +264,14 @@ export function checkTimeliness(dateIso: string | null | undefined, quarterKey: 
   return { onTime: delta <= 0, daysFromDeadline: delta };
 }
 
+/** A REDCap submission-date field is usable only when it's a real ISO date.
+ *  Corrupt entries (junk typed into the field) must not be treated as a date. */
+export function isValidDate(value: unknown): boolean {
+  if (!isFieldFilled(value)) return false;
+  const s = String(value).trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
+}
+
 /**
  * Quarter assignment from a submission date: the most recent quarter whose
  * period ended on/before the date (mirrors determine_quarter in the source).
@@ -295,6 +303,8 @@ export interface SparkCell {
   onTime: boolean | null;
   daysFromDeadline: number | null;
   submissionDate: string | null;
+  /** True when the date field held a value but it wasn't a valid date. */
+  invalidDate: boolean;
   ipvScreened: boolean;
   primaryRecordId: string | null;
   /** Distinct record_ids that carried data for this (DAG, quarter). */
@@ -356,7 +366,11 @@ export function buildSparkGrid(rows: RedcapRow[], opts: BuildGridOptions = {}): 
     const [dagCode, quarter] = key.split('::') as [string, string];
     const primary = pickPrimaryRow(dataRows);
     const completeness = checkCompleteness(primary);
-    const submissionDate = isFieldFilled(primary[F_DATE]) ? String(primary[F_DATE]).trim() : null;
+    const rawDate = isFieldFilled(primary[F_DATE]) ? String(primary[F_DATE]).trim() : null;
+    // Only treat a valid date as the submission date; corrupt junk → null (N/A)
+    // rather than a bogus "late" (or a value that crashes the date-column write).
+    const submissionDate = rawDate && isValidDate(rawDate) ? rawDate : null;
+    const invalidDate = rawDate !== null && submissionDate === null;
     const timeliness = checkTimeliness(submissionDate, quarter);
     const recordIds = Array.from(
       new Set(dataRows.map((r) => String(r[F_RECORD_ID] ?? '').trim()).filter(Boolean)),
@@ -371,6 +385,7 @@ export function buildSparkGrid(rows: RedcapRow[], opts: BuildGridOptions = {}): 
       onTime: timeliness.onTime,
       daysFromDeadline: timeliness.daysFromDeadline,
       submissionDate,
+      invalidDate,
       ipvScreened: completeness.ipvScreened,
       primaryRecordId: String(primary[F_RECORD_ID] ?? '').trim() || null,
       dataRecordIds: recordIds,

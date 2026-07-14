@@ -26,6 +26,9 @@ import { exportRecords } from './redcap.client.js';
 import {
   buildSparkGrid,
   DEADLINES,
+  eventToQuarter,
+  rowHasData,
+  F_EVENT,
   type SparkCell,
   type MissingBySection,
 } from './spark-engagement.js';
@@ -35,6 +38,7 @@ import {
   periodEndIso,
   resolveDeadline,
   recomputeTimeliness,
+  toIsoDateOrNull,
   type SyncOverride,
   type SyncDisposition,
 } from './sync-overrides.js';
@@ -246,7 +250,7 @@ async function updateTaskInstance(
     .set({
       status: patch.status,
       outcome: patch.outcome,
-      completedOn: patch.completedOn,
+      completedOn: toIsoDateOrNull(patch.completedOn),
       staffNote: patch.note,
       payload: patch.payload,
       updatedBy: 'redcap-spark-sync',
@@ -312,6 +316,21 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
 
   const rows: SparkSyncRow[] = [];
   const warnings: string[] = [];
+
+  // Safety net: a data-bearing quarterly event (…_data…) that maps to no quarter
+  // is being SILENTLY DROPPED — exactly the bug where "aprjune" wasn't recognized
+  // and all of Q2 vanished. Surface it loudly instead of losing the data.
+  const unrecognizedEvents = new Set<string>();
+  for (const r of records) {
+    const ev = String(r[F_EVENT] ?? '').trim();
+    if (!ev || !/_data/.test(ev) || eventToQuarter(ev) !== null || !rowHasData(r)) continue;
+    unrecognizedEvents.add(ev);
+  }
+  for (const ev of unrecognizedEvents) {
+    warnings.push(
+      `REDCap event "${ev}" has SPARK data but isn't recognized as a quarter — its submissions are being SKIPPED. The event→quarter mapping needs updating.`,
+    );
+  }
 
   // DAGs present in REDCap that we don't have a mapping for (besides 'test').
   const seenDags = new Set(
@@ -392,6 +411,12 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
       );
       const tl = recomputeTimeliness(cell?.submissionDate ?? null, deadline);
       const effCell = cell ? { ...cell, onTime: tl.onTime, daysFromDeadline: tl.daysFromDeadline } : undefined;
+
+      if (cell?.invalidDate) {
+        warnings.push(
+          `${hospitalName} ${quarter}: the submission-date field isn't a valid date — timeliness can't be determined, so it counts as no-date. Fix the date in REDCap.`,
+        );
+      }
 
       const decision = decide(effCell, deadline, today);
       const override = opts.overrides?.get(ti.id);

@@ -5,6 +5,7 @@ import {
   isHumanEdit,
   periodEndIso,
   resolveDeadline,
+  toIsoDateOrNull,
 } from './sync-overrides.js';
 
 describe('dispositionToTask', () => {
@@ -92,5 +93,18 @@ describe('resolveDeadline', () => {
   });
   it('falls back when due_on is missing', () => {
     expect(resolveDeadline(null, periodEndIso('2026-06'), '2026-07-10')).toBe('2026-07-10');
+  });
+});
+
+describe('toIsoDateOrNull', () => {
+  it('keeps a valid date', () => {
+    expect(toIsoDateOrNull('2026-07-05')).toBe('2026-07-05');
+    expect(toIsoDateOrNull('2026-07-05 14:00')).toBe('2026-07-05');
+  });
+  it('rejects corrupt / empty values', () => {
+    expect(toIsoDateOrNull('#C@9J&ikv$fU%!KF')).toBeNull();
+    expect(toIsoDateOrNull('')).toBeNull();
+    expect(toIsoDateOrNull(null)).toBeNull();
+    expect(toIsoDateOrNull('not-a-date')).toBeNull();
   });
 });

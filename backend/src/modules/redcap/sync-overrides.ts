@@ -80,6 +80,17 @@ export function isoDate(d: string | Date): string {
   return d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
 }
 
+/**
+ * A value safe to write into a Postgres `date` column: the YYYY-MM-DD date if it
+ * parses, else null. Guards against corrupt REDCap date fields (junk typed into
+ * a date) crashing an apply mid-write.
+ */
+export function toIsoDateOrNull(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const s = String(value).trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s)) ? s : null;
+}
+
 /** Last calendar day of a reporting period — "YYYY-MM" (month) or "YYYY-Qn"
  *  (quarter) — as an ISO date. */
 export function periodEndIso(period: string): string {

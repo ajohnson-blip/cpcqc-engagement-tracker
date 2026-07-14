@@ -160,6 +160,36 @@ describe('buildSparkGrid', () => {
     expect(cell.submissionDate).toBe('2026-04-07');
   });
 
+  it('lands Q2 data under the real "aprjune" event slug', () => {
+    const rows: RedcapRow[] = [
+      fullRow({
+        record_id: '1',
+        redcap_event_name: 'aprjune_26_data_arm_1',
+        redcap_data_access_group: 'adventhealth_avist',
+        date: '2026-07-05',
+      }),
+    ];
+    const cell = buildSparkGrid(rows).get('adventhealth_avist::2026-Q2')!;
+    expect(cell).toBeTruthy();
+    expect(cell.complete).toBe(true);
+  });
+
+  it('treats a corrupt date field as no-date (not a crash / bogus late)', () => {
+    const rows: RedcapRow[] = [
+      fullRow({
+        record_id: '1',
+        redcap_event_name: 'aprjune_26_data_arm_1',
+        redcap_data_access_group: 'st_anthony_summit',
+        date: '#C@9J&ikv$fU%!KF',
+      }),
+    ];
+    const cell = buildSparkGrid(rows).get('st_anthony_summit::2026-Q2')!;
+    expect(cell.submitted).toBe(true);
+    expect(cell.submissionDate).toBeNull();
+    expect(cell.invalidDate).toBe(true);
+    expect(cell.onTime).toBeNull(); // timeliness N/A, not a bogus "late"
+  });
+
   it('ignores the REDCap test DAG and assessment events', () => {
     const rows: RedcapRow[] = [
       fullRow({ record_id: '1', redcap_event_name: 'janmar_26_data_arm_1', redcap_data_access_group: 'test', date: '2026-04-07' }),
