@@ -64,6 +64,25 @@ function resolveDeadline(period: string, dueOn: string | Date | null, programYea
   return monthDeadline(programYear, parseInt(period.slice(5), 10));
 }
 
+/**
+ * Reporting periods under the pre-May 2026 grace: the operational definition of
+ * "timely & complete" wasn't communicated to hospitals until May, so Jan–April
+ * submissions are credited as complete + on time. (2026-specific.)
+ */
+const GRACE_PERIODS = new Set(['2026-01', '2026-02', '2026-03', '2026-04']);
+
+/**
+ * A task last written by a PERSON (via the task-management UI) rather than by a
+ * system importer/sync. `updated_by` holds the actor's user id (a UUID) for
+ * manual edits and a fixed label (redcap-*-sync, pm-data-importer, due-date-2026,
+ * seed…) for system writes. Manual edits are authoritative — CPCQC staff curate
+ * compliance by hand (e.g. the pre-May grace) — so the sync must never recompute
+ * over them, the same way it preserves a REDCap-card override.
+ */
+function isHumanEdit(updatedBy: string | null): boolean {
+  return updatedBy != null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i.test(updatedBy);
+}
+
 /** onTime / daysFromDeadline of a submission relative to a deadline (ISO dates). */
 function recomputeTimeliness(
   submissionDate: string | null,
@@ -175,9 +194,25 @@ interface Decision {
   note: string;
 }
 
-function decide(cell: SoarCell | undefined, deadline: string, today: string): Decision {
+function decide(cell: SoarCell | undefined, deadline: string, today: string, graced: boolean): Decision {
   const deadlinePassed = today > deadline;
   const anySubmitted = !!cell && cell.submitted;
+
+  // Pre-May 2026 grace: CPCQC didn't communicate the "timely & complete"
+  // operational definition to hospital teams until May, so any Jan–April
+  // submission is credited as complete + on time regardless of field-level
+  // completeness or lateness. Non-submissions are unaffected (still not_submitted
+  // / pending below).
+  if (graced && anySubmitted) {
+    return {
+      category: 'counting',
+      status: 'complete',
+      outcome: 'on_time',
+      completedOn: cell!.earliestSubmissionDate,
+      leaveUntouched: false,
+      note: `Submitted; pre-May 2026 grace (the "timely & complete" definition wasn't communicated to hospitals until May) — counts toward requirement.`,
+    };
+  }
 
   if (!anySubmitted) {
     if (deadlinePassed) {
@@ -430,13 +465,14 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
         ? { ...cell, deadline, onTime: tl.onTime, daysFromDeadline: tl.daysFromDeadline }
         : undefined;
 
-      const decision = decide(effCell, deadline, today);
+      const decision = decide(effCell, deadline, today, GRACE_PERIODS.has(period));
       const override = opts.overrides?.get(ti.id);
       const priorOverride = readPriorOverride(ti);
       const finalized = ti.finalizedAt != null;
+      const humanEdited = isHumanEdit(ti.updatedBy);
 
       // Precedence: FINALIZED (locked) > NEW override this session > PRIOR manual
-      // override (preserved — never recomputed over) > computed value.
+      // override > HUMAN task-UI edit (staff curation — preserved) > computed.
       let finalStatus: TaskStatus;
       let finalOutcome: TaskOutcome;
       let finalCompletedOn: string | null;
@@ -453,6 +489,11 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
         finalCompletedOn = t.completedOn;
         finalNote = override.comment.trim() || decision.note;
       } else if (priorOverride) {
+        finalStatus = ti.status;
+        finalOutcome = ti.outcome;
+        finalCompletedOn = ti.completedOn;
+        finalNote = ti.staffNote ?? decision.note;
+      } else if (humanEdited) {
         finalStatus = ti.status;
         finalOutcome = ti.outcome;
         finalCompletedOn = ti.completedOn;
