@@ -27,6 +27,10 @@ async function main() {
     console.log(`\n${r.warnings.length} warning(s):`);
     for (const w of r.warnings) console.log('  • ' + w);
   }
+  if (r.notes.length) {
+    console.log(`\n${r.notes.length} note(s):`);
+    for (const n of r.notes) console.log('  • ' + n);
+  }
 
   console.log('\nRows:');
   console.log('  ' + ['Period', 'Hospital', 'Category', 'NTSV', 'No-NTSV', 'Change'].join(' | '));

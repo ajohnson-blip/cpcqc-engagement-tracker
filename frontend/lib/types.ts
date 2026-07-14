@@ -277,6 +277,7 @@ export interface SoarSyncResult {
   recordsFetched: number;
   rows: SoarSyncRow[];
   warnings: string[];
+  notes: string[];
   counts: {
     willChange: number;
     counting: number;

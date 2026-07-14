@@ -1119,6 +1119,19 @@ function SoarRedcapSync() {
             </div>
           )}
 
+          {result.notes.length > 0 && (
+            <div className="mt-5 rounded-xl border border-cpcqc-purple-dark/10 bg-cpcqc-cream/40 p-4">
+              <h3 className="font-rounded text-sm font-extrabold text-cpcqc-purple-dark/70">
+                Expected / informational
+              </h3>
+              <ul className="mt-2 space-y-1 text-xs text-cpcqc-purple-dark/70">
+                {result.notes.map((n, i) => (
+                  <li key={i}>• {n}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="mt-5 space-y-6">
             {result.periodsInScope.map((p) => {
               const rows = byPeriod[p] ?? [];

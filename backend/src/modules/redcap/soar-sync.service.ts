@@ -84,6 +84,37 @@ export const SOAR_DAG_TO_HOSPITAL_NAME: Record<string, string> = {
   wray_community_dis: 'Wray Community District Hospital',
 };
 
+/**
+ * SOAR DAGs that submit data but are NOT in the active monthly cohort and are
+ * KNOWN + accounted for — sustainability-track or not enrolled — per CPCQC's
+ * "SOAR Sustainability and Not Participation" list. These are expected skips, so
+ * they're summarized as an info note rather than flagged as per-DAG warnings.
+ * A seen DAG that's neither active nor here IS unexpected → a real warning.
+ */
+export const SOAR_KNOWN_NON_ACTIVE: Record<string, 'sustainability' | 'not_enrolled'> = {
+  north_colorado_med: 'sustainability',
+  medical_center_of: 'sustainability',
+  vail_health_hospit: 'sustainability',
+  valley_view_hospit: 'sustainability',
+  uchealth_greeley: 'sustainability',
+  denver_health: 'sustainability',
+  medical_center_ofb: 'sustainability',
+  poudre_valley_hosp: 'sustainability',
+  swedish_medical_ce: 'sustainability',
+  uchealth_yampa_val: 'sustainability',
+  banner_fort_collin: 'sustainability',
+  uc_health_highland: 'sustainability',
+  montrose_memorial: 'sustainability',
+  san_luis_valley_he: 'sustainability',
+  uchealth_memorial: 'not_enrolled',
+  saint_marys_hospit: 'not_enrolled',
+  uchealth_longs_pea: 'not_enrolled',
+  lutheran_medical_c: 'not_enrolled',
+  platte_valley_medi: 'not_enrolled',
+  delta_hospital: 'not_enrolled',
+  community_hospital: 'not_enrolled',
+};
+
 export type SoarSyncCategory =
   | 'counting'
   | 'complete_late'
@@ -136,7 +167,10 @@ export interface SoarSyncResult {
   periodsInScope: string[];
   recordsFetched: number;
   rows: SoarSyncRow[];
+  /** Genuinely actionable items (unexpected DAGs, future-date typos, etc.). */
   warnings: string[];
+  /** Expected/informational notes (e.g. known non-active DAGs skipped). */
+  notes: string[];
   counts: {
     willChange: number;
     counting: number;
@@ -356,18 +390,31 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
 
   const rows: SoarSyncRow[] = [];
   const warnings: string[] = [];
+  const notes: string[] = [];
 
-  // DAGs with data that we DON'T sync (sustainability-track or not enrolled).
+  // DAGs with data that we DON'T sync. Known sustainability/not-enrolled DAGs are
+  // expected → summarized as a note; a DAG that's neither active nor known is a
+  // real "needs attention" item (possible new hospital / mis-labeled DAG).
   const seenDags = new Set(
     records.map((r) => String(r['redcap_data_access_group'] ?? '').trim()).filter(Boolean),
   );
+  let sustainSkipped = 0;
+  let notEnrolledSkipped = 0;
   for (const dag of seenDags) {
-    if (dag === 'test') continue;
-    if (!(dag in SOAR_DAG_TO_HOSPITAL_NAME)) {
+    if (dag === 'test' || dag in SOAR_DAG_TO_HOSPITAL_NAME) continue;
+    const known = SOAR_KNOWN_NON_ACTIVE[dag];
+    if (known === 'sustainability') sustainSkipped += 1;
+    else if (known === 'not_enrolled') notEnrolledSkipped += 1;
+    else
       warnings.push(
-        `REDCap DAG "${dag}" has SOAR data but is not in the active monthly cohort (sustainability-track or not enrolled) — skipped.`,
+        `REDCap DAG "${dag}" has SOAR data but is neither in the active cohort nor the known sustainability/not-enrolled list — investigate (possible new or mis-labeled hospital).`,
       );
-    }
+  }
+  const totalSkipped = sustainSkipped + notEnrolledSkipped;
+  if (totalSkipped > 0) {
+    notes.push(
+      `Skipped ${totalSkipped} known non-active DAG${totalSkipped === 1 ? '' : 's'} with SOAR data — expected (${sustainSkipped} sustainability, ${notEnrolledSkipped} not enrolled).`,
+    );
   }
 
   for (const [dag, hospitalName] of Object.entries(SOAR_DAG_TO_HOSPITAL_NAME)) {
@@ -576,6 +623,7 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
     recordsFetched: records.length,
     rows,
     warnings,
+    notes,
     counts,
   };
 }
