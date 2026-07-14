@@ -155,10 +155,15 @@ const EXPLICIT_EVENT_QUARTER: Record<string, string> = {
   julysept_25_data_p_arm_1: '2025-Q3',
   octdec_25_data_arm_1: '2025-Q4',
   janmar_26_data_arm_1: '2026-Q1',
+  aprjune_26_data_arm_1: '2026-Q2',
 };
 
+// REDCap's month-range slugs are inconsistent: Q1/Q3/Q4 abbreviate (janmar,
+// julysept, octdec) but the 2026 Q2 event spells out "june" (aprjune, not
+// aprjun). Accept both forms so the parser doesn't silently drop Q2 data.
 const MONTHRANGE_TO_Q: Record<string, 1 | 2 | 3 | 4> = {
   janmar: 1,
+  aprjune: 2,
   aprjun: 2,
   julysept: 3,
   octdec: 4,
@@ -168,9 +173,10 @@ export function eventToQuarter(eventName: string | null | undefined): string | n
   if (!eventName) return null;
   const ev = eventName.trim();
   if (ev in EXPLICIT_EVENT_QUARTER) return EXPLICIT_EVENT_QUARTER[ev]!;
-  // Only *_data* events are quarterly submissions.
+  // Only *_data* events are quarterly submissions. Longer month-range alternates
+  // (aprjune) must precede their prefixes (aprjun) so the regex matches greedily.
   if (!/_data/.test(ev)) return null;
-  const m = ev.match(/^(janmar|aprjun|julysept|octdec)_(\d{2})/);
+  const m = ev.match(/^(janmar|aprjune|aprjun|julysept|octdec)_(\d{2})/);
   if (!m) return null;
   const q = MONTHRANGE_TO_Q[m[1]!]!;
   const year = 2000 + parseInt(m[2]!, 10);

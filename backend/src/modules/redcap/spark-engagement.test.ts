@@ -49,10 +49,14 @@ describe('eventToQuarter', () => {
     expect(eventToQuarter('julysept_25_data_p_arm_1')).toBe('2025-Q3');
     expect(eventToQuarter('octdec_25_data_arm_1')).toBe('2025-Q4');
     expect(eventToQuarter('janmar_26_data_arm_1')).toBe('2026-Q1');
+    // REDCap spells out "june" for the Apr–Jun 2026 event (inconsistent with the
+    // other abbreviated ranges) — the real slug the Q2 data actually lives under.
+    expect(eventToQuarter('aprjune_26_data_arm_1')).toBe('2026-Q2');
   });
 
-  it('parses future data events by month-range slug', () => {
+  it('parses future data events by month-range slug (both aprjun and aprjune)', () => {
     expect(eventToQuarter('aprjun_26_data_arm_1')).toBe('2026-Q2');
+    expect(eventToQuarter('aprjune_27_data_arm_1')).toBe('2027-Q2');
     expect(eventToQuarter('octdec_26_data_arm_1')).toBe('2026-Q4');
   });
 
