@@ -31,6 +31,10 @@ const EnvSchema = z.object({
   REDCAP_SPARK_TOKEN: z.string().optional(),
   REDCAP_NEST_TOKEN: z.string().optional(),
   REDCAP_SOAR_TOKEN: z.string().optional(),
+  // TtT uses TWO projects. The patient-level token is PHI — hospital-level
+  // engagement only; never export/store patient identifiers.
+  REDCAP_TTT_HOSPITAL_TOKEN: z.string().optional(),
+  REDCAP_TTT_PATIENT_TOKEN: z.string().optional(),
 });
 
 const parsed = EnvSchema.safeParse(process.env);
