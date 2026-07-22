@@ -19,6 +19,7 @@ import { importPmWorkbook } from './pm-workbook.service.js';
 import { runSparkRedcapSync } from '@/modules/redcap/spark-sync.service.js';
 import { runNestRedcapSync } from '@/modules/redcap/nest-sync.service.js';
 import { runSoarRedcapSync } from '@/modules/redcap/soar-sync.service.js';
+import { runTttRedcapSync } from '@/modules/redcap/ttt-sync.service.js';
 import { type SyncOverride } from '@/modules/redcap/sync-overrides.js';
 import { setPeriodFinalized } from '@/modules/redcap/finalize.service.js';
 
@@ -148,6 +149,25 @@ router.post('/redcap/soar', requireAuth, requireStaff, express.json(), async (re
 });
 
 /**
+ * POST /staff/imports/redcap/ttt?dryRun=true|false
+ *
+ * Turning the Tide spans TWO REDCap projects (monthly hospital + patient-level),
+ * joined on CHA_ID via the crosswalk. Completeness = required fields AND the
+ * linkage rule (each positive SUD screen should have a patient form; the floor
+ * is pass/fail, the one-per-positive ideal is reported but non-blocking).
+ * Dry-run by default.
+ */
+router.post('/redcap/ttt', requireAuth, requireStaff, express.json(), async (req, res) => {
+  const dryRun = req.query.dryRun !== 'false';
+  const result = await runTttRedcapSync({
+    dryRun,
+    actorUserId: req.auth?.userId ?? null,
+    overrides: dryRun ? undefined : parseOverrides(req.body),
+  });
+  res.json(result);
+});
+
+/**
  * POST /staff/imports/redcap/finalize
  * Lock (or unlock) a program's month so the sync won't touch it again.
  * Body: { program: 'SPARK'|'NEST', period: '2026-06'|'2026-Q2', finalize: bool }
@@ -155,7 +175,7 @@ router.post('/redcap/soar', requireAuth, requireStaff, express.json(), async (re
 router.post('/redcap/finalize', requireAuth, requireStaff, express.json(), async (req, res) => {
   const body = z
     .object({
-      program: z.enum(['SPARK', 'NEST', 'SOAR']),
+      program: z.enum(['SPARK', 'NEST', 'SOAR', 'TTT']),
       period: z.string().min(1).max(20),
       finalize: z.boolean(),
     })

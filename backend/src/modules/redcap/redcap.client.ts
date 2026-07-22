@@ -83,3 +83,76 @@ export async function exportRecords(opts: ExportRecordsOptions): Promise<RedcapR
   }
   return parsed as RedcapRow[];
 }
+
+/** POST a content=<kind> request and return the parsed JSON array. */
+async function postJsonArray(
+  apiUrl: string,
+  body: URLSearchParams,
+  what: string,
+): Promise<Array<Record<string, string>>> {
+  let res: Response;
+  try {
+    res = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+  } catch (err) {
+    logger.error({ err, what }, 'REDCap request failed (transport)');
+    throw new Error(
+      `Could not reach REDCap at ${apiUrl}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const text = await res.text();
+  if (!res.ok) throw new Error(`REDCap ${what} failed (HTTP ${res.status}): ${text.slice(0, 300)}`);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`REDCap ${what} returned non-JSON: ${text.slice(0, 200)}`);
+  }
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'error' in parsed) {
+    throw new Error(`REDCap ${what} error: ${(parsed as { error: string }).error}`);
+  }
+  if (!Array.isArray(parsed)) throw new Error(`REDCap ${what} did not return an array.`);
+  return parsed as Array<Record<string, string>>;
+}
+
+/**
+ * Export the data dictionary. TtT derives its required-field list from this
+ * (required_field='y', minus @HIDDEN/retired) rather than hard-coding ~40 fields.
+ */
+export async function exportMetadata(opts: { token: string; apiUrl?: string }): Promise<
+  Array<Record<string, string>>
+> {
+  const apiUrl = opts.apiUrl ?? env.REDCAP_API_URL;
+  const body = new URLSearchParams({
+    token: opts.token,
+    content: 'metadata',
+    format: 'json',
+    returnFormat: 'json',
+  });
+  return postJsonArray(apiUrl, body, 'metadata export');
+}
+
+/**
+ * Export the record-level audit log. TtT takes a report's submission time from
+ * the "Create Record" entry (no @TODAY field on the monthly hospital form).
+ */
+export async function exportLog(opts: {
+  token: string;
+  /** e.g. "2026-01-01 00:00" — REDCap wants 'YYYY-MM-DD HH:MM'. */
+  beginTime?: string;
+  apiUrl?: string;
+}): Promise<Array<Record<string, string>>> {
+  const apiUrl = opts.apiUrl ?? env.REDCAP_API_URL;
+  const body = new URLSearchParams({
+    token: opts.token,
+    content: 'log',
+    logtype: 'record',
+    format: 'json',
+    returnFormat: 'json',
+  });
+  if (opts.beginTime) body.append('beginTime', opts.beginTime);
+  return postJsonArray(apiUrl, body, 'log export');
+}

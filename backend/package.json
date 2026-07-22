@@ -25,6 +25,7 @@
     "redcap:spark-sync": "tsx scripts/redcap-spark-sync.ts",
     "redcap:nest-sync": "tsx scripts/redcap-nest-sync.ts",
     "redcap:soar-sync": "tsx scripts/redcap-soar-sync.ts",
+    "redcap:ttt-sync": "tsx scripts/redcap-ttt-sync.ts",
     "create-cpcqc-staff": "tsx scripts/create-cpcqc-staff.ts",
     "create-user": "tsx scripts/create-user.ts",
     "create-hospital-user": "tsx scripts/create-hospital-user.ts",
