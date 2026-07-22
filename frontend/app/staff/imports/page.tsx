@@ -478,6 +478,28 @@ function LockedCells({
   );
 }
 
+/** Read-only cells for a period that predates the scoring criteria. The sync
+ *  never rewrites these, so whatever the PM recorded stands. */
+function PreCriteriaCells({
+  row,
+}: {
+  row: { newStatus: string; newOutcome: string | null; note: string };
+}) {
+  return (
+    <>
+      <td className="px-3 py-2">
+        <span className="inline-flex items-center gap-1 rounded-full bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-700">
+          {dispositionLabel(statusToDisposition(row.newStatus, row.newOutcome))}
+        </span>
+        <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          PM record · kept
+        </div>
+      </td>
+      <td className="px-3 py-2 text-xs text-cpcqc-purple-dark/60">{row.note}</td>
+    </>
+  );
+}
+
 /** Per-month lock control shown in each period-group header. */
 function FinalizeButton({
   program,
@@ -1229,6 +1251,7 @@ function SoarRedcapSync() {
 // =====================================================================
 
 const TTT_CATEGORY_META: Record<TttSyncCategory, { label: string; className: string }> = {
+  pre_criteria: { label: 'Pre-criteria · not scored', className: 'bg-slate-100 text-slate-600' },
   counting: { label: 'Counts', className: 'bg-emerald-100 text-emerald-800' },
   below_ideal: { label: 'Counts · below ideal', className: 'bg-emerald-50 text-emerald-700' },
   complete_nodate: { label: 'Counts (no date)', className: 'bg-emerald-100 text-emerald-800' },
@@ -1347,12 +1370,13 @@ function TttRedcapSync() {
             </span>
           </div>
 
-          <div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-7">
             <Stat
               label={result.dryRun ? 'Will change' : 'Changed'}
               value={result.counts.willChange}
               tone={result.counts.willChange > 0 ? 'positive' : 'neutral'}
             />
+            <Stat label="Pre-criteria" value={result.counts.preCriteria} />
             <Stat label="Counting" value={result.counts.counting} tone="positive" />
             <Stat label="Below ideal" value={result.counts.belowIdeal} />
             <Stat label="Late" value={result.counts.completeLate} tone="warn" />
@@ -1441,6 +1465,8 @@ function TttRedcapSync() {
                               </td>
                               {r.finalized ? (
                                 <LockedCells row={r} />
+                              ) : r.category === 'pre_criteria' ? (
+                                <PreCriteriaCells row={r} />
                               ) : (
                                 <OverrideCells
                                   row={r}

@@ -292,6 +292,7 @@ export interface SoarSyncResult {
 // ---- TtT (Turning the Tide) — two projects, cross-linked on CHA_ID ----
 
 export type TttSyncCategory =
+  | 'pre_criteria'
   | 'counting'
   | 'below_ideal'
   | 'complete_late'
@@ -345,6 +346,7 @@ export interface TttSyncResult {
   notes: string[];
   counts: {
     willChange: number;
+    preCriteria: number;
     counting: number;
     belowIdeal: number;
     completeLate: number;

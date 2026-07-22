@@ -35,6 +35,7 @@ import {
   F_DAG,
   F_RECORD_ID,
   REQUIRED_FIELDS_EXCLUDE,
+  PRE_CRITERIA_PERIODS,
   monthCodeToPeriod,
   monthDeadline,
   patientPeriod,
@@ -87,6 +88,10 @@ function categoryToTask(
   submissionDate: string | null,
 ): { status: TaskStatus; outcome: TaskOutcome; completedOn: string | null; leaveUntouched: boolean } {
   switch (category) {
+    case 'pre_criteria':
+      // Before the May-2026 criteria: never re-score. Preserve whatever the PM
+      // recorded (workbook import or task UI alike).
+      return { status: 'not_started', outcome: null, completedOn: null, leaveUntouched: true };
     case 'counting':
     case 'below_ideal': // floor met — still counts; the shortfall is a note only
       return { status: 'complete', outcome: 'on_time', completedOn: submissionDate, leaveUntouched: false };
@@ -148,6 +153,7 @@ export interface TttSyncResult {
   notes: string[];
   counts: {
     willChange: number;
+    preCriteria: number;
     counting: number;
     belowIdeal: number;
     completeLate: number;
@@ -429,7 +435,7 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
       const floor = linkageFloorMet(positives, patientForms);
       const ideal = linkageIdealMet(positives, patientForms);
 
-      const decision = classifyTtt({
+      const scored = classifyTtt({
         submitted,
         deadlinePassed: today > deadline,
         onTime,
@@ -440,6 +446,17 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
         positiveScreens: positives,
         patientForms,
       });
+      // Jan–Apr 2026 predate CPCQC's criteria: report what REDCap shows, but
+      // never re-score — the PM's recorded status stands.
+      const decision = PRE_CRITERIA_PERIODS.has(period)
+        ? {
+            category: 'pre_criteria' as const,
+            reasons: [
+              'Before the May 2026 "timely & complete" criteria — not scored; the status the PM recorded stands.',
+            ],
+            shortfall: scored.shortfall,
+          }
+        : scored;
       const computed = categoryToTask(decision.category, submissionDate);
 
       const override = opts.overrides?.get(ti.id);
@@ -447,12 +464,13 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
       const finalized = ti.finalizedAt != null;
       const humanEdited = isHumanEdit(ti.updatedBy);
 
-      // Precedence: FINALIZED > NEW override > PRIOR override > HUMAN edit > computed.
+      // Precedence: FINALIZED > NEW override this session > PRIOR override >
+      // HUMAN task-UI edit > leave-untouched (pending / pre-criteria) > computed.
       let finalStatus: TaskStatus;
       let finalOutcome: TaskOutcome;
       let finalCompletedOn: string | null;
       let finalNote: string;
-      if (finalized || priorOverride || humanEdited) {
+      if (finalized) {
         finalStatus = ti.status;
         finalOutcome = ti.outcome;
         finalCompletedOn = ti.completedOn;
@@ -463,6 +481,11 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
         finalOutcome = t.outcome;
         finalCompletedOn = t.completedOn;
         finalNote = override.comment.trim() || decision.reasons.join(' ');
+      } else if (priorOverride || humanEdited) {
+        finalStatus = ti.status;
+        finalOutcome = ti.outcome;
+        finalCompletedOn = ti.completedOn;
+        finalNote = ti.staffNote ?? decision.reasons.join(' ');
       } else if (computed.leaveUntouched) {
         finalStatus = ti.status;
         finalOutcome = ti.outcome;
@@ -555,8 +578,16 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
     }
   }
 
+  const preCriteriaCount = rows.filter((r) => r.category === 'pre_criteria').length;
+  if (preCriteriaCount > 0) {
+    notes.push(
+      `${preCriteriaCount} hospital-month(s) in Jan–Apr 2026 left untouched — they predate the May criteria, so the status the PM recorded stands.`,
+    );
+  }
+
   const counts = {
     willChange: rows.filter((r) => r.willChange).length,
+    preCriteria: preCriteriaCount,
     counting: rows.filter((r) => r.category === 'counting' || r.category === 'complete_nodate').length,
     belowIdeal: rows.filter((r) => r.category === 'below_ideal').length,
     completeLate: rows.filter((r) => r.category === 'complete_late').length,

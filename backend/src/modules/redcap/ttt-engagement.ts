@@ -154,7 +154,16 @@ export function linkageIdealMet(positiveScreens: number, patientForms: number): 
 // Status classification → tracker category
 // =====================================================================
 
+/**
+ * Reporting periods BEFORE CPCQC set clear "timely & complete" criteria (which
+ * took effect May 2026). These months were checked off by the PM — largely via
+ * the workbook import, so they are NOT all human task-UI edits — and must never
+ * be re-scored by the sync. The sync leaves them exactly as recorded.
+ */
+export const PRE_CRITERIA_PERIODS = new Set(['2026-01', '2026-02', '2026-03', '2026-04']);
+
 export type TttSyncCategory =
+  | 'pre_criteria' // before the May-2026 criteria — not scored, left as recorded
   | 'counting' // Compliant (floor met, on time, complete)
   | 'below_ideal' // Compliant but patient forms < positives (still counts)
   | 'complete_late' // Complete + floor met but submitted after deadline
