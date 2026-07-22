@@ -20,6 +20,9 @@ import type {
   SoarSyncResult,
   SoarSyncRow,
   SoarSyncCategory,
+  TttSyncResult,
+  TttSyncRow,
+  TttSyncCategory,
   SyncDisposition,
 } from '@/lib/types';
 
@@ -193,6 +196,8 @@ export default function StaffImportsPage() {
       <NestRedcapSync />
 
       <SoarRedcapSync />
+
+      <TttRedcapSync />
     </div>
   );
 }
@@ -311,6 +316,9 @@ function categoryToDisposition(category: string): SyncDisposition {
   switch (category) {
     case 'counting':
     case 'complete_nodate':
+    // TtT: the linkage floor is met, so it counts — the one-per-positive ideal
+    // is a non-blocking note, not a failure.
+    case 'below_ideal':
       return 'counts';
     case 'complete_late':
       return 'late';
@@ -477,7 +485,7 @@ function FinalizeButton({
   finalized,
   onDone,
 }: {
-  program: 'SPARK' | 'NEST' | 'SOAR';
+  program: 'SPARK' | 'NEST' | 'SOAR' | 'TTT';
   period: string;
   finalized: boolean;
   onDone: () => void | Promise<void>;
@@ -1198,6 +1206,262 @@ function SoarRedcapSync() {
                               </td>
                               <td className="px-3 py-2 text-cpcqc-purple-dark/80">
                                 {r.submissionDate ?? (r.ntsvSubmitted || r.noNtsvSubmitted ? '(no date)' : '—')}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-cpcqc-purple-dark/70">{r.note}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// =====================================================================
+// TtT · REDCap sync (TWO projects, cross-linked on CHA_ID)
+// =====================================================================
+
+const TTT_CATEGORY_META: Record<TttSyncCategory, { label: string; className: string }> = {
+  counting: { label: 'Counts', className: 'bg-emerald-100 text-emerald-800' },
+  below_ideal: { label: 'Counts · below ideal', className: 'bg-emerald-50 text-emerald-700' },
+  complete_nodate: { label: 'Counts (no date)', className: 'bg-emerald-100 text-emerald-800' },
+  complete_late: { label: 'Late', className: 'bg-amber-100 text-amber-800' },
+  incomplete: { label: 'Incomplete', className: 'bg-orange-100 text-orange-800' },
+  not_submitted: { label: 'Not submitted', className: 'bg-red-100 text-red-700' },
+  pending: { label: 'Pending', className: 'bg-slate-100 text-slate-600' },
+};
+
+function TttRedcapSync() {
+  const [loading, setLoading] = useState<false | 'preview' | 'apply'>(false);
+  const [result, setResult] = useState<TttSyncResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [overrides, setOverrides] = useState<OverrideMap>({});
+
+  async function run(dryRun: boolean) {
+    setLoading(dryRun ? 'preview' : 'apply');
+    setError(null);
+    try {
+      const token = getAccessToken();
+      const res = await fetch(`/api/staff/imports/redcap/ttt?dryRun=${dryRun ? 'true' : 'false'}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: dryRun
+          ? undefined
+          : JSON.stringify({ overrides: buildOverridesPayload(result?.rows ?? [], overrides) }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+        throw new Error(body?.error?.message ?? `Sync failed (${res.status})`);
+      }
+      if (dryRun) setOverrides({});
+      setResult((await res.json()) as TttSyncResult);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const editable = result?.dryRun ?? false;
+  const overrideCount = result ? buildOverridesPayload(result.rows, overrides).length : 0;
+  const byPeriod = (result?.rows ?? []).reduce<Record<string, TttSyncRow[]>>((acc, r) => {
+    (acc[r.period] ??= []).push(r);
+    return acc;
+  }, {});
+
+  return (
+    <section className="mt-10 border-t border-cpcqc-purple-dark/10 pt-8">
+      <header className="mb-4">
+        <h1 className="inline-flex items-center gap-2 font-rounded text-3xl font-extrabold text-cpcqc-purple-dark">
+          <Database size={26} aria-hidden /> TtT · REDCap sync
+        </h1>
+        <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
+          Turning the Tide spans <strong>two REDCap projects</strong> — the monthly hospital form and
+          the patient-level form — joined on CHA_ID. A month counts when the report is complete, on
+          time, and <strong>each positive SUD screen has a patient form</strong> (the floor is at
+          least one; falling short of one-per-positive is flagged but still counts). Override any
+          status with a rationale before applying; nothing is written until you apply.
+        </p>
+      </header>
+
+      <div className="rounded-2xl bg-white p-6 shadow-card ring-1 ring-cpcqc-purple-dark/5">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            disabled={loading !== false}
+            onClick={() => void run(true)}
+            className="inline-flex items-center gap-2 rounded-full bg-cpcqc-purple px-5 py-2.5 font-rounded text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-cpcqc-purple/90 disabled:opacity-50"
+          >
+            <RefreshCw size={16} aria-hidden className={loading === 'preview' ? 'animate-spin' : ''} />
+            {loading === 'preview' ? 'Pulling both projects…' : 'Preview from REDCap'}
+          </button>
+
+          {result && !result.dryRun ? (
+            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
+              <CheckCircle2 size={16} aria-hidden /> Applied {result.counts.willChange} change
+              {result.counts.willChange === 1 ? '' : 's'}.
+            </span>
+          ) : (
+            result && (
+              <button
+                type="button"
+                disabled={loading !== false}
+                onClick={() => void run(false)}
+                className="inline-flex items-center gap-2 rounded-full bg-cpcqc-pink px-5 py-2.5 font-rounded text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-cpcqc-pink/90 disabled:opacity-50"
+              >
+                <AlertTriangle size={16} aria-hidden />
+                {loading === 'apply' ? 'Applying…' : 'Apply changes'}
+              </button>
+            )
+          )}
+          {result && result.dryRun && overrideCount > 0 && (
+            <span className="text-xs font-semibold text-amber-700">
+              {overrideCount} manual override{overrideCount === 1 ? '' : 's'} pending
+            </span>
+          )}
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-700 ring-1 ring-red-200">{error}</div>
+        )}
+      </div>
+
+      {result && (
+        <div className="mt-6 rounded-2xl bg-white p-6 shadow-card ring-1 ring-cpcqc-purple-dark/5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-rounded text-lg font-extrabold text-cpcqc-purple-dark">
+              {result.dryRun ? 'Dry-run preview' : 'Applied'} · {result.programYear}
+            </h2>
+            <span className="text-xs text-cpcqc-purple-dark/60">
+              {result.hospitalRecords} hospital · {result.patientRecords} patient rows ·{' '}
+              {result.requiredFieldCount} required fields · eligibility={result.eligibilityMode} · pulled{' '}
+              {new Date(result.fetchedAt).toLocaleString()}
+            </span>
+          </div>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <Stat
+              label={result.dryRun ? 'Will change' : 'Changed'}
+              value={result.counts.willChange}
+              tone={result.counts.willChange > 0 ? 'positive' : 'neutral'}
+            />
+            <Stat label="Counting" value={result.counts.counting} tone="positive" />
+            <Stat label="Below ideal" value={result.counts.belowIdeal} />
+            <Stat label="Late" value={result.counts.completeLate} tone="warn" />
+            <Stat label="Incomplete" value={result.counts.incomplete} tone="warn" />
+            <Stat
+              label="Linkage gaps"
+              value={result.counts.linkageGaps}
+              tone={result.counts.linkageGaps > 0 ? 'warn' : 'neutral'}
+            />
+          </div>
+
+          {result.warnings.length > 0 && (
+            <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <h3 className="flex items-center gap-1.5 font-rounded text-sm font-extrabold text-amber-800">
+                <AlertTriangle size={14} aria-hidden /> {result.warnings.length} item
+                {result.warnings.length === 1 ? '' : 's'} need attention
+              </h3>
+              <ul className="mt-2 space-y-1 text-xs text-amber-900/90">
+                {result.warnings.map((w, i) => (
+                  <li key={i}>• {w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {result.notes.length > 0 && (
+            <div className="mt-5 rounded-xl border border-cpcqc-purple-dark/10 bg-cpcqc-cream/40 p-4">
+              <h3 className="font-rounded text-sm font-extrabold text-cpcqc-purple-dark/70">
+                Expected / informational
+              </h3>
+              <ul className="mt-2 space-y-1 text-xs text-cpcqc-purple-dark/70">
+                {result.notes.map((n, i) => (
+                  <li key={i}>• {n}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="mt-5 space-y-6">
+            {result.periodsInScope.map((p) => {
+              const rows = byPeriod[p] ?? [];
+              if (rows.length === 0) return null;
+              const finalized = rows[0]?.finalized ?? false;
+              return (
+                <div key={p}>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
+                      {p}
+                    </h3>
+                    <FinalizeButton program="TTT" period={p} finalized={finalized} onDone={() => run(true)} />
+                  </div>
+                  <div className="mt-2 overflow-x-auto rounded-xl border border-cpcqc-purple-dark/10">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-cpcqc-cream/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
+                        <tr>
+                          <th className="px-3 py-2">Hospital</th>
+                          <th className="px-3 py-2">System</th>
+                          <th className="px-3 py-2">Status (override)</th>
+                          <th className="px-3 py-2">Comments</th>
+                          <th className="px-3 py-2">+ Screens</th>
+                          <th className="px-3 py-2">Patient forms</th>
+                          <th className="px-3 py-2">Detail</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r) => {
+                          const meta = TTT_CATEGORY_META[r.category];
+                          const isOverridden =
+                            (overrides[r.taskId]?.disposition ?? defaultDisposition(r)) !==
+                            categoryToDisposition(r.category);
+                          const floorFailed = r.submitted && !r.linkageFloor;
+                          return (
+                            <tr
+                              key={`${r.chaId}-${r.period}`}
+                              className={`border-t border-cpcqc-purple-dark/10 ${
+                                isOverridden ? 'bg-amber-50' : r.willChange ? 'bg-cpcqc-purple/5' : ''
+                              }`}
+                            >
+                              <td className="px-3 py-2 font-semibold text-cpcqc-purple-dark">
+                                {r.hospitalName}
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-bold ${meta.className}`}>
+                                  {meta.label}
+                                </span>
+                              </td>
+                              {r.finalized ? (
+                                <LockedCells row={r} />
+                              ) : (
+                                <OverrideCells
+                                  row={r}
+                                  overrides={overrides}
+                                  setOverrides={setOverrides}
+                                  editable={editable}
+                                />
+                              )}
+                              <td className="px-3 py-2 text-cpcqc-purple-dark/80">{r.positiveScreens}</td>
+                              <td className="px-3 py-2 text-cpcqc-purple-dark/80">
+                                {r.patientForms}
+                                {floorFailed && (
+                                  <span className="ml-1 font-bold text-red-600" title="Positive screens but no eligible patient form">
+                                    ⚠
+                                  </span>
+                                )}
+                                {!floorFailed && r.shortfall > 0 && (
+                                  <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                                    short {r.shortfall}
+                                  </span>
+                                )}
                               </td>
                               <td className="px-3 py-2 text-xs text-cpcqc-purple-dark/70">{r.note}</td>
                             </tr>

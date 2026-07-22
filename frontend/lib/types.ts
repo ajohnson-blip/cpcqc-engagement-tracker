@@ -289,6 +289,73 @@ export interface SoarSyncResult {
   };
 }
 
+// ---- TtT (Turning the Tide) — two projects, cross-linked on CHA_ID ----
+
+export type TttSyncCategory =
+  | 'counting'
+  | 'below_ideal'
+  | 'complete_late'
+  | 'complete_nodate'
+  | 'incomplete'
+  | 'not_submitted'
+  | 'pending';
+
+export interface TttSyncRow {
+  taskId: string;
+  overridden: boolean;
+  priorOverride: { disposition: SyncDisposition; comment: string } | null;
+  finalized: boolean;
+  finalizedAt: string | null;
+  finalizedBy: string | null;
+  chaId: number;
+  hospitalId: string | null;
+  hospitalName: string;
+  period: string;
+  category: TttSyncCategory;
+  submitted: boolean;
+  reportComplete: boolean;
+  missingFields: string[];
+  positiveScreens: number;
+  patientForms: number;
+  shortfall: number;
+  linkageFloor: boolean;
+  linkageIdeal: boolean;
+  onTime: boolean | null;
+  submissionDate: string | null;
+  deadline: string;
+  currentStatus: SyncTaskStatus;
+  currentOutcome: SyncTaskOutcome;
+  newStatus: SyncTaskStatus;
+  newOutcome: SyncTaskOutcome;
+  willChange: boolean;
+  note: string;
+}
+
+export interface TttSyncResult {
+  dryRun: boolean;
+  fetchedAt: string;
+  programYear: number;
+  eligibilityMode: 'explicit' | 'derived' | 'either';
+  periodsInScope: string[];
+  hospitalRecords: number;
+  patientRecords: number;
+  requiredFieldCount: number;
+  rows: TttSyncRow[];
+  warnings: string[];
+  notes: string[];
+  counts: {
+    willChange: number;
+    counting: number;
+    belowIdeal: number;
+    completeLate: number;
+    incomplete: number;
+    notSubmitted: number;
+    pending: number;
+    unchanged: number;
+    linkageGaps: number;
+  };
+}
+
 export type RequirementStatus = 'on_track' | 'at_risk' | 'met' | 'not_met';
 
 // ---- System rollup (health-system QI lead: all linked hospitals × initiatives) ----
