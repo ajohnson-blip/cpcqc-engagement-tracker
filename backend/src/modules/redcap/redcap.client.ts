@@ -15,6 +15,11 @@ export interface ExportRecordsOptions {
   forms?: string[];
   /** Defaults to env.REDCAP_API_URL. */
   apiUrl?: string;
+  /** Force-request the `record_id` field so longitudinal form-only exports keep
+   *  their structural columns (default true). Set false for projects whose
+   *  record-ID field isn't named `record_id` — e.g. the CHoSEN Dyadic project,
+   *  where naming a missing field would make REDCap reject the whole export. */
+  includeRecordId?: boolean;
 }
 
 /**
@@ -38,7 +43,9 @@ export async function exportRecords(opts: ExportRecordsOptions): Promise<RedcapR
   // both record_id and redcap_event_name. Asking for record_id by name brings
   // the structural columns (record_id, redcap_event_name, DAG) back; REDCap then
   // returns the UNION of the named field and every field on the named form.
-  body.append('fields[0]', 'record_id');
+  if (opts.includeRecordId !== false) {
+    body.append('fields[0]', 'record_id');
+  }
   const formList = [...(opts.form ? [opts.form] : []), ...(opts.forms ?? [])];
   formList.forEach((f, i) => body.append(`forms[${i}]`, f));
 

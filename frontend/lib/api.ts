@@ -99,6 +99,38 @@ async function request<T>(path: string, options: ApiOptions = {}, retried = fals
   return (await res.text()) as unknown as T;
 }
 
+/**
+ * Raw-Response fetch that still gets the auth header and the 401→refresh→retry
+ * behaviour of `api`. Use this for requests the JSON wrapper can't model —
+ * binary uploads (xlsx) and blob downloads (reports, exports).
+ *
+ * Without this, a call site that hand-rolls `fetch` + `getAccessToken()` fails
+ * hard the moment the access token expires, which reads to the user as being
+ * randomly logged out. `body` must be re-readable (string/Blob/File — not a
+ * stream) because a refreshed request replays it.
+ */
+export async function apiFetch(
+  path: string,
+  options: RequestInit = {},
+  retried = false,
+): Promise<Response> {
+  const url = path.startsWith('/api/') ? path : `${BASE}${path}`;
+  const res = await fetch(url, {
+    ...options,
+    credentials: 'include',
+    headers: {
+      ...(options.headers as Record<string, string> | undefined),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+  });
+
+  if (res.status === 401 && !retried) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) return apiFetch(path, options, true);
+  }
+  return res;
+}
+
 export const api = {
   get: <T>(path: string, options: ApiOptions = {}) => request<T>(path, { method: 'GET', ...options }),
   post: <T>(path: string, body?: unknown, options: ApiOptions = {}) =>

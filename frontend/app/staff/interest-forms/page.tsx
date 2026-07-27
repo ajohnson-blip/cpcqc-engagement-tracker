@@ -15,7 +15,7 @@
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import { Download, AlertTriangle, Pencil, CheckCircle2 } from 'lucide-react';
-import { api, ApiError } from '@/lib/api';
+import { api, apiFetch, ApiError } from '@/lib/api';
 import type {
   AnnualInterestForm,
   CohortPlanningAggregate,
@@ -159,9 +159,8 @@ function AnnualPanel() {
     // Same fetch+blob+anchor dance the existing reports page uses, since
     // download fetches need to attach the auth header.
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/staff/annual-interest-forms/export?programYear=${programYear}`,
-        { credentials: 'include' },
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();

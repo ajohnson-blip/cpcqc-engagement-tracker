@@ -9,7 +9,7 @@ import {
   RefreshCw,
   Database,
 } from 'lucide-react';
-import { getAccessToken } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 import type {
   SparkSyncResult,
   SparkSyncRow,
@@ -55,16 +55,13 @@ export default function StaffImportsPage() {
     setError(null);
     setResult(null);
     try {
-      const token = getAccessToken();
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/staff/imports/pm-workbook?dryRun=${dryRun ? 'true' : 'false'}`,
         {
           method: 'POST',
-          credentials: 'include',
           headers: {
             'Content-Type':
               'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: file,
         },
@@ -516,11 +513,9 @@ function FinalizeButton({
   async function toggle() {
     setBusy(true);
     try {
-      const token = getAccessToken();
-      const res = await fetch('/api/staff/imports/redcap/finalize', {
+      const res = await apiFetch('/api/staff/imports/redcap/finalize', {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ program, period, finalize: !finalized }),
       });
       if (!res.ok) throw new Error(`Finalize failed (${res.status})`);
@@ -557,11 +552,9 @@ function SparkRedcapSync() {
     setLoading(dryRun ? 'preview' : 'apply');
     setError(null);
     try {
-      const token = getAccessToken();
-      const res = await fetch(`/api/staff/imports/redcap/spark?dryRun=${dryRun ? 'true' : 'false'}`, {
+      const res = await apiFetch(`/api/staff/imports/redcap/spark?dryRun=${dryRun ? 'true' : 'false'}`, {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: dryRun
           ? undefined
           : JSON.stringify({ overrides: buildOverridesPayload(result?.rows ?? [], overrides) }),
@@ -795,11 +788,9 @@ function NestRedcapSync() {
     setLoading(dryRun ? 'preview' : 'apply');
     setError(null);
     try {
-      const token = getAccessToken();
-      const res = await fetch(`/api/staff/imports/redcap/nest?dryRun=${dryRun ? 'true' : 'false'}`, {
+      const res = await apiFetch(`/api/staff/imports/redcap/nest?dryRun=${dryRun ? 'true' : 'false'}`, {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: dryRun
           ? undefined
           : JSON.stringify({ overrides: buildOverridesPayload(result?.rows ?? [], overrides) }),
@@ -1023,11 +1014,9 @@ function SoarRedcapSync() {
     setLoading(dryRun ? 'preview' : 'apply');
     setError(null);
     try {
-      const token = getAccessToken();
-      const res = await fetch(`/api/staff/imports/redcap/soar?dryRun=${dryRun ? 'true' : 'false'}`, {
+      const res = await apiFetch(`/api/staff/imports/redcap/soar?dryRun=${dryRun ? 'true' : 'false'}`, {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: dryRun
           ? undefined
           : JSON.stringify({ overrides: buildOverridesPayload(result?.rows ?? [], overrides) }),
@@ -1271,11 +1260,9 @@ function TttRedcapSync() {
     setLoading(dryRun ? 'preview' : 'apply');
     setError(null);
     try {
-      const token = getAccessToken();
-      const res = await fetch(`/api/staff/imports/redcap/ttt?dryRun=${dryRun ? 'true' : 'false'}`, {
+      const res = await apiFetch(`/api/staff/imports/redcap/ttt?dryRun=${dryRun ? 'true' : 'false'}`, {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json' },
         body: dryRun
           ? undefined
           : JSON.stringify({ overrides: buildOverridesPayload(result?.rows ?? [], overrides) }),

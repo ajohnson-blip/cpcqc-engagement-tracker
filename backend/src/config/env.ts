@@ -10,8 +10,13 @@ const EnvSchema = z.object({
 
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 chars'),
   JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 chars'),
-  JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
-  JWT_REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(30),
+  // Session length. The access token is a stateless JWT: it cannot be revoked
+  // before it expires, so this is also the worst-case window after a logout in
+  // which a stolen token still works. 8h keeps staff signed in for a full
+  // workday; the refresh token (rotated on every use) is an IDLE timeout — an
+  // active user's 45 days is continually reset.
+  JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(28800), // 8 hours
+  JWT_REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(45),
 
   COOKIE_DOMAIN: z.string().default('localhost'),
   COOKIE_SECURE: z
@@ -35,6 +40,18 @@ const EnvSchema = z.object({
   // engagement only; never export/store patient identifiers.
   REDCAP_TTT_HOSPITAL_TOKEN: z.string().optional(),
   REDCAP_TTT_PATIENT_TOKEN: z.string().optional(),
+  // Denver Health enters its TtT patient forms in a THIRD project — the CHoSEN
+  // Dyadic project. Optional: when set, the TtT sync folds DH's eligible Dyadic
+  // maternal forms into DH's patient-form counts so it stops false-flagging as a
+  // linkage gap. Also PHI — we only ever count rows. REDCAP_TTT_DYADIC_DH_DAG is
+  // DH's Data Access Group *in the Dyadic project* (its DAG spelling can differ
+  // from the TtT projects); defaults to 'denver_health'.
+  REDCAP_TTT_DYADIC_TOKEN: z.string().optional(),
+  REDCAP_TTT_DYADIC_DH_DAG: z.string().default('denver_health'),
+  // CHoSEN Dyadic is a different collaborative and may live on a different
+  // REDCap instance than the CPCQC projects. Leave unset to reuse
+  // REDCAP_API_URL; set it only if Dyadic is hosted elsewhere.
+  REDCAP_TTT_DYADIC_API_URL: z.string().url().optional(),
 });
 
 const parsed = EnvSchema.safeParse(process.env);

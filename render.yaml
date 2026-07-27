@@ -60,10 +60,12 @@ services:
         generateValue: true
       - key: JWT_REFRESH_SECRET
         generateValue: true
+      # Access token = 8h (a full workday, so staff aren't re-authenticating
+      # mid-task). Refresh token = 45-day IDLE timeout, rotated on every use.
       - key: JWT_ACCESS_TTL_SECONDS
-        value: "900"
+        value: "28800"
       - key: JWT_REFRESH_TTL_DAYS
-        value: "30"
+        value: "45"
 
       # Cookies must be secure on HTTPS, and scoped to the frontend's
       # registered domain. COOKIE_DOMAIN: leave blank for default (host-only),

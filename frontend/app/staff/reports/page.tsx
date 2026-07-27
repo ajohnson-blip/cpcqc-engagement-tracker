@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Download, FileText, FileSpreadsheet, Users, Copy, Check, Mail } from 'lucide-react';
-import { api, getAccessToken } from '@/lib/api';
+import { api, apiFetch } from '@/lib/api';
 import type { InitiativeHospitalsResponse, ChampionContact, ChampionContactsResponse } from '@/lib/types';
 
 const INITIATIVES = ['TTT', 'SPARK', 'SOAR', 'NEST'] as const;
@@ -405,11 +405,7 @@ function SmallDownload({ format, href }: { format: 'xlsx' | 'pdf'; href: string 
  * plain anchor.
  */
 async function triggerDownload(url: string) {
-  const token = getAccessToken();
-  const res = await fetch(url, {
-    credentials: 'include',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const res = await apiFetch(url);
   if (!res.ok) {
     alert(`Download failed (${res.status}). Check the server logs.`);
     return;

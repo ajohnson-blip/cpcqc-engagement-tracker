@@ -55,6 +55,11 @@ import {
   normalizeHospitalName,
 } from './ttt-crosswalk.js';
 import {
+  DENVER_HEALTH_CHA_ID,
+  DYADIC_MATERNAL_FORM,
+  countDenverHealthDyadicForms,
+} from './ttt-dyadic.js';
+import {
   dispositionToTask,
   isHumanEdit,
   isoDate,
@@ -328,6 +333,50 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
     eligibleTotal += 1;
   }
   notes.push(`Eligible ${programYear} patient forms (mode=${eligibilityMode}): ${eligibleTotal}.`);
+
+  // ---- 4b. Denver Health CHoSEN Dyadic patch ------------------------------
+  // DH (CHA 428) enters its patient forms in the CHoSEN Dyadic project, not the
+  // TtT patient project — so they're absent from patientCounts and DH would
+  // false-flag a linkage gap every month. Pull DH's eligible Dyadic maternal
+  // forms and fold their per-period counts into DH's totals. DH ONLY. If the
+  // Dyadic token isn't configured this whole block no-ops (with a note).
+  if (!env.REDCAP_TTT_DYADIC_TOKEN) {
+    notes.push(
+      'CHoSEN Dyadic not configured (REDCAP_TTT_DYADIC_TOKEN unset) — Denver Health patient forms counted from the TtT project only, so DH may show a linkage gap.',
+    );
+  } else {
+    const dhDag = env.REDCAP_TTT_DYADIC_DH_DAG.trim();
+    try {
+      const dyadicRows = await exportRecords({
+        token: env.REDCAP_TTT_DYADIC_TOKEN,
+        form: DYADIC_MATERNAL_FORM,
+        includeRecordId: false, // Dyadic's record-ID field name may differ; we only count rows
+        // Dyadic may be hosted on a different REDCap instance; falls back to the
+        // shared CPCQC API URL when the override isn't set.
+        apiUrl: env.REDCAP_TTT_DYADIC_API_URL ?? env.REDCAP_API_URL,
+      });
+      // Shared project — keep ONLY DH's rows (its Dyadic DAG spelling).
+      const dhRows = dyadicRows.filter((r) => String(r[F_DAG] ?? '').trim() === dhDag);
+      if (dhRows.length === 0) {
+        warnings.push(
+          `CHoSEN Dyadic returned ${dyadicRows.length} maternal row(s) but none matched Denver Health's DAG "${dhDag}" — DH linkage NOT patched. Verify REDCAP_TTT_DYADIC_DH_DAG matches the Dyadic project's DAG spelling.`,
+        );
+      } else {
+        const dh = countDenverHealthDyadicForms(dhRows, programYear, eligibilityMode);
+        for (const [period, n] of dh.countsByPeriod) {
+          const key = `${DENVER_HEALTH_CHA_ID}::${period}`;
+          patientCounts.set(key, (patientCounts.get(key) ?? 0) + n);
+        }
+        notes.push(
+          `Denver Health CHoSEN Dyadic patch: folded in ${dh.eligibleTotal} eligible maternal form(s) across ${dh.countsByPeriod.size} month(s) (from ${dh.dhRows} DH Dyadic rows, mode=${eligibilityMode}).`,
+        );
+      }
+    } catch (err) {
+      warnings.push(
+        `CHoSEN Dyadic pull failed (${err instanceof Error ? err.message : String(err)}) — Denver Health linkage NOT patched this run.`,
+      );
+    }
+  }
 
   // ---- 5. Tracker: initiative, enrollments, due dates ---------------------
   const ttt = await db.query.initiatives.findFirst({ where: eq(schema.initiatives.code, 'TTT') });
