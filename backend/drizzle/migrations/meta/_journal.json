@@ -134,6 +134,13 @@
       "when": 1782600000000,
       "tag": "0018_task_finalized_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785888000000,
+      "tag": "0019_ce_certificates",
+      "breakpoints": true
     }
   ]
 }

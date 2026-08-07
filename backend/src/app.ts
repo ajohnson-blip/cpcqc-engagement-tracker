@@ -14,6 +14,7 @@ import tasksRoutes from '@/modules/tasks/tasks.routes.js';
 import meRoutes from '@/modules/me/me.routes.js';
 import staffRoutes from '@/modules/staff/staff.routes.js';
 import importsRoutes from '@/modules/imports/imports.routes.js';
+import ceRoutes from '@/modules/ce/ce.routes.js';
 import reportsRoutes from '@/modules/reports/reports.routes.js';
 import issueReportsRoutes from '@/modules/issue-reports/issue-reports.routes.js';
 import {
@@ -58,6 +59,8 @@ export function createApp() {
   // the global json() parser above ignores non-JSON content types so they
   // coexist cleanly.
   app.use('/staff/imports', importsRoutes);
+  // CE certificates: roster uploads use the same raw-body approach as imports.
+  app.use('/staff/ce', ceRoutes);
   app.use('/issue-reports', issueReportsRoutes);
   app.use('/reports', reportsRoutes);
   // 2-step annual enrollment, step 1: hospital portal submission + staff triage.

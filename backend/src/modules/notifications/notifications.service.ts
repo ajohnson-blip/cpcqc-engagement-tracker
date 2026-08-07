@@ -14,6 +14,13 @@ import { env } from '@/config/env.js';
 import { logger } from '@/config/logger.js';
 import { db, schema } from '@/db/index.js';
 
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  /** MIME type, e.g. 'application/pdf'. */
+  type: string;
+}
+
 export interface SendEmailInput {
   toEmail: string;
   subject: string;
@@ -21,9 +28,14 @@ export interface SendEmailInput {
   kind: string;
   userId?: string | null;
   relatedTaskId?: string | null;
+  /** Base64-encoded into the SendGrid payload. Keep the total well under
+   *  SendGrid's ~30 MB limit — CE certificates are a few hundred KB each. */
+  attachments?: EmailAttachment[];
 }
 
-export async function sendEmail(input: SendEmailInput): Promise<{ id: string; sent: boolean }> {
+export async function sendEmail(
+  input: SendEmailInput,
+): Promise<{ id: string; sent: boolean; error?: string }> {
   const id = uuid();
   const now = new Date();
 
@@ -67,17 +79,28 @@ export async function sendEmail(input: SendEmailInput): Promise<{ id: string; se
         from: { email: env.EMAIL_FROM, name: 'CPCQC Engagement Tracker' },
         subject: input.subject,
         content: [{ type: 'text/plain', value: input.body }],
+        ...(input.attachments?.length
+          ? {
+              attachments: input.attachments.map((a) => ({
+                filename: a.filename,
+                type: a.type,
+                disposition: 'attachment',
+                content: a.content.toString('base64'),
+              })),
+            }
+          : {}),
       }),
     });
 
     if (!res.ok) {
       const errorText = await res.text();
       logger.error({ status: res.status, errorText }, 'SendGrid send failed');
+      const error = `SendGrid ${res.status}: ${errorText.slice(0, 500)}`;
       await db
         .update(schema.notifications)
-        .set({ error: `SendGrid ${res.status}: ${errorText.slice(0, 500)}`, updatedAt: new Date() })
+        .set({ error, updatedAt: new Date() })
         .where(eqId(id));
-      return { id, sent: false };
+      return { id, sent: false, error };
     }
 
     await db
@@ -87,14 +110,12 @@ export async function sendEmail(input: SendEmailInput): Promise<{ id: string; se
     return { id, sent: true };
   } catch (err) {
     logger.error({ err }, 'SendGrid send threw');
+    const error = err instanceof Error ? err.message.slice(0, 500) : 'unknown error';
     await db
       .update(schema.notifications)
-      .set({
-        error: err instanceof Error ? err.message.slice(0, 500) : 'unknown error',
-        updatedAt: new Date(),
-      })
+      .set({ error, updatedAt: new Date() })
       .where(eqId(id));
-    return { id, sent: false };
+    return { id, sent: false, error };
   }
 }
 

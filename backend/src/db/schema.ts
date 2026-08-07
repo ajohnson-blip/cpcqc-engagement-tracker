@@ -13,6 +13,7 @@ import {
   pgTable,
   text,
   integer,
+  numeric,
   boolean,
   timestamp,
   date,
@@ -550,6 +551,70 @@ export const notifications = pgTable(
   },
   (t) => ({
     sentIdx: index('notifications_sent_idx').on(t.sentAt),
+  }),
+);
+
+// ---------- Continuing education (CE) certificates ----------
+
+/**
+ * A CE training/activity. Holds the certificate content that is identical for
+ * every participant; the per-person part lives in `ceCertificates`.
+ *
+ * `programCode` is text, not a FK to `initiatives`, because the CE program list
+ * is a branding list that evolves separately — IMPACT runs CE trainings but is
+ * not a QI initiative here. Validated in code against CE_PROGRAMS.
+ */
+export const ceTrainings = pgTable(
+  'ce_trainings',
+  {
+    id: idCol(),
+    programCode: text('program_code').notNull(), // 'SPARK' | 'SOAR' | 'NEST' | 'TTT' | 'IMPACT'
+    title: text('title').notNull(),
+    trainingDate: date('training_date').notNull(),
+    /** Nursing contact hours, e.g. 1.50. Drizzle returns numeric as string. */
+    contactHours: numeric('contact_hours', { precision: 5, scale: 2 }).notNull(),
+    /** Assigned by the accreditor (Colorado Nurses Association). */
+    activityId: text('activity_id').notNull(),
+    createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => ({
+    dateIdx: index('ce_trainings_date_idx').on(t.trainingDate),
+  }),
+);
+
+/**
+ * One certificate per participant per training. Carries its own delivery state
+ * so a 100-recipient send can partially fail and be retried per person, and so
+ * a lost certificate can be re-sent years later (ANCC record retention).
+ *
+ * The PDF is NOT stored: it is deterministic from the training + recipient, so
+ * it is regenerated on demand. That keeps the DB small and means a template fix
+ * applies to reissues too.
+ */
+export const ceCertificates = pgTable(
+  'ce_certificates',
+  {
+    id: idCol(),
+    trainingId: text('training_id')
+      .notNull()
+      .references(() => ceTrainings.id, { onDelete: 'cascade' }),
+    /** Human-readable audit handle printed on the PDF, e.g. CPCQC-2026-4F3A21. */
+    certificateCode: text('certificate_code').notNull(),
+    recipientName: text('recipient_name').notNull(),
+    recipientEmail: text('recipient_email').notNull(),
+    /** Delivery state mirrors `notifications`: sentAt set = delivered to
+     *  SendGrid; sendError set with no sentAt = failed; both null = not sent. */
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    sendError: text('send_error'),
+    sendCount: integer('send_count').notNull().default(0),
+    lastSentBy: text('last_sent_by').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => ({
+    codeIdx: uniqueIndex('ce_certificates_code_idx').on(t.certificateCode),
+    trainingIdx: index('ce_certificates_training_idx').on(t.trainingId),
+    sentIdx: index('ce_certificates_sent_idx').on(t.sentAt),
   }),
 );
 

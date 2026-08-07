@@ -792,3 +792,83 @@ export interface CohortPlanningAggregate {
   }>;
   currentlyTTTSubmissionCount: number;
 }
+
+// ---------- CE certificates ----------
+
+export interface CeProgram {
+  code: string;
+  label: string;
+}
+
+export interface CeProgramsResponse {
+  programs: CeProgram[];
+  /** Program codes with no logo file yet — their certificates fall back to text. */
+  missingLogos: string[];
+}
+
+export interface CeTrainingSummary {
+  id: string;
+  programCode: string;
+  programLabel: string;
+  title: string;
+  trainingDate: string;
+  trainingDateDisplay: string;
+  contactHours: string;
+  activityId: string;
+  createdAt: string;
+  participants: number;
+  sent: number;
+  failed: number;
+}
+
+export interface CeCertificate {
+  id: string;
+  certificateCode: string;
+  recipientName: string;
+  recipientEmail: string;
+  sentAt: string | null;
+  sendError: string | null;
+  sendCount: number;
+}
+
+export interface CeTrainingDetail {
+  id: string;
+  programCode: string;
+  programLabel: string;
+  title: string;
+  trainingDate: string;
+  trainingDateDisplay: string;
+  contactHours: string;
+  activityId: string;
+  createdAt: string;
+  logoMissing: boolean;
+  certificates: CeCertificate[];
+}
+
+export interface CeRosterProblem {
+  sourceRow: number;
+  name: string;
+  email: string;
+  reason: string;
+}
+
+export interface CeRosterPreview {
+  rows: Array<{ name: string; email: string; sourceRow: number }>;
+  problems: CeRosterProblem[];
+  detected: { nameColumns: string[]; emailColumn: string | null };
+}
+
+export interface CeRosterImportResult {
+  added: number;
+  alreadyPresent: number;
+  total: number;
+  problems: CeRosterProblem[];
+  detected: { nameColumns: string[]; emailColumn: string | null };
+}
+
+export interface CeSendResult {
+  attempted: number;
+  sent: number;
+  failed: number;
+  failures: Array<{ recipientEmail: string; error: string }>;
+}

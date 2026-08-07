@@ -85,8 +85,16 @@ services:
         sync: false
 
       # Email — set SENDGRID_API_KEY in the dashboard once SendGrid is wired up.
+      # EMAIL_FROM must be on a domain that is AUTHENTICATED IN SENDGRID, or
+      # DMARC fails and the mail is silently quarantined (SendGrid still returns
+      # 2xx — it accepted the message; the recipient's server drops it).
+      # cpcqc.org has SendGrid DKIM published (s1/s2._domainkey) and DMARC
+      # p=quarantine. The old value here (engagement@qi.cpcqc.org) was on a
+      # SUBDOMAIN with no SPF, no DKIM and no domain authentication, so every
+      # message failed both SPF and DKIM alignment. Do not point this at a
+      # subdomain unless that subdomain is separately authenticated in SendGrid.
       - key: EMAIL_FROM
-        value: engagement@qi.cpcqc.org
+        value: qi@cpcqc.org
       - key: SENDGRID_API_KEY
         sync: false
 

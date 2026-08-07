@@ -98,6 +98,17 @@ export function StaffHeader() {
             Imports
           </Link>
           <Link
+            href="/staff/ce"
+            className={clsx(
+              'rounded-full px-3 py-1.5 font-rounded text-xs font-bold uppercase tracking-wide transition',
+              activeMatch('/staff/ce')
+                ? 'bg-cpcqc-purple text-white'
+                : 'text-cpcqc-purple-dark hover:bg-cpcqc-purple/10',
+            )}
+          >
+            CE Certificates
+          </Link>
+          <Link
             href="/staff/issue-reports"
             className={clsx(
               'rounded-full px-3 py-1.5 font-rounded text-xs font-bold uppercase tracking-wide transition',
