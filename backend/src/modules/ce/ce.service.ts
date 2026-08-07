@@ -254,6 +254,53 @@ export async function importRoster(
   };
 }
 
+/**
+ * Delete a training and its roster.
+ *
+ * Refused once ANY certificate has been sent: that's an issued CE record and
+ * ANCC retention applies — the same rule removeCertificate() enforces per
+ * person, applied to the whole training. Unsent rosters cascade away with it,
+ * which is what makes a mistyped or test training disposable.
+ */
+export async function deleteTraining(trainingId: string, actorUserId: string | null): Promise<void> {
+  const t = await db.query.ceTrainings.findFirst({ where: eq(schema.ceTrainings.id, trainingId) });
+  if (!t) throw new HttpError(404, 'Training not found.');
+
+  const sent = await countSent(trainingId);
+  if (sent > 0) {
+    throw new HttpError(
+      400,
+      `"${t.title}" has ${sent} certificate(s) already sent. Issued CE certificates are records that must be retained, so this training can't be deleted.`,
+    );
+  }
+
+  const roster = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.ceCertificates)
+    .where(eq(schema.ceCertificates.trainingId, trainingId));
+  const removed = roster[0]?.n ?? 0;
+
+  // ce_certificates cascades on the FK, so the unsent roster goes with it.
+  await db.delete(schema.ceTrainings).where(eq(schema.ceTrainings.id, trainingId));
+
+  await db.insert(schema.auditLog).values({
+    id: uuid(),
+    actorUserId,
+    actorRole: 'cpcqc_staff',
+    action: 'ce.training_deleted',
+    entityType: 'ce_training',
+    entityId: trainingId,
+    diff: {
+      title: t.title,
+      programCode: t.programCode,
+      trainingDate: t.trainingDate,
+      activityId: t.activityId,
+      rosterRemoved: removed,
+    },
+    note: `Deleted training "${t.title}" and ${removed} unsent roster entr${removed === 1 ? 'y' : 'ies'}. No certificates had been sent.`,
+  });
+}
+
 export async function removeCertificate(certificateId: string) {
   const c = await db.query.ceCertificates.findFirst({
     where: eq(schema.ceCertificates.id, certificateId),

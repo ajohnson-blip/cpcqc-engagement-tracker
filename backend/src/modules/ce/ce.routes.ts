@@ -19,6 +19,7 @@ import { sendEmail } from '@/modules/notifications/notifications.service.js';
 import {
   createTraining,
   updateTraining,
+  deleteTraining,
   listTrainings,
   getTraining,
   importRoster,
@@ -103,6 +104,12 @@ router.get('/trainings/:id', async (req, res) => {
 router.patch('/trainings/:id', async (req, res) => {
   const input = trainingSchema.parse(req.body);
   res.json(await updateTraining(req.params.id, input, req.auth?.userId ?? null));
+});
+
+// Refused once any certificate has been sent — see deleteTraining.
+router.delete('/trainings/:id', async (req, res) => {
+  await deleteTraining(req.params.id, req.auth?.userId ?? null);
+  res.status(204).end();
 });
 
 // ---------- Roster ----------

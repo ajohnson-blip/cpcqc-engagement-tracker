@@ -94,6 +94,26 @@ export default function CeCertificatesPage() {
     else setDetail(null);
   }, [selectedId, loadDetail]);
 
+  const handleDelete = useCallback(
+    async (t: CeTrainingSummary) => {
+      const roster =
+        t.participants > 0
+          ? ` Its roster of ${t.participants} participant${t.participants === 1 ? '' : 's'} will be removed too.`
+          : '';
+      if (!window.confirm(`Delete "${t.title}"?${roster} This can't be undone.`)) return;
+      setError(null);
+      try {
+        await api.del(`/staff/ce/trainings/${t.id}`);
+        // Close the detail pane if the training it was showing just went away.
+        setSelectedId((cur) => (cur === t.id ? null : cur));
+        await loadTrainings();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not delete that training.');
+      }
+    },
+    [loadTrainings],
+  );
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <header className="mb-6 flex items-start justify-between gap-4">
@@ -142,6 +162,7 @@ export default function CeCertificatesPage() {
               trainings={trainings}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              onDelete={handleDelete}
             />
           </div>
 
@@ -285,10 +306,12 @@ function TrainingList({
   trainings,
   selectedId,
   onSelect,
+  onDelete,
 }: {
   trainings: CeTrainingSummary[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onDelete: (t: CeTrainingSummary) => void;
 }) {
   if (trainings.length === 0) {
     return (
@@ -303,32 +326,51 @@ function TrainingList({
         Trainings
       </h2>
       <ul className="divide-y divide-slate-100">
-        {trainings.map((t) => (
-          <li key={t.id}>
-            <button
-              onClick={() => onSelect(t.id)}
-              className={`w-full px-4 py-3 text-left transition hover:bg-cpcqc-purple/5 ${
-                selectedId === t.id ? 'bg-cpcqc-purple/10' : ''
-              }`}
+        {trainings.map((t) => {
+          // Once anything is sent the training holds issued CE records, which
+          // must be retained — the server refuses too, this just explains why.
+          const locked = t.sent > 0;
+          return (
+            <li
+              key={t.id}
+              className={`flex items-stretch ${selectedId === t.id ? 'bg-cpcqc-purple/10' : ''}`}
             >
-              <div className="flex items-center gap-2">
-                <span className="rounded-full bg-cpcqc-purple/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cpcqc-purple-dark">
-                  {t.programLabel}
-                </span>
-                <span className="text-xs text-slate-500">{t.trainingDateDisplay}</span>
-              </div>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{t.title}</p>
-              <p className="mt-0.5 text-xs text-slate-500">
-                {t.participants} participant{t.participants === 1 ? '' : 's'} · {t.sent} sent
-                {t.failed > 0 && (
-                  <span className="ml-1 font-semibold text-cpcqc-pink-dark">
-                    · {t.failed} failed
+              <button
+                onClick={() => onSelect(t.id)}
+                className="flex-1 px-4 py-3 text-left transition hover:bg-cpcqc-purple/5"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-cpcqc-purple/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cpcqc-purple-dark">
+                    {t.programLabel}
                   </span>
-                )}
-              </p>
-            </button>
-          </li>
-        ))}
+                  <span className="text-xs text-slate-500">{t.trainingDateDisplay}</span>
+                </div>
+                <p className="mt-1 text-sm font-semibold text-slate-800">{t.title}</p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {t.participants} participant{t.participants === 1 ? '' : 's'} · {t.sent} sent
+                  {t.failed > 0 && (
+                    <span className="ml-1 font-semibold text-cpcqc-pink-dark">
+                      · {t.failed} failed
+                    </span>
+                  )}
+                </p>
+              </button>
+              <button
+                onClick={() => onDelete(t)}
+                disabled={locked}
+                title={
+                  locked
+                    ? `Can't delete — ${t.sent} certificate${t.sent === 1 ? '' : 's'} already sent. Issued CE records must be kept.`
+                    : `Delete "${t.title}"`
+                }
+                aria-label={locked ? `Cannot delete ${t.title}` : `Delete ${t.title}`}
+                className="px-3 text-slate-300 transition hover:text-cpcqc-pink-dark disabled:cursor-not-allowed disabled:text-slate-200 disabled:hover:text-slate-200"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
