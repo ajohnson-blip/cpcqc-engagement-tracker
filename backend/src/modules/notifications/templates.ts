@@ -3,7 +3,7 @@
  * for MJML/HTML templates later without touching call sites.
  */
 
-import { env } from '@/config/env.js';
+import { frontendBaseUrl } from '@/config/env.js';
 
 export function interestFormReceivedToStaff(input: {
   initiativeName: string;
@@ -23,7 +23,7 @@ Submitter: ${input.submitterName} (${input.submitterRole})
 Email: ${input.submitterEmail}
 
 Review and approve or decline:
-${env.APP_BASE_URL}/staff/interest-forms/${input.interestFormId}
+${frontendBaseUrl()}/staff/interest-forms/${input.interestFormId}
 
 — CPCQC Engagement Tracker`,
   };

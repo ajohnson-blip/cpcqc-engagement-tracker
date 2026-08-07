@@ -76,8 +76,30 @@ if (!parsed.success) {
 export const env = parsed.data;
 
 /**
+ * zod's .url() delegates to `new URL()`, which accepts ANY scheme — so a typo
+ * like "ttps://example.org" parses cleanly and then silently produces dead
+ * links in email. Warn rather than throw: refusing to boot over a cosmetic URL
+ * would take the whole service down for a link-formatting problem.
+ */
+function warnIfNotHttpUrl(name: string, value: string | undefined): void {
+  if (!value) return;
+  if (/^https?:\/\//i.test(value.trim())) return;
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[env] ${name}="${value}" does not start with http:// or https://. ` +
+      'Links built from it will not work. Check for a typo (e.g. "ttps://").',
+  );
+}
+warnIfNotHttpUrl('APP_BASE_URL', env.APP_BASE_URL);
+warnIfNotHttpUrl('PUBLIC_APP_URL', env.PUBLIC_APP_URL);
+warnIfNotHttpUrl('CORS_ORIGIN', env.CORS_ORIGIN.split(',')[0]);
+
+/**
  * Base URL for links a human clicks in an email. Always the frontend.
  * Trailing slash stripped so callers can safely append "/path".
+ *
+ * Note this ignores APP_BASE_URL by design — that is the backend's own origin,
+ * so a link built from it lands on the API and 404s instead of the page.
  */
 export function frontendBaseUrl(): string {
   const raw = env.PUBLIC_APP_URL ?? env.CORS_ORIGIN.split(',')[0];
