@@ -10,7 +10,18 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Award, Upload, Send, Download, Eye, AlertTriangle, RefreshCw, Trash2 } from 'lucide-react';
+import {
+  Award,
+  Upload,
+  Send,
+  Download,
+  Eye,
+  AlertTriangle,
+  RefreshCw,
+  Trash2,
+  UserPlus,
+  Image as ImageIcon,
+} from 'lucide-react';
 import { api, apiFetch } from '@/lib/api';
 import type {
   CeProgramsResponse,
@@ -134,16 +145,11 @@ export default function CeCertificatesPage() {
         </div>
       )}
 
-      {programs && programs.missingLogos.length > 0 && (
-        <div className="mb-6 flex gap-3 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <div>
-            <strong>Logo files missing for {programs.missingLogos.join(', ')}.</strong> Certificates
-            for those programs will show the program name as text instead of the logo. Add PNG files
-            to <code className="rounded bg-amber-100 px-1">backend/assets/initiative-logos/</code>{' '}
-            (e.g. <code className="rounded bg-amber-100 px-1">ttt.png</code>) to fix.
-          </div>
-        </div>
+      {programs && (
+        <LogoManager
+          programs={programs}
+          onChanged={async () => setPrograms(await api.get<CeProgramsResponse>('/staff/ce/programs'))}
+        />
       )}
 
       {loading ? (
@@ -179,6 +185,189 @@ export default function CeCertificatesPage() {
                 Select a training to manage its roster and send certificates.
               </div>
             )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Show the logo currently in use. The endpoint is staff-only, and an <img src>
+ * can't carry the Bearer token, so the bytes are fetched through the
+ * authenticated client and shown via a blob URL. `version` forces a refetch
+ * after an upload or removal.
+ */
+function LogoPreview({ code, label, version }: { code: string; label: string; version: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    (async () => {
+      try {
+        const res = await apiFetch(`/staff/ce/programs/${code}/logo`);
+        if (!res.ok || cancelled) return;
+        objectUrl = URL.createObjectURL(await res.blob());
+        if (cancelled) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        setUrl(objectUrl);
+      } catch {
+        /* preview is cosmetic — a failure just leaves the placeholder */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [code, version]);
+
+  if (!url) return <span className="text-xs text-slate-400">Loading…</span>;
+  /* eslint-disable-next-line @next/next/no-img-element */
+  return <img src={url} alt={`${label} logo`} className="max-h-14 max-w-full object-contain" />;
+}
+
+/**
+ * Upload and replace the logos that appear on certificates.
+ *
+ * Uploads are stored in the database, not on the server's filesystem — Render
+ * wipes local files on every deploy, which would silently strip the branding
+ * from certificates issued afterwards.
+ */
+function LogoManager({
+  programs,
+  onChanged,
+}: {
+  programs: CeProgramsResponse;
+  onChanged: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(programs.missingLogos.length > 0);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  // Bumped after each change to defeat the browser's image cache.
+  const [version, setVersion] = useState(0);
+
+  const entries = [
+    ...programs.programs,
+    { code: programs.cpcqcLogoCode, label: 'CPCQC (on every certificate)' },
+  ];
+
+  async function upload(code: string, file: File) {
+    setBusy(code);
+    setErr(null);
+    try {
+      const res = await apiFetch(
+        `/staff/ce/programs/${code}/logo?filename=${encodeURIComponent(file.name)}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file },
+      );
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => ({}))) as { message?: string };
+        throw new Error(detail.message ?? 'Upload failed.');
+      }
+      await onChanged();
+      setVersion((v) => v + 1);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Upload failed.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function remove(code: string) {
+    if (!window.confirm(`Remove the ${code} logo? Certificates will show the name as text.`)) return;
+    setBusy(code);
+    setErr(null);
+    try {
+      await api.del(`/staff/ce/programs/${code}/logo`);
+      await onChanged();
+      setVersion((v) => v + 1);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not remove the logo.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="mb-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+      >
+        <span className="flex items-center gap-2 font-rounded text-sm font-bold uppercase tracking-wide text-cpcqc-purple-dark">
+          <ImageIcon className="h-4 w-4" /> Certificate logos
+        </span>
+        <span className="flex items-center gap-2 text-xs">
+          {programs.missingLogos.length > 0 ? (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-900">
+              {programs.missingLogos.length} missing
+            </span>
+          ) : (
+            <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
+              All set
+            </span>
+          )}
+          <span className="text-slate-400">{open ? 'Hide' : 'Manage'}</span>
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t border-slate-100 px-4 py-4">
+          <p className="mb-3 text-xs text-slate-600">
+            PNG or JPEG, transparent background, at least 600px wide. A program with no logo prints
+            its name as text instead — the certificate is still valid.
+          </p>
+          {err && <p className="mb-3 text-xs text-cpcqc-pink-dark">{err}</p>}
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {entries.map((p) => {
+              const has = programs.logoAvailability?.[p.code] ?? false;
+              return (
+                <div key={p.code} className="rounded-lg border border-slate-200 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-slate-700">{p.label}</span>
+                    {has ? (
+                      <button
+                        onClick={() => remove(p.code)}
+                        disabled={busy === p.code}
+                        title="Remove logo"
+                        className="text-slate-300 transition hover:text-cpcqc-pink-dark"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    ) : (
+                      <span className="text-[10px] font-semibold uppercase text-amber-700">
+                        Missing
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mb-2 grid h-16 place-items-center rounded bg-slate-50">
+                    {has ? (
+                      <LogoPreview code={p.code} label={p.label} version={version} />
+                    ) : (
+                      <span className="text-xs text-slate-400">No logo</span>
+                    )}
+                  </div>
+
+                  <label className="block cursor-pointer text-center text-xs font-semibold text-cpcqc-purple hover:underline">
+                    {busy === p.code ? 'Uploading…' : has ? 'Replace' : 'Upload'}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) upload(p.code, f);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -391,6 +580,32 @@ function TrainingDetail({
   const [err, setErr] = useState<string | null>(null);
   const [sendResult, setSendResult] = useState<CeSendResult | null>(null);
   const [testEmail, setTestEmail] = useState('');
+  const [manualName, setManualName] = useState('');
+  const [manualEmail, setManualEmail] = useState('');
+
+  async function addOne() {
+    setBusy('addOne');
+    setErr(null);
+    setMsg(null);
+    try {
+      const r = await api.post<{ added: number; alreadyPresent: number }>(
+        `/staff/ce/trainings/${detail.id}/participants`,
+        { name: manualName.trim(), email: manualEmail.trim() },
+      );
+      setMsg(
+        r.added > 0
+          ? `Added ${manualName.trim()} to the roster.`
+          : 'That email is already on the roster.',
+      );
+      setManualName('');
+      setManualEmail('');
+      await onChanged();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not add that person.');
+    } finally {
+      setBusy(null);
+    }
+  }
 
   const unsent = detail.certificates.filter((c) => !c.sentAt).length;
   const failed = detail.certificates.filter((c) => !c.sentAt && c.sendError).length;
@@ -556,6 +771,47 @@ function TrainingDetail({
         />
 
         {busy === 'preview' && <p className="mt-3 text-xs text-slate-500">Reading file…</p>}
+
+        {/* Late arrivals and corrected addresses don't warrant editing and
+            re-uploading the whole roster file. */}
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          <p className="mb-2 text-xs font-semibold text-slate-700">Or add one person</p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              addOne();
+            }}
+            className="flex flex-wrap items-end gap-2"
+          >
+            <label className="min-w-[8rem] flex-1">
+              <span className="mb-1 block text-[11px] text-slate-500">Name</span>
+              <input
+                value={manualName}
+                onChange={(e) => setManualName(e.target.value)}
+                placeholder="Jane Doe"
+                className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              />
+            </label>
+            <label className="min-w-[10rem] flex-1">
+              <span className="mb-1 block text-[11px] text-slate-500">Email</span>
+              <input
+                type="email"
+                value={manualEmail}
+                onChange={(e) => setManualEmail(e.target.value)}
+                placeholder="jane@hospital.org"
+                className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={!manualName.trim() || !manualEmail.trim() || busy === 'addOne'}
+              className="inline-flex items-center gap-1.5 rounded-full bg-cpcqc-purple px-4 py-1.5 text-xs font-bold text-white transition hover:bg-cpcqc-purple-dark disabled:opacity-50"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              {busy === 'addOne' ? 'Adding…' : 'Add'}
+            </button>
+          </form>
+        </div>
 
         {preview && (
           <div className="mt-4 rounded-lg border border-slate-200 p-3">

@@ -618,6 +618,27 @@ export const ceCertificates = pgTable(
   }),
 );
 
+/**
+ * Logos uploaded by staff for CE certificates, keyed by program code
+ * (plus 'CPCQC' for the collaborative's own mark).
+ *
+ * Stored in the DB, not on disk: Render's filesystem is ephemeral, so an
+ * uploaded file would vanish at the next deploy and quietly strip the branding
+ * from every certificate issued after that. Files committed under
+ * backend/assets/initiative-logos/ remain the fallback; a row here wins.
+ */
+export const ceProgramLogos = pgTable('ce_program_logos', {
+  /** 'SPARK' | 'SOAR' | 'NEST' | 'TTT' | 'IMPACT' | 'CPCQC' */
+  programCode: text('program_code').primaryKey(),
+  /** image/png or image/jpeg — pdfkit cannot embed anything else. */
+  mimeType: text('mime_type').notNull(),
+  bytesBase64: text('bytes_base64').notNull(),
+  byteSize: integer('byte_size').notNull(),
+  originalFilename: text('original_filename'),
+  uploadedBy: text('uploaded_by').references(() => users.id, { onDelete: 'set null' }),
+  ...timestamps,
+});
+
 export const auditLog = pgTable(
   'audit_log',
   {

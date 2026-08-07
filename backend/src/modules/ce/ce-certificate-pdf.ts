@@ -18,8 +18,11 @@
  * pdfkit only embeds PNG/JPEG, so logos must be raster. A missing logo degrades
  * to the program name set in type rather than failing the render.
  */
+// NB: this module deliberately imports nothing from ce-programs.ts — that file
+// reaches the database, which would drag a DB import into the unit tests (the
+// '@/' alias doesn't resolve under vitest). Logos and the fallback label are
+// passed in by the caller, which keeps rendering pure and testable.
 import PDFDocument from 'pdfkit';
-import { cpcqcLogo, programLogo, ceProgramLabel } from './ce-programs.js';
 
 const PURPLE = '#6B529B';
 const PURPLE_DEEP = '#5A3E85';
@@ -35,6 +38,8 @@ export const ACCREDITATION_DISCLAIMER =
 
 export interface CertificateData {
   programCode: string;
+  /** Set in type where the logo would go when no logo image is available. */
+  programLabel: string;
   trainingTitle: string;
   /** ISO 'YYYY-MM-DD'. Rendered US-style (M/D/YYYY) to match the template. */
   trainingDate: string;
@@ -43,6 +48,8 @@ export interface CertificateData {
   recipientName: string;
   /** Printed small in the footer so a reissued certificate is traceable. */
   certificateCode?: string;
+  /** PNG/JPEG bytes. Either may be null — the certificate still renders. */
+  logos?: { program?: Buffer | null; cpcqc?: Buffer | null };
 }
 
 /** '2026-09-09' → '9/9/2026'. Parsed as plain date parts — no timezone shifting. */
@@ -112,19 +119,19 @@ function draw(doc: PDFKit.PDFDocument, data: CertificateData) {
   const headerTop = 34;
   const logoBoxH = 58;
 
-  const hostLogo = programLogo(data.programCode);
+  const hostLogo = data.logos?.program ?? null;
   if (hostLogo) {
     fitImage(doc, hostLogo, left, headerTop, 150, logoBoxH, 'left');
   } else {
-    // No logo file yet — set the program name so the certificate is still valid.
+    // No logo yet — set the program name so the certificate is still valid.
     doc
       .font('Helvetica-Bold')
       .fontSize(15)
       .fillColor(PURPLE_DEEP)
-      .text(ceProgramLabel(data.programCode), left, headerTop + 18, { width: 150, align: 'left' });
+      .text(data.programLabel, left, headerTop + 18, { width: 150, align: 'left' });
   }
 
-  const cpcqc = cpcqcLogo();
+  const cpcqc = data.logos?.cpcqc ?? null;
   if (cpcqc) {
     fitImage(doc, cpcqc, right - 130, headerTop, 130, logoBoxH, 'right');
   } else {

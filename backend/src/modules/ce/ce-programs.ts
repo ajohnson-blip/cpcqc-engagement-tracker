@@ -1,17 +1,24 @@
 /**
- * The CE program list — the initiatives that host CPCQC educational trainings.
+ * The CE program list — the initiatives that host CPCQC educational trainings —
+ * and logo resolution for their certificates.
  *
- * Deliberately separate from the `initiatives` table: IMPACT hosts CE trainings
- * but is not a QI initiative in this tracker, and the QI enum has no room for it.
- * Adding a program here + dropping a logo file in assets/initiative-logos is all
- * that's needed — no migration.
+ * The program list is deliberately separate from the `initiatives` table:
+ * IMPACT hosts CE trainings but is not a QI initiative in this tracker, and the
+ * QI enum has no room for it. Adding a program is a one-line change here.
+ *
+ * Logos resolve DB-first, then the files committed under
+ * assets/initiative-logos/. Staff uploads go to the DB because Render's
+ * filesystem is ephemeral — a file written at runtime is gone at the next
+ * deploy, silently unbranding every certificate issued afterwards.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { eq } from 'drizzle-orm';
+import { db, schema } from '@/db/index.js';
 
 export interface CeProgram {
   code: string;
-  /** Shown in the UI and used as the PDF fallback when no logo file exists. */
+  /** Shown in the UI and used as the PDF fallback when no logo exists. */
   label: string;
 }
 
@@ -23,9 +30,16 @@ export const CE_PROGRAMS: CeProgram[] = [
   { code: 'IMPACT', label: 'IMPACT' },
 ];
 
+/** CPCQC's own mark appears on every certificate regardless of host program. */
+export const CPCQC_LOGO_CODE = 'CPCQC';
+
 export const CE_PROGRAM_CODES = CE_PROGRAMS.map((p) => p.code);
 
+/** Codes that accept a logo upload — the programs plus CPCQC's own mark. */
+export const LOGO_CODES = [...CE_PROGRAM_CODES, CPCQC_LOGO_CODE];
+
 export function ceProgramLabel(code: string): string {
+  if (code === CPCQC_LOGO_CODE) return 'CPCQC';
   return CE_PROGRAMS.find((p) => p.code === code)?.label ?? code;
 }
 
@@ -33,26 +47,60 @@ export function isCeProgramCode(code: string): boolean {
   return CE_PROGRAM_CODES.includes(code);
 }
 
+export function isLogoCode(code: string): boolean {
+  return LOGO_CODES.includes(code);
+}
+
+// ---------------------------------------------------------------------------
+// Image validation
+// ---------------------------------------------------------------------------
+
+/** pdfkit embeds PNG and JPEG only. 4 MB is far above any real logo. */
+export const MAX_LOGO_BYTES = 4 * 1024 * 1024;
+
+export interface DetectedImage {
+  mimeType: 'image/png' | 'image/jpeg';
+}
+
+/**
+ * Identify an image by its magic bytes rather than its filename or the
+ * browser-supplied content type — a .png that is actually an SVG would sail
+ * past an extension check and then fail at render time, mid-send.
+ */
+export function detectImageType(buf: Buffer): DetectedImage | { error: string } {
+  if (!buf || buf.length === 0) return { error: 'The file is empty.' };
+  if (buf.length > MAX_LOGO_BYTES) {
+    return { error: `That file is ${(buf.length / 1024 / 1024).toFixed(1)} MB. The limit is 4 MB.` };
+  }
+  const isPng =
+    buf.length > 8 &&
+    buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 &&
+    buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a;
+  if (isPng) return { mimeType: 'image/png' };
+
+  const isJpeg = buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+  if (isJpeg) return { mimeType: 'image/jpeg' };
+
+  // SVG is the likely wrong-format upload, so name the fix rather than just refusing.
+  const head = buf.subarray(0, 400).toString('latin1').trim().toLowerCase();
+  if (head.startsWith('<?xml') || head.includes('<svg')) {
+    return {
+      error:
+        'That looks like an SVG, which cannot be embedded in a PDF. Export it as a PNG (transparent background, at least 600px wide) and upload that.',
+    };
+  }
+  return { error: 'Unsupported image format. Upload a PNG or JPEG.' };
+}
+
+// ---------------------------------------------------------------------------
+// Resolution: uploaded (DB) first, then the committed file
+// ---------------------------------------------------------------------------
+
 /** backend/assets/initiative-logos/ — resolved from this file, since the server
  *  runs from source (tsx) rather than a build output directory. */
 const LOGO_DIR = fileURLToPath(new URL('../../../assets/initiative-logos/', import.meta.url));
 
-/** CPCQC's own mark, on every certificate regardless of host initiative. */
-export function cpcqcLogo(): Buffer | null {
-  return readLogoFile('cpcqc');
-}
-
-/**
- * The host initiative's logo, or null when the file hasn't been added yet. The
- * renderer falls back to the program name as text, so a missing logo degrades to
- * a plain-but-correct certificate rather than a crash — and the UI warns first.
- */
-export function programLogo(code: string): Buffer | null {
-  return readLogoFile(code.toLowerCase());
-}
-
 function readLogoFile(basename: string): Buffer | null {
-  // PNG preferred (pdfkit supports PNG and JPEG only — not SVG).
   for (const ext of ['png', 'jpg', 'jpeg']) {
     const path = `${LOGO_DIR}${basename}.${ext}`;
     if (existsSync(path)) {
@@ -66,8 +114,33 @@ function readLogoFile(basename: string): Buffer | null {
   return null;
 }
 
-/** Which program logos are missing — surfaced in the preview so a PM never
- *  discovers a blank logo slot after 100 certificates have gone out. */
-export function missingProgramLogos(): string[] {
-  return CE_PROGRAMS.filter((p) => programLogo(p.code) === null).map((p) => p.code);
+/**
+ * The logo bytes for a code, or null when neither an upload nor a committed
+ * file exists — in which case the renderer sets the program name in type, so a
+ * missing logo yields a plain-but-valid certificate rather than a failure.
+ */
+export async function loadLogo(code: string): Promise<Buffer | null> {
+  const row = await db.query.ceProgramLogos.findFirst({
+    where: eq(schema.ceProgramLogos.programCode, code),
+  });
+  if (row) {
+    try {
+      return Buffer.from(row.bytesBase64, 'base64');
+    } catch {
+      /* corrupt row — fall through to the committed file */
+    }
+  }
+  return readLogoFile(code.toLowerCase());
+}
+
+/** Which codes currently have a logo, from either source. Surfaced in the UI so
+ *  a PM never discovers a blank logo slot after 100 certificates have gone out. */
+export async function logoAvailability(): Promise<Record<string, boolean>> {
+  const rows = await db.select({ code: schema.ceProgramLogos.programCode }).from(schema.ceProgramLogos);
+  const uploaded = new Set(rows.map((r) => r.code));
+  const out: Record<string, boolean> = {};
+  for (const code of LOGO_CODES) {
+    out[code] = uploaded.has(code) || readLogoFile(code.toLowerCase()) !== null;
+  }
+  return out;
 }

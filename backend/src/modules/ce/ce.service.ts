@@ -25,8 +25,8 @@ import {
   formatContactHours,
   certificateFilename,
 } from './ce-certificate-pdf.js';
-import { ceProgramLabel, isCeProgramCode, programLogo } from './ce-programs.js';
-import type { RosterRow } from './ce-roster.js';
+import { ceProgramLabel, isCeProgramCode, loadLogo, CPCQC_LOGO_CODE } from './ce-programs.js';
+import { tidyName, isPlausibleEmail, type RosterRow } from './ce-roster.js';
 
 /** How many SendGrid calls are in flight at once. */
 const SEND_CONCURRENCY = 4;
@@ -163,7 +163,7 @@ export async function getTraining(trainingId: string) {
   return {
     ...toTrainingDto(t),
     /** Warn before sending, not after: a missing logo yields a text fallback. */
-    logoMissing: programLogo(t.programCode) === null,
+    logoMissing: (await loadLogo(t.programCode)) === null,
     certificates: certs.map((c) => ({
       id: c.id,
       certificateCode: c.certificateCode,
@@ -315,20 +315,49 @@ export async function removeCertificate(certificateId: string) {
   await db.delete(schema.ceCertificates).where(eq(schema.ceCertificates.id, certificateId));
 }
 
-/** Build one certificate PDF. Exported so the routes can stream a preview. */
+/**
+ * Build one certificate PDF. Exported so the routes can stream a preview.
+ * Logos are loaded here (uploads live in the DB) and handed to the renderer,
+ * which stays free of DB access.
+ */
 export async function buildCertificatePdf(
   training: typeof schema.ceTrainings.$inferSelect,
   cert: { recipientName: string; certificateCode: string },
 ): Promise<Buffer> {
+  const [program, cpcqc] = await Promise.all([
+    loadLogo(training.programCode),
+    loadLogo(CPCQC_LOGO_CODE),
+  ]);
   return renderCertificatePdf({
     programCode: training.programCode,
+    programLabel: ceProgramLabel(training.programCode),
     trainingTitle: training.title,
     trainingDate: training.trainingDate,
     contactHours: training.contactHours,
     activityId: training.activityId,
     recipientName: cert.recipientName,
     certificateCode: cert.certificateCode,
+    logos: { program, cpcqc },
   });
+}
+
+/**
+ * Add a single participant by hand — for the late arrival, the walk-in, or the
+ * one address that was mistyped in the roster file. Goes through the same
+ * importRoster path so it inherits duplicate handling and code generation.
+ */
+export async function addParticipant(
+  trainingId: string,
+  input: { name: string; email: string },
+  actorUserId: string | null,
+): Promise<{ added: number; alreadyPresent: number }> {
+  const name = tidyName(String(input.name ?? ''));
+  const email = String(input.email ?? '').trim();
+  if (!name) throw new HttpError(400, 'A name is required.');
+  if (!isPlausibleEmail(email)) throw new HttpError(400, 'That email address does not look valid.');
+
+  const result = await importRoster(trainingId, [{ name, email, sourceRow: 0 }], actorUserId);
+  return { added: result.added, alreadyPresent: result.alreadyPresent };
 }
 
 export interface SendResult {

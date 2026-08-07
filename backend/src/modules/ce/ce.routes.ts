@@ -26,9 +26,19 @@ import {
   removeCertificate,
   sendCertificates,
   buildCertificatePdf,
+  addParticipant,
 } from './ce.service.js';
 import { parseRoster, csvToRows } from './ce-roster.js';
-import { CE_PROGRAMS, missingProgramLogos } from './ce-programs.js';
+import {
+  CE_PROGRAMS,
+  CE_PROGRAM_CODES,
+  CPCQC_LOGO_CODE,
+  isLogoCode,
+  detectImageType,
+  logoAvailability,
+  loadLogo,
+  ceProgramLabel,
+} from './ce-programs.js';
 import { renderCertificatePdf, certificateFilename } from './ce-certificate-pdf.js';
 
 const router = Router();
@@ -82,8 +92,76 @@ async function rowsFromUpload(buf: Buffer): Promise<unknown[][]> {
 
 // ---------- Programs ----------
 
-router.get('/programs', (_req, res) => {
-  res.json({ programs: CE_PROGRAMS, missingLogos: missingProgramLogos() });
+router.get('/programs', async (_req, res) => {
+  const availability = await logoAvailability();
+  res.json({
+    programs: CE_PROGRAMS,
+    logoAvailability: availability,
+    missingLogos: CE_PROGRAM_CODES.filter((c) => !availability[c]),
+    cpcqcLogoCode: CPCQC_LOGO_CODE,
+  });
+});
+
+/**
+ * Upload a logo. Raw body, same approach as the roster upload. The image is
+ * identified by its magic bytes rather than filename or the browser-supplied
+ * content type, so a mislabelled SVG is refused here rather than failing later
+ * in the middle of a hundred-certificate send.
+ */
+router.post('/programs/:code/logo', rawUploadBody, async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  if (!isLogoCode(code)) throw new HttpError(400, `Unknown program "${req.params.code}".`);
+
+  const buf = req.body as Buffer;
+  const detected = detectImageType(buf);
+  if ('error' in detected) throw new HttpError(400, detected.error);
+
+  const filename = typeof req.query.filename === 'string' ? req.query.filename.slice(0, 200) : null;
+  const now = new Date();
+  await db
+    .insert(schema.ceProgramLogos)
+    .values({
+      programCode: code,
+      mimeType: detected.mimeType,
+      bytesBase64: buf.toString('base64'),
+      byteSize: buf.length,
+      originalFilename: filename,
+      uploadedBy: req.auth?.userId ?? null,
+    })
+    .onConflictDoUpdate({
+      target: schema.ceProgramLogos.programCode,
+      set: {
+        mimeType: detected.mimeType,
+        bytesBase64: buf.toString('base64'),
+        byteSize: buf.length,
+        originalFilename: filename,
+        uploadedBy: req.auth?.userId ?? null,
+        updatedAt: now,
+      },
+    });
+
+  res.json({ code, mimeType: detected.mimeType, byteSize: buf.length });
+});
+
+/** Remove an uploaded logo. Any file committed under assets/ becomes active
+ *  again; if there is none, certificates fall back to the program name. */
+router.delete('/programs/:code/logo', async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  await db.delete(schema.ceProgramLogos).where(eq(schema.ceProgramLogos.programCode, code));
+  res.status(204).end();
+});
+
+/** Serve the current logo so the UI can show what's actually in use. */
+router.get('/programs/:code/logo', async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const bytes = await loadLogo(code);
+  if (!bytes) throw new HttpError(404, 'No logo for that program.');
+  const row = await db.query.ceProgramLogos.findFirst({
+    where: eq(schema.ceProgramLogos.programCode, code),
+  });
+  res.setHeader('Content-Type', row?.mimeType ?? 'image/png');
+  res.setHeader('Cache-Control', 'no-store'); // it changes the moment staff re-upload
+  res.send(bytes);
 });
 
 // ---------- Trainings ----------
@@ -137,6 +215,15 @@ router.post('/trainings/:id/roster', rawUploadBody, async (req, res) => {
   res.json({ ...result, problems: parsed.problems, detected: parsed.detected });
 });
 
+/** Add one participant by hand — late arrivals, walk-ins, corrected addresses. */
+router.post('/trainings/:id/participants', async (req, res) => {
+  const input = z
+    .object({ name: z.string().trim().min(1).max(200), email: z.string().trim().email() })
+    .parse(req.body);
+  const result = await addParticipant(req.params.id, input, req.auth?.userId ?? null);
+  res.status(201).json(result);
+});
+
 router.delete('/certificates/:id', async (req, res) => {
   await removeCertificate(req.params.id);
   res.status(204).end();
@@ -149,14 +236,17 @@ router.get('/trainings/:id/preview.pdf', async (req, res) => {
   const t = await db.query.ceTrainings.findFirst({ where: eq(schema.ceTrainings.id, req.params.id) });
   if (!t) throw new HttpError(404, 'Training not found.');
   const name = String(req.query.name ?? '').trim() || 'Sample Participant';
+  const [program, cpcqc] = await Promise.all([loadLogo(t.programCode), loadLogo(CPCQC_LOGO_CODE)]);
   const pdf = await renderCertificatePdf({
     programCode: t.programCode,
+    programLabel: ceProgramLabel(t.programCode),
     trainingTitle: t.title,
     trainingDate: t.trainingDate,
     contactHours: t.contactHours,
     activityId: t.activityId,
     recipientName: name,
     certificateCode: 'PREVIEW',
+    logos: { program, cpcqc },
   });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'inline; filename="certificate-preview.pdf"');
@@ -196,14 +286,17 @@ router.post('/trainings/:id/test-send', async (req, res) => {
   const t = await db.query.ceTrainings.findFirst({ where: eq(schema.ceTrainings.id, req.params.id) });
   if (!t) throw new HttpError(404, 'Training not found.');
 
+  const [program, cpcqc] = await Promise.all([loadLogo(t.programCode), loadLogo(CPCQC_LOGO_CODE)]);
   const pdf = await renderCertificatePdf({
     programCode: t.programCode,
+    programLabel: ceProgramLabel(t.programCode),
     trainingTitle: t.title,
     trainingDate: t.trainingDate,
     contactHours: t.contactHours,
     activityId: t.activityId,
     recipientName: 'Sample Participant',
     certificateCode: 'TEST-SEND',
+    logos: { program, cpcqc },
   });
   const outcome = await sendEmail({
     toEmail: to,

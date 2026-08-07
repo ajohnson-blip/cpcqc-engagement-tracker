@@ -802,8 +802,12 @@ export interface CeProgram {
 
 export interface CeProgramsResponse {
   programs: CeProgram[];
-  /** Program codes with no logo file yet — their certificates fall back to text. */
+  /** Program codes with no logo yet — their certificates fall back to text. */
   missingLogos: string[];
+  /** code -> whether a logo exists (uploaded or committed). Includes CPCQC. */
+  logoAvailability: Record<string, boolean>;
+  /** The code used for CPCQC's own mark, which appears on every certificate. */
+  cpcqcLogoCode: string;
 }
 
 export interface CeTrainingSummary {
