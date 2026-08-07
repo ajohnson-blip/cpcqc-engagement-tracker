@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Logo } from '@/components/logo';
 import { useAuth } from '@/lib/auth-context';
@@ -72,9 +73,15 @@ export default function LoginPage() {
               </label>
 
               <label className="block">
-                <span className="mb-1 block text-sm font-semibold text-cpcqc-purple-dark">
-                  Password
-                </span>
+                <div className="mb-1 flex items-baseline justify-between gap-2">
+                  <span className="text-sm font-semibold text-cpcqc-purple-dark">Password</span>
+                  <Link
+                    href="/forgot-password"
+                    className="text-xs font-semibold text-cpcqc-purple hover:underline"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
                 <input
                   type="password"
                   required

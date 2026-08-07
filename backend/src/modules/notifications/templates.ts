@@ -71,3 +71,36 @@ If you have questions or would like to discuss further, please reply to this ema
 — CPCQC`,
   };
 }
+
+/**
+ * Self-service password reset. The link carries a single-use token that expires
+ * in an hour; requesting another invalidates nothing, but only the newest link
+ * is worth using since each is independently valid until used or expired.
+ *
+ * Deliberately says nothing about the account beyond the recipient's own name —
+ * these can be triggered by anyone who knows an address, so the body must not
+ * leak role, hospital, or whether other accounts exist.
+ */
+export function passwordResetEmail(input: {
+  recipientName: string;
+  resetUrl: string;
+  expiresInMinutes: number;
+}): { subject: string; body: string } {
+  return {
+    subject: 'Reset your CPCQC Engagement Tracker password',
+    body: `Hello ${input.recipientName},
+
+We received a request to reset the password for your CPCQC Engagement Tracker
+account. Click the link below to choose a new one:
+
+${input.resetUrl}
+
+This link expires in ${input.expiresInMinutes} minutes and can only be used once.
+
+If you didn't request this, you can ignore this email — your password will not
+change and no one has access to your account.
+
+— CPCQC Engagement Tracker
+www.cpcqc.org`,
+  };
+}

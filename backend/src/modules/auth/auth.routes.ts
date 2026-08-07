@@ -1,10 +1,13 @@
 import { Router, type Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { env } from '@/config/env.js';
+import { env, frontendBaseUrl } from '@/config/env.js';
 import { HttpError } from '@/middleware/errors.js';
 import { requireAuth } from '@/middleware/auth.js';
 import { db, schema } from '@/db/index.js';
 import { eq, inArray } from 'drizzle-orm';
+import { sendEmail } from '@/modules/notifications/notifications.service.js';
+import { passwordResetEmail } from '@/modules/notifications/templates.js';
 import {
   changePassword,
   login,
@@ -12,6 +15,7 @@ import {
   refresh,
   requestPasswordReset,
   confirmPasswordReset,
+  PASSWORD_RESET_TTL_MINUTES,
 } from './auth.service.js';
 
 const router = Router();
@@ -51,14 +55,47 @@ router.post('/refresh', async (req, res) => {
   res.json({ accessToken: result.accessToken, user: result.auth });
 });
 
-router.post('/password-reset/request', async (req, res) => {
+/**
+ * Tighter limit than the /auth default: each request sends real email, and on
+ * SendGrid's lower tiers a scripted loop could burn the whole daily quota and
+ * take invites and certificate sends down with it.
+ */
+const resetRequestLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many password reset requests. Please try again later.' },
+});
+
+router.post('/password-reset/request', resetRequestLimiter, async (req, res) => {
   const body = z.object({ email: z.string().email() }).parse(req.body);
-  // Token is returned for dev only. In production this is emailed and not sent in response.
-  const token = await requestPasswordReset(body.email);
-  if (env.NODE_ENV === 'development' && token) {
-    res.json({ ok: true, devToken: token });
+  const result = await requestPasswordReset(body.email);
+
+  if (result) {
+    const resetUrl = `${frontendBaseUrl()}/reset-password?token=${encodeURIComponent(result.token)}`;
+    const { subject, body: text } = passwordResetEmail({
+      recipientName: result.user.firstName ?? 'there',
+      resetUrl,
+      expiresInMinutes: PASSWORD_RESET_TTL_MINUTES,
+    });
+    // Failures are logged by sendEmail and must not change the response —
+    // a different reply for a failed send would leak that the account exists.
+    await sendEmail({
+      toEmail: result.user.email,
+      subject,
+      body: text,
+      kind: 'password_reset',
+      userId: result.user.id,
+    });
+  }
+
+  // Dev convenience: return the token so a local reset doesn't need a mailbox.
+  if (env.NODE_ENV === 'development' && result) {
+    res.json({ ok: true, devToken: result.token });
     return;
   }
+  // Always the same shape, whether or not the address matched an account.
   res.json({ ok: true });
 });
 

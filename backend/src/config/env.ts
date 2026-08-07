@@ -29,6 +29,18 @@ const EnvSchema = z.object({
 
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
 
+  /**
+   * Public base URL of the FRONTEND, used to build links people click in email
+   * (password reset, account setup). Optional: defaults to the first
+   * CORS_ORIGIN entry, which is by definition the frontend origin and is known
+   * good in production — if it were wrong the browser app wouldn't work at all.
+   *
+   * Deliberately NOT APP_BASE_URL: that one is documented as the backend's own
+   * URL, so a link built from it would 404. Set this only if the frontend is
+   * reachable at an address that isn't the first CORS origin.
+   */
+  PUBLIC_APP_URL: z.string().url().optional(),
+
   // REDCap (Vanderbilt) integration. The API URL is shared across all CPCQC
   // REDCap projects; each project has its own per-project token. Tokens are
   // SECRETS — set them as Render environment variables, never in code.
@@ -62,3 +74,12 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+/**
+ * Base URL for links a human clicks in an email. Always the frontend.
+ * Trailing slash stripped so callers can safely append "/path".
+ */
+export function frontendBaseUrl(): string {
+  const raw = env.PUBLIC_APP_URL ?? env.CORS_ORIGIN.split(',')[0];
+  return raw.trim().replace(/\/+$/, '');
+}

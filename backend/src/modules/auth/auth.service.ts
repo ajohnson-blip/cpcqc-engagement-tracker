@@ -137,20 +137,32 @@ export async function refresh(refreshToken: string): Promise<LoginResult> {
   return { accessToken, refreshToken: newRefresh, auth };
 }
 
-export async function requestPasswordReset(email: string): Promise<string | null> {
+/** How long a reset link stays valid. Surfaced in the email so the wording and
+ *  the actual expiry can't drift apart. */
+export const PASSWORD_RESET_TTL_MINUTES = 60;
+
+export interface PasswordResetRequest {
+  token: string;
+  /** Needed to address the email. Callers must NOT echo any of this back in the
+   *  HTTP response — the endpoint has to look identical for unknown addresses. */
+  user: { id: string; email: string; firstName: string | null };
+}
+
+export async function requestPasswordReset(email: string): Promise<PasswordResetRequest | null> {
   const user = await db.query.users.findFirst({
     where: sql`lower(${schema.users.email}) = lower(${email})`,
   });
   if (!user) return null; // do not reveal whether the email exists
+  if (user.deactivatedAt) return null; // deactivated accounts can't be reset back into
   const { token, hash } = newOpaqueToken();
-  const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+  const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000);
   await db.insert(schema.passwordResets).values({
     id: uuid(),
     userId: user.id,
     tokenHash: hash,
     expiresAt,
   });
-  return token;
+  return { token, user: { id: user.id, email: user.email, firstName: user.firstName ?? null } };
 }
 
 /**
