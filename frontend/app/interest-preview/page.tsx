@@ -118,6 +118,16 @@ export default function InterestFormPreviewPage() {
             optional — it helps CPCQC plan cohort sizes, but you&rsquo;re not obligated to
             participate in more than one.
           </p>
+          {/* In the real form this appears beside the hospital's current
+              enrollments; shown here so reviewers can see the wording. */}
+          <p>
+            <strong className="text-cpcqc-purple-dark">
+              Current enrollments do not carry over automatically.
+            </strong>{' '}
+            SPARK, SOAR and NEST run one year at a time. To take part in {PROGRAM_YEAR}, rank the
+            initiative below and submit its enrollment form in November — even if you&rsquo;re
+            enrolled in it today. Turning the Tide is the exception, as a two-year cohort.
+          </p>
         </div>
 
         {/* Window banner */}
@@ -224,8 +234,8 @@ export default function InterestFormPreviewPage() {
                 <strong>not enrolling new TTT hospitals</strong> for {PROGRAM_YEAR} — so it
                 doesn&rsquo;t appear in the ranking below. If your hospital is currently enrolled in
                 TTT, you&rsquo;ll continue through {PROGRAM_YEAR} to complete the cohort. CPCQC will
-                send the {PROGRAM_YEAR} TTT Continuation Form to all current TTT hospitals on{' '}
-                {fmtDate(CLOSES_AT)}.
+                send the {PROGRAM_YEAR} TTT Enrollment Continuation Form to all current TTT
+                hospitals in mid-November, at the same time as every other enrollment form.
               </p>
               <p className="mt-2 text-xs text-cpcqc-purple-dark/60">
                 Annual enrollment forms are a legal requirement even for multi-year cohorts.

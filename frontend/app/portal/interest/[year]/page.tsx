@@ -13,9 +13,8 @@
  *     reads "Update submission" — editable through window close.
  *   - Window-closed state: form goes read-only with a banner explaining
  *     why; existing submission still displays.
- *   - TTT-aware intent: if the hospital is currently enrolled in TTT for
- *     the prior year, the dropdown asks for 0 or 1 ADDITIONAL initiatives
- *     (TTT continuation eats one of the 2 slots); otherwise 1 or 2.
+ *   - Intent is always a TOTAL (1 or 2), including any TTT continuation, so
+ *     the answer can be checked against the 2-initiative cap directly.
  *   - Shows the hospital's current enrollments for the prior year at the
  *     top of the form for context ("you already have X, Y").
  *
@@ -188,14 +187,14 @@ export default function AnnualInterestRealPage() {
     [eligibleInitiatives],
   );
 
-  // For TTT hospitals, the intent question is "how many ADDITIONAL initiatives
-  // beyond your TTT continuation?" with options 0 or 1. For non-TTT hospitals,
-  // it's 1 or 2 — the standard cap. (SOAR-sustainability hospitals keep the
-  // normal cap; CPCQC reconciles if they revert to SOAR active.)
-  const intentOptions = inTTT
-    ? ([0, 1] as const)
-    : ([1, 2] as const);
-  const intentLabelSuffix = inTTT ? 'additional initiative(s)' : 'initiative(s)';
+  // (SOAR-sustainability hospitals keep the normal cap; CPCQC reconciles if
+  // they revert to SOAR active.)
+  // Always a TOTAL, never a delta: a TtT hospital answers 2, meaning its TtT
+  // continuation plus one elective. Asking TtT hospitals for "additional"
+  // initiatives instead yielded a different number for the same commitment and
+  // made the two-initiative cap hard to check against.
+  const intentOptions = [1, 2] as const;
+  const intentLabelSuffix = 'initiative(s)';
 
   const takenRanks = useMemo(() => {
     const taken = new Set<number>();
@@ -515,11 +514,21 @@ export default function AnnualInterestRealPage() {
               </li>
             ))}
           </ul>
+          {/* The most costly misunderstanding available here: assuming a current
+              enrollment simply rolls over. SPARK, SOAR and NEST are one-year
+              cohorts and every year needs a fresh interest form and enrollment
+              form. Only TTT carries forward, because it is a two-year cohort. */}
+          <p className="mt-3 rounded-lg bg-white/70 px-3 py-2 text-sm text-cpcqc-purple-dark/80">
+            <strong>These do not carry over automatically.</strong> SPARK, SOAR and NEST run
+            one year at a time. To take part in {programYear}, rank the initiative below and
+            submit its enrollment form in November — even if you're enrolled in it today.
+          </p>
           {inTTT && (
-            <p className="mt-3 text-sm text-cpcqc-purple-dark/80">
-              Because you're in TTT, that continuation counts toward your{' '}
-              <strong>2-initiative limit</strong> for {programYear} — you can add up to one
-              more initiative below.
+            <p className="mt-2 text-sm text-cpcqc-purple-dark/80">
+              Turning the Tide is the exception: it's a two-year cohort, so your continuation
+              carries into {programYear} and counts toward your{' '}
+              <strong>2-initiative limit</strong> — you can add up to one more initiative
+              below.
             </p>
           )}
         </div>
@@ -575,16 +584,12 @@ export default function AnnualInterestRealPage() {
             title="Your enrollment intent"
             description={
               inTTT
-                ? `Your existing TTT enrollment continues automatically. Tell us how many ADDITIONAL initiatives you intend to enroll in for ${programYear} (max 1 — your TTT continuation already uses one of your 2 slots).`
+                ? `Hospitals can enroll in up to 2 initiatives for ${programYear}. Your Turning the Tide continuation counts as one of them, so choose 2 if you'd like to add one more.`
                 : `Hospitals can enroll in up to 2 initiatives for ${programYear}.`
             }
           >
             <Field
-              label={
-                inTTT
-                  ? `How many additional initiatives do you intend to enroll in for ${programYear}?`
-                  : `How many initiatives do you intend to enroll in for ${programYear}?`
-              }
+              label={`How many initiatives do you intend to enroll in for ${programYear}?`}
               required
             >
               <select
@@ -616,8 +621,9 @@ export default function AnnualInterestRealPage() {
               <strong>not enrolling new TTT hospitals</strong> for {programYear} — so it
               doesn't appear in the ranking below. If your hospital is currently enrolled
               in TTT, you'll continue through {programYear} to complete the cohort. CPCQC
-              will send the {programYear} TTT Continuation Form to all current TTT hospitals
-              on {fmtDate(windowResp.window.closesAt)}.
+              will send the {programYear} TTT Enrollment Continuation Form to all current
+              TTT hospitals in mid-November, at the same time as every other enrollment
+              form.
             </p>
             <p className="mt-2 text-xs text-cpcqc-purple-dark/60">
               Annual enrollment forms are a legal requirement even for multi-year cohorts.
