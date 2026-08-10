@@ -20,6 +20,13 @@ export interface CeProgram {
   code: string;
   /** Shown in the UI and used as the PDF fallback when no logo exists. */
   label: string;
+  /**
+   * A training CPCQC hosts directly, not on behalf of an initiative. There is
+   * no host logo to show — CPCQC's own mark already appears on the certificate —
+   * so the host slot is left empty rather than filled with fallback text, and
+   * no logo is expected or requested for it.
+   */
+  generic?: boolean;
 }
 
 export const CE_PROGRAMS: CeProgram[] = [
@@ -28,6 +35,8 @@ export const CE_PROGRAMS: CeProgram[] = [
   { code: 'NEST', label: 'NEST' },
   { code: 'TTT', label: 'Turning the Tide' },
   { code: 'IMPACT', label: 'IMPACT' },
+  { code: 'FIRST', label: 'FIRST' },
+  { code: 'GENERAL', label: 'CPCQC-hosted education', generic: true },
 ];
 
 /** CPCQC's own mark appears on every certificate regardless of host program. */
@@ -35,12 +44,30 @@ export const CPCQC_LOGO_CODE = 'CPCQC';
 
 export const CE_PROGRAM_CODES = CE_PROGRAMS.map((p) => p.code);
 
-/** Codes that accept a logo upload — the programs plus CPCQC's own mark. */
-export const LOGO_CODES = [...CE_PROGRAM_CODES, CPCQC_LOGO_CODE];
+/** Codes that accept a logo upload — every non-generic program, plus CPCQC's
+ *  own mark. Generic programs have no host logo by design. */
+export const LOGO_CODES = [
+  ...CE_PROGRAMS.filter((p) => !p.generic).map((p) => p.code),
+  CPCQC_LOGO_CODE,
+];
 
 export function ceProgramLabel(code: string): string {
   if (code === CPCQC_LOGO_CODE) return 'CPCQC';
   return CE_PROGRAMS.find((p) => p.code === code)?.label ?? code;
+}
+
+/** True for CPCQC-hosted trainings that aren't tied to an initiative. */
+export function isGenericProgram(code: string): boolean {
+  return CE_PROGRAMS.find((p) => p.code === code)?.generic === true;
+}
+
+/**
+ * What to print in the host-logo slot when no logo image exists. Empty for
+ * generic programs: "CPCQC-hosted education" set in type beside the CPCQC logo
+ * would read as a mistake rather than as branding.
+ */
+export function hostLogoFallbackLabel(code: string): string {
+  return isGenericProgram(code) ? '' : ceProgramLabel(code);
 }
 
 export function isCeProgramCode(code: string): boolean {

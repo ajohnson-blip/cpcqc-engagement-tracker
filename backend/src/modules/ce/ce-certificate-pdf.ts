@@ -122,8 +122,10 @@ function draw(doc: PDFKit.PDFDocument, data: CertificateData) {
   const hostLogo = data.logos?.program ?? null;
   if (hostLogo) {
     fitImage(doc, hostLogo, left, headerTop, 150, logoBoxH, 'left');
-  } else {
+  } else if (data.programLabel) {
     // No logo yet — set the program name so the certificate is still valid.
+    // An empty label means the slot is intentionally blank (CPCQC-hosted
+    // trainings, where the CPCQC mark on the right already identifies the host).
     doc
       .font('Helvetica-Bold')
       .fontSize(15)

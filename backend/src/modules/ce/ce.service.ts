@@ -25,7 +25,14 @@ import {
   formatContactHours,
   certificateFilename,
 } from './ce-certificate-pdf.js';
-import { ceProgramLabel, isCeProgramCode, loadLogo, CPCQC_LOGO_CODE } from './ce-programs.js';
+import {
+  ceProgramLabel,
+  hostLogoFallbackLabel,
+  isGenericProgram,
+  isCeProgramCode,
+  loadLogo,
+  CPCQC_LOGO_CODE,
+} from './ce-programs.js';
 import { tidyName, isPlausibleEmail, type RosterRow } from './ce-roster.js';
 
 /** How many SendGrid calls are in flight at once. */
@@ -162,8 +169,9 @@ export async function getTraining(trainingId: string) {
 
   return {
     ...toTrainingDto(t),
-    /** Warn before sending, not after: a missing logo yields a text fallback. */
-    logoMissing: (await loadLogo(t.programCode)) === null,
+    /** Warn before sending, not after: a missing logo yields a text fallback.
+     *  Generic CPCQC trainings have no host logo by design, so never warn. */
+    logoMissing: !isGenericProgram(t.programCode) && (await loadLogo(t.programCode)) === null,
     certificates: certs.map((c) => ({
       id: c.id,
       certificateCode: c.certificateCode,
@@ -330,7 +338,7 @@ export async function buildCertificatePdf(
   ]);
   return renderCertificatePdf({
     programCode: training.programCode,
-    programLabel: ceProgramLabel(training.programCode),
+    programLabel: hostLogoFallbackLabel(training.programCode),
     trainingTitle: training.title,
     trainingDate: training.trainingDate,
     contactHours: training.contactHours,

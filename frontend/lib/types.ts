@@ -798,6 +798,8 @@ export interface CohortPlanningAggregate {
 export interface CeProgram {
   code: string;
   label: string;
+  /** CPCQC-hosted training not tied to an initiative — no host logo expected. */
+  generic?: boolean;
 }
 
 export interface CeProgramsResponse {

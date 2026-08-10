@@ -249,8 +249,9 @@ function LogoManager({
   // Bumped after each change to defeat the browser's image cache.
   const [version, setVersion] = useState(0);
 
+  // Generic (CPCQC-hosted) programs have no host logo, so they get no tile.
   const entries = [
-    ...programs.programs,
+    ...programs.programs.filter((p) => !p.generic),
     { code: programs.cpcqcLogoCode, label: 'CPCQC (on every certificate)' },
   ];
 

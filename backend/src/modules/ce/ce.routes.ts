@@ -31,13 +31,13 @@ import {
 import { parseRoster, csvToRows } from './ce-roster.js';
 import {
   CE_PROGRAMS,
-  CE_PROGRAM_CODES,
   CPCQC_LOGO_CODE,
   isLogoCode,
   detectImageType,
   logoAvailability,
   loadLogo,
   ceProgramLabel,
+  hostLogoFallbackLabel,
 } from './ce-programs.js';
 import { renderCertificatePdf, certificateFilename } from './ce-certificate-pdf.js';
 
@@ -97,7 +97,8 @@ router.get('/programs', async (_req, res) => {
   res.json({
     programs: CE_PROGRAMS,
     logoAvailability: availability,
-    missingLogos: CE_PROGRAM_CODES.filter((c) => !availability[c]),
+    // Generic programs have no host logo by design — never report them missing.
+    missingLogos: CE_PROGRAMS.filter((p) => !p.generic && !availability[p.code]).map((p) => p.code),
     cpcqcLogoCode: CPCQC_LOGO_CODE,
   });
 });
@@ -239,7 +240,7 @@ router.get('/trainings/:id/preview.pdf', async (req, res) => {
   const [program, cpcqc] = await Promise.all([loadLogo(t.programCode), loadLogo(CPCQC_LOGO_CODE)]);
   const pdf = await renderCertificatePdf({
     programCode: t.programCode,
-    programLabel: ceProgramLabel(t.programCode),
+    programLabel: hostLogoFallbackLabel(t.programCode),
     trainingTitle: t.title,
     trainingDate: t.trainingDate,
     contactHours: t.contactHours,
@@ -289,7 +290,7 @@ router.post('/trainings/:id/test-send', async (req, res) => {
   const [program, cpcqc] = await Promise.all([loadLogo(t.programCode), loadLogo(CPCQC_LOGO_CODE)]);
   const pdf = await renderCertificatePdf({
     programCode: t.programCode,
-    programLabel: ceProgramLabel(t.programCode),
+    programLabel: hostLogoFallbackLabel(t.programCode),
     trainingTitle: t.title,
     trainingDate: t.trainingDate,
     contactHours: t.contactHours,
