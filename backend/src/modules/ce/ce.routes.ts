@@ -40,6 +40,11 @@ import {
   hostLogoFallbackLabel,
 } from './ce-programs.js';
 import { renderCertificatePdf, certificateFilename } from './ce-certificate-pdf.js';
+import {
+  buildCeReport,
+  buildCeReportWorkbook,
+  buildCeParticipantsCsv,
+} from './ce-reports.service.js';
 
 const router = Router();
 router.use(requireAuth, requireStaff);
@@ -163,6 +168,37 @@ router.get('/programs/:code/logo', async (req, res) => {
   res.setHeader('Content-Type', row?.mimeType ?? 'image/png');
   res.setHeader('Cache-Control', 'no-store'); // it changes the moment staff re-upload
   res.send(bytes);
+});
+
+// ---------- Reports ----------
+
+const reportFilters = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  programCode: z.string().optional(),
+});
+
+router.get('/reports', async (req, res) => {
+  res.json(await buildCeReport(reportFilters.parse(req.query)));
+});
+
+/** Three-sheet workbook: Summary, Activities, Participants. */
+router.get('/reports/export.xlsx', async (req, res) => {
+  const filters = reportFilters.parse(req.query);
+  const buf = await buildCeReportWorkbook(filters);
+  const label = `${filters.from ?? 'start'}_${filters.to ?? 'end'}`;
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="CPCQC-CE-Report_${label}.xlsx"`);
+  res.send(buf);
+});
+
+router.get('/reports/participants.csv', async (req, res) => {
+  const filters = reportFilters.parse(req.query);
+  const csv = await buildCeParticipantsCsv(filters);
+  const label = `${filters.from ?? 'start'}_${filters.to ?? 'end'}`;
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="CPCQC-CE-Participants_${label}.csv"`);
+  res.send(csv);
 });
 
 // ---------- Trainings ----------

@@ -21,6 +21,7 @@ import {
   Trash2,
   UserPlus,
   Image as ImageIcon,
+  BarChart3,
 } from 'lucide-react';
 import { api, apiFetch } from '@/lib/api';
 import type {
@@ -30,6 +31,7 @@ import type {
   CeRosterPreview,
   CeRosterImportResult,
   CeSendResult,
+  CeReport,
 } from '@/lib/types';
 
 /**
@@ -145,6 +147,8 @@ export default function CeCertificatesPage() {
         </div>
       )}
 
+      <ReportsPanel />
+
       {programs && (
         <LogoManager
           programs={programs}
@@ -188,6 +192,200 @@ export default function CeCertificatesPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * CE reporting — what CPCQC owes its accreditor.
+ *
+ * Contact hours awarded counts certificates actually SENT, not roster size:
+ * someone who never received a certificate has earned nothing. Roster total is
+ * shown alongside so a gap between the two is visible rather than hidden.
+ */
+function ReportsPanel() {
+  const thisYear = new Date().getFullYear();
+  const [open, setOpen] = useState(false);
+  const [from, setFrom] = useState(`${thisYear}-01-01`);
+  const [to, setTo] = useState(`${thisYear}-12-31`);
+  const [report, setReport] = useState<CeReport | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      setReport(
+        await api.get<CeReport>(
+          `/staff/ce/reports?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        ),
+      );
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not load the report.');
+    } finally {
+      setLoading(false);
+    }
+  }, [from, to]);
+
+  useEffect(() => {
+    if (open) load();
+  }, [open, load]);
+
+  async function download(path: string, filename: string) {
+    setErr(null);
+    try {
+      const res = await apiFetch(
+        `${path}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      );
+      if (!res.ok) throw new Error(`Export failed (HTTP ${res.status}).`);
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Download failed.');
+    }
+  }
+
+  const t = report?.totals;
+
+  return (
+    <div className="mb-6 rounded-xl border border-slate-200 bg-white shadow-sm">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+      >
+        <span className="flex items-center gap-2 font-rounded text-sm font-bold uppercase tracking-wide text-cpcqc-purple-dark">
+          <BarChart3 className="h-4 w-4" /> CE reporting
+        </span>
+        <span className="text-xs text-slate-400">{open ? 'Hide' : 'Open'}</span>
+      </button>
+
+      {open && (
+        <div className="border-t border-slate-100 px-4 py-4">
+          <div className="mb-4 flex flex-wrap items-end gap-2">
+            <label>
+              <span className="mb-1 block text-[11px] text-slate-500">From</span>
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              />
+            </label>
+            <label>
+              <span className="mb-1 block text-[11px] text-slate-500">To</span>
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              />
+            </label>
+            <button
+              onClick={load}
+              disabled={loading}
+              className="rounded-full border border-cpcqc-purple px-4 py-1.5 text-xs font-bold text-cpcqc-purple transition hover:bg-cpcqc-purple/10 disabled:opacity-50"
+            >
+              {loading ? 'Loading…' : 'Refresh'}
+            </button>
+            <div className="ml-auto flex gap-2">
+              <button
+                onClick={() =>
+                  download('/staff/ce/reports/export.xlsx', `CPCQC-CE-Report_${from}_${to}.xlsx`)
+                }
+                className="inline-flex items-center gap-1.5 rounded-full bg-cpcqc-purple px-4 py-1.5 text-xs font-bold text-white transition hover:bg-cpcqc-purple-dark"
+              >
+                <Download className="h-3.5 w-3.5" /> Excel report
+              </button>
+              <button
+                onClick={() =>
+                  download(
+                    '/staff/ce/reports/participants.csv',
+                    `CPCQC-CE-Participants_${from}_${to}.csv`,
+                  )
+                }
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 px-4 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+              >
+                <Download className="h-3.5 w-3.5" /> Participants CSV
+              </button>
+            </div>
+          </div>
+
+          {err && <p className="mb-3 text-xs text-cpcqc-pink-dark">{err}</p>}
+
+          {t && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Stat label="Contact hours awarded" value={t.contactHoursAwarded} emphasis />
+                <Stat label="Certificates issued" value={t.certificatesIssued} emphasis />
+                <Stat label="Unique participants" value={t.uniqueParticipants} />
+                <Stat label="Activities held" value={t.activities} />
+              </div>
+
+              {t.rosterTotal > t.certificatesIssued && (
+                <p className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  {t.rosterTotal - t.certificatesIssued} roster entr
+                  {t.rosterTotal - t.certificatesIssued === 1 ? 'y has' : 'ies have'} no certificate
+                  sent yet, so those contact hours are not counted as awarded.
+                </p>
+              )}
+
+              {report.byProgram.length > 0 && (
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="py-2 font-semibold">Program</th>
+                        <th className="py-2 font-semibold">Activities</th>
+                        <th className="py-2 font-semibold">Certificates</th>
+                        <th className="py-2 font-semibold">Contact hours</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {report.byProgram.map((p) => (
+                        <tr key={p.programCode}>
+                          <td className="py-2 font-medium text-slate-800">{p.programLabel}</td>
+                          <td className="py-2 text-slate-600">{p.activities}</td>
+                          <td className="py-2 text-slate-600">{p.certificatesIssued}</td>
+                          <td className="py-2 font-semibold text-cpcqc-purple-dark">
+                            {p.contactHoursAwarded}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {report.activities.length === 0 && (
+                <p className="mt-4 text-sm text-slate-500">No trainings in that date range.</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value, emphasis }: { label: string; value: number; emphasis?: boolean }) {
+  return (
+    <div className={`rounded-lg p-3 ${emphasis ? 'bg-cpcqc-purple/10' : 'bg-slate-50'}`}>
+      <p
+        className={`font-rounded text-2xl font-bold ${
+          emphasis ? 'text-cpcqc-purple-dark' : 'text-slate-700'
+        }`}
+      >
+        {value}
+      </p>
+      <p className="text-xs text-slate-600">{label}</p>
     </div>
   );
 }

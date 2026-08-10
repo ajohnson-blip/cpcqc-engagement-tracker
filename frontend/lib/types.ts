@@ -878,3 +878,38 @@ export interface CeSendResult {
   failed: number;
   failures: Array<{ recipientEmail: string; error: string }>;
 }
+
+export interface CeActivityRow {
+  trainingId: string;
+  programCode: string;
+  programLabel: string;
+  title: string;
+  trainingDate: string;
+  trainingDateDisplay: string;
+  activityId: string;
+  contactHours: number;
+  rosterCount: number;
+  certificatesIssued: number;
+  contactHoursAwarded: number;
+}
+
+export interface CeReport {
+  from: string;
+  to: string;
+  totals: {
+    activities: number;
+    activitiesWithIssuance: number;
+    rosterTotal: number;
+    certificatesIssued: number;
+    contactHoursAwarded: number;
+    uniqueParticipants: number;
+  };
+  byProgram: Array<{
+    programCode: string;
+    programLabel: string;
+    activities: number;
+    certificatesIssued: number;
+    contactHoursAwarded: number;
+  }>;
+  activities: CeActivityRow[];
+}
