@@ -616,7 +616,7 @@ export default function AnnualInterestRealPage() {
               <strong>not enrolling new TTT hospitals</strong> for {programYear} — so it
               doesn't appear in the ranking below. If your hospital is currently enrolled
               in TTT, you'll continue through {programYear} to complete the cohort. CPCQC
-              will send the {programYear} TTT Enrollment Form to all current TTT hospitals
+              will send the {programYear} TTT Continuation Form to all current TTT hospitals
               on {fmtDate(windowResp.window.closesAt)}.
             </p>
             <p className="mt-2 text-xs text-cpcqc-purple-dark/60">
@@ -647,7 +647,7 @@ export default function AnnualInterestRealPage() {
 
           <Section
             title="Rank the initiatives"
-            description={`Rank all ${eligibleCount} from 1 (your top choice) to ${eligibleCount} (lowest). The top two will be highlighted — we ask for a brief "why" on your top two so the cohort review has the context it needs.`}
+            description={`Rank all ${eligibleCount} from 1 (your top choice) to ${eligibleCount} (lowest). Your ranking helps CPCQC understand which initiatives are the highest priority for your hospital and supports planning for the upcoming enrollment year. The top two will be highlighted — we ask for a brief "why" on your top two so the cohort review has the context it needs.`}
           >
             <div className="space-y-3">
               {eligibleInitiatives.map((init) => {
@@ -711,6 +711,10 @@ export default function AnnualInterestRealPage() {
                           <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
                             Why is {code} your {rank === 1 ? 'top' : 'second'} choice?{' '}
                             <span className="text-cpcqc-pink-dark">*</span>
+                          </span>
+                          <span className="mb-1 block text-xs font-normal normal-case text-cpcqc-purple-dark/60">
+                            If you can point to data that supports your choice, please share it —
+                            it helps us understand your needs.
                           </span>
                           <textarea
                             rows={3}
