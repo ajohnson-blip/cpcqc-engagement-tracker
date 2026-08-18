@@ -25,7 +25,11 @@ const EnvSchema = z.object({
     .default('false'),
 
   SENDGRID_API_KEY: z.string().optional(),
-  EMAIL_FROM: z.string().email().default('qi@cpcqc.org'),
+  // Sending identity for all outbound mail. NOT qi@cpcqc.org: that is a Google
+  // Group, and sending *from* a group address means replies fan out to every
+  // member and bounce handling is unreliable. Groups are fine as recipients —
+  // issue reports and interest-form notices still go to qi@cpcqc.org.
+  EMAIL_FROM: z.string().email().default('education@cpcqc.org'),
 
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
 

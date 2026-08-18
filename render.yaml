@@ -88,13 +88,17 @@ services:
       # EMAIL_FROM must be on a domain that is AUTHENTICATED IN SENDGRID, or
       # DMARC fails and the mail is silently quarantined (SendGrid still returns
       # 2xx — it accepted the message; the recipient's server drops it).
-      # cpcqc.org has SendGrid DKIM published (s1/s2._domainkey) and DMARC
-      # p=quarantine. The old value here (engagement@qi.cpcqc.org) was on a
-      # SUBDOMAIN with no SPF, no DKIM and no domain authentication, so every
-      # message failed both SPF and DKIM alignment. Do not point this at a
-      # subdomain unless that subdomain is separately authenticated in SendGrid.
+      # cpcqc.org has verified SendGrid domain authentication (em3797 +
+      # s1/s2._domainkey) and DMARC p=quarantine. Domain-level auth covers every
+      # address on cpcqc.org, so changing the mailbox here needs no SendGrid work
+      # — but do not point this at a subdomain unless that subdomain is
+      # separately authenticated.
+      #
+      # Not qi@cpcqc.org: that is a Google Group. Sending *from* a group makes
+      # replies fan out to all members and bounce handling unreliable. Groups
+      # remain the right target for INBOUND mail (issue reports, form notices).
       - key: EMAIL_FROM
-        value: qi@cpcqc.org
+        value: education@cpcqc.org
       - key: SENDGRID_API_KEY
         sync: false
 
