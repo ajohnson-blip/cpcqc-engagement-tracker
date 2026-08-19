@@ -325,7 +325,7 @@ export default function EnrollmentFormPreviewPage() {
 
                 <Section
                   title="Key champions"
-                  description="Name, email and hospital title are required for each starred role. Mark exactly one person as the primary contact — that's who CPCQC reaches first."
+                  description="Name, email and hospital title are required for each starred role. Mark exactly one person as the primary contact — this is the individual the CPCQC team will consider the first line of contact for communication."
                 >
                   <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-cpcqc-cream-dark/30 px-3 py-2">
                     <Copy size={14} className="text-cpcqc-purple-dark/70" aria-hidden />

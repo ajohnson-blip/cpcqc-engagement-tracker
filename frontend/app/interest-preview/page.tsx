@@ -63,6 +63,29 @@ export default function InterestFormPreviewPage() {
   if (!submitterRole.trim()) validationErrors.push('Your role is required.');
   if (!submitterEmail.trim()) validationErrors.push('Email is required.');
   if (intendedCount === '') validationErrors.push('Tell us how many initiatives you intend to enroll in.');
+  // Mirrors the live form: all three ranked, each rank unique, and a "why" for
+  // the top two. Without this the preview let reviewers submit with a single
+  // rank, which made the real form look far more permissive than it is.
+  const ranksFilled = (Object.keys(ranks) as Code[]).filter((c) => ranks[c] !== '').length;
+  if (ranksFilled < RANKABLE_INITIATIVES.length) {
+    validationErrors.push(`Rank all ${RANKABLE_INITIATIVES.length} initiatives from 1 to ${RANKABLE_INITIATIVES.length}.`);
+  }
+  if (ranksFilled === RANKABLE_INITIATIVES.length && takenRanks.size !== RANKABLE_INITIATIVES.length) {
+    validationErrors.push(`Each initiative needs a unique rank from 1 to ${RANKABLE_INITIATIVES.length}.`);
+  }
+  if (ranksFilled === RANKABLE_INITIATIVES.length && takenRanks.size === RANKABLE_INITIATIVES.length) {
+    const byRank = new Map<number, Code>();
+    for (const c of Object.keys(ranks) as Code[]) {
+      const r = ranks[c];
+      if (typeof r === 'number') byRank.set(r, c);
+    }
+    const top = byRank.get(1);
+    const second = byRank.get(2);
+    if (top && !whys[top].trim()) validationErrors.push(`Tell us why ${top} is your top choice.`);
+    if (second && !whys[second].trim()) {
+      validationErrors.push(`Tell us why ${second} is your second choice.`);
+    }
+  }
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
