@@ -30,6 +30,11 @@ const EnvSchema = z.object({
   // member and bounce handling is unreliable. Groups are fine as recipients —
   // issue reports and interest-form notices still go to qi@cpcqc.org.
   EMAIL_FROM: z.string().email().default('education@cpcqc.org'),
+  // Interest and enrollment correspondence comes from the QI lead rather than
+  // the shared education mailbox, so hospitals reply to a named person. Kept as
+  // an env var, not a literal: when the role changes this is a dashboard edit
+  // rather than a code change and deploy.
+  EMAIL_FROM_ENROLLMENT: z.string().email().default('ajohnson@cpcqc.org'),
 
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
 

@@ -31,6 +31,10 @@ export interface SendEmailInput {
   /** Base64-encoded into the SendGrid payload. Keep the total well under
    *  SendGrid's ~30 MB limit — CE certificates are a few hundred KB each. */
   attachments?: EmailAttachment[];
+  /** Override the sending address for this message. Must be on a domain
+   *  authenticated in SendGrid, or DMARC fails and it is quarantined.
+   *  Defaults to EMAIL_FROM. */
+  fromEmail?: string;
 }
 
 export async function sendEmail(
@@ -76,7 +80,7 @@ export async function sendEmail(
       },
       body: JSON.stringify({
         personalizations: [{ to: [{ email: input.toEmail }] }],
-        from: { email: env.EMAIL_FROM, name: 'CPCQC Engagement Tracker' },
+        from: { email: input.fromEmail ?? env.EMAIL_FROM, name: 'CPCQC Engagement Tracker' },
         subject: input.subject,
         content: [{ type: 'text/plain', value: input.body }],
         ...(input.attachments?.length

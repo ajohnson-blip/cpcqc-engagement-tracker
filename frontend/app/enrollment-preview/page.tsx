@@ -35,11 +35,31 @@ const EHR_OPTIONS = ['Epic', 'Oracle Health (Cerner)', 'MEDITECH', 'Other…'];
 
 /** Asterisked roles are required; "Other" is optional. */
 const CHAMPION_ROLES = [
-  { key: 'nurse', label: 'Nurse champion', required: true },
-  { key: 'provider', label: 'Provider champion', required: true },
-  { key: 'data', label: 'Data champion', required: true },
-  { key: 'csuite', label: 'C-suite sponsor', required: true },
-  { key: 'other', label: 'Other champion', required: false },
+  {
+    key: 'nurse',
+    label: 'Nurse champion',
+    required: true,
+    description: 'This person is responsible for leading QI implementation using nursing perspective.',
+  },
+  {
+    key: 'provider',
+    label: 'Provider champion',
+    required: true,
+    description: 'This person is responsible for leading QI implementation using provider perspective.',
+  },
+  {
+    key: 'data',
+    label: 'Data champion',
+    required: true,
+    description: 'This person is responsible for collecting and submitting required data for this initiative.',
+  },
+  {
+    key: 'csuite',
+    label: 'C-suite sponsor',
+    required: true,
+    description: 'This person provides executive-level support for meeting CPCQC engagement requirements.',
+  },
+  { key: 'other', label: 'Other champion', required: false, description: '' },
 ] as const;
 
 type RoleKey = (typeof CHAMPION_ROLES)[number]['key'];
@@ -49,16 +69,17 @@ interface Champion {
   email: string;
   title: string;
   redcap: boolean;
+  dashboard: boolean;
 }
 
-const emptyChampion = (): Champion => ({ name: '', email: '', title: '', redcap: false });
+const emptyChampion = (): Champion => ({ name: '', email: '', title: '', redcap: false, dashboard: false });
 
 /** What a "copy from another initiative" prefill would pull in. */
 const PREFILL_SOURCE: Record<RoleKey, Champion> = {
-  nurse: { name: 'Dana Reyes, RN', email: 'dreyes@samplehospital.org', title: 'OB Nurse Manager', redcap: true },
-  provider: { name: 'Dr. Priya Shah', email: 'pshah@samplehospital.org', title: 'OB Hospitalist', redcap: false },
-  data: { name: 'Marcus Webb', email: 'mwebb@samplehospital.org', title: 'Clinical Data Analyst', redcap: true },
-  csuite: { name: 'Karen Liu', email: 'kliu@samplehospital.org', title: 'Chief Nursing Officer', redcap: false },
+  nurse: { name: 'Dana Reyes, RN', email: 'dreyes@samplehospital.org', title: 'OB Nurse Manager', redcap: true, dashboard: true },
+  provider: { name: 'Dr. Priya Shah', email: 'pshah@samplehospital.org', title: 'OB Hospitalist', redcap: false, dashboard: true },
+  data: { name: 'Marcus Webb', email: 'mwebb@samplehospital.org', title: 'Clinical Data Analyst', redcap: true, dashboard: true },
+  csuite: { name: 'Karen Liu', email: 'kliu@samplehospital.org', title: 'Chief Nursing Officer', redcap: false, dashboard: true },
   other: emptyChampion(),
 };
 
@@ -359,6 +380,11 @@ export default function EnrollmentFormPreviewPage() {
                               Primary contact
                             </label>
                           </div>
+                          {role.description && (
+                            <p className="mb-2 text-xs text-cpcqc-purple-dark/60">
+                              {role.description}
+                            </p>
+                          )}
                           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                             <input
                               value={c.name}
@@ -380,15 +406,26 @@ export default function EnrollmentFormPreviewPage() {
                               className="form-input"
                             />
                           </div>
-                          <label className="mt-2 inline-flex items-center gap-2 text-xs text-cpcqc-purple-dark/80">
-                            <input
-                              type="checkbox"
-                              checked={c.redcap}
-                              onChange={(e) => setChampion(role.key, { redcap: e.target.checked })}
-                              className="h-3.5 w-3.5"
-                            />
-                            Needs REDCap access for data entry
-                          </label>
+                          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
+                            <label className="inline-flex items-center gap-2 text-xs text-cpcqc-purple-dark/80">
+                              <input
+                                type="checkbox"
+                                checked={c.redcap}
+                                onChange={(e) => setChampion(role.key, { redcap: e.target.checked })}
+                                className="h-3.5 w-3.5"
+                              />
+                              Needs REDCap access for data entry
+                            </label>
+                            <label className="inline-flex items-center gap-2 text-xs text-cpcqc-purple-dark/80">
+                              <input
+                                type="checkbox"
+                                checked={c.dashboard}
+                                onChange={(e) => setChampion(role.key, { dashboard: e.target.checked })}
+                                className="h-3.5 w-3.5"
+                              />
+                              Needs access to your hospital&rsquo;s QI data dashboard
+                            </label>
+                          </div>
                         </div>
                       );
                     })}

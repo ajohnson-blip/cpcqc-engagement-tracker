@@ -26,8 +26,16 @@ function setRefreshCookie(res: Response, token: string): void {
   res.cookie(REFRESH_COOKIE, token, {
     httpOnly: true,
     secure: env.COOKIE_SECURE,
-    sameSite: 'lax',
-    domain: env.COOKIE_DOMAIN === 'localhost' ? undefined : env.COOKIE_DOMAIN,
+    // The frontend (qi.cpcqc.org) and the API (*.onrender.com) are different
+    // SITES, so a Lax cookie is never sent on the refresh call — the session
+    // silently failed to persist across reloads. 'none' is only legal on a
+    // Secure cookie, hence keying off COOKIE_SECURE: production gets 'none',
+    // local dev stays 'lax' (where it's same-origin anyway and Secure is off).
+    sameSite: env.COOKIE_SECURE ? 'none' : 'lax',
+    // Only ever set a domain we actually own. Pointing this at another host —
+    // as the deployed config did — makes the browser reject the cookie
+    // outright. Blank means host-only, which is the right default.
+    domain: env.COOKIE_DOMAIN && env.COOKIE_DOMAIN !== 'localhost' ? env.COOKIE_DOMAIN : undefined,
     path: '/',
     maxAge: env.JWT_REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000,
   });
@@ -43,7 +51,12 @@ router.post('/login', async (req, res) => {
 router.post('/logout', async (req, res) => {
   const token = req.cookies?.[REFRESH_COOKIE];
   if (token) await logout(token);
-  res.clearCookie(REFRESH_COOKIE, { path: '/' });
+  res.clearCookie(REFRESH_COOKIE, {
+    path: '/',
+    sameSite: env.COOKIE_SECURE ? 'none' : 'lax',
+    secure: env.COOKIE_SECURE,
+    domain: env.COOKIE_DOMAIN && env.COOKIE_DOMAIN !== 'localhost' ? env.COOKIE_DOMAIN : undefined,
+  });
   res.status(204).end();
 });
 
@@ -121,7 +134,12 @@ router.post('/change-password', requireAuth, async (req, res) => {
   await changePassword(req.auth!.userId, body.currentPassword, body.newPassword);
   // Clear the refresh-token cookie since we just revoked it server-side;
   // belt-and-suspenders so the next request doesn't carry a now-invalid token.
-  res.clearCookie(REFRESH_COOKIE, { path: '/' });
+  res.clearCookie(REFRESH_COOKIE, {
+    path: '/',
+    sameSite: env.COOKIE_SECURE ? 'none' : 'lax',
+    secure: env.COOKIE_SECURE,
+    domain: env.COOKIE_DOMAIN && env.COOKIE_DOMAIN !== 'localhost' ? env.COOKIE_DOMAIN : undefined,
+  });
   res.json({ ok: true });
 });
 

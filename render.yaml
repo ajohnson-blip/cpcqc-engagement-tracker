@@ -99,6 +99,11 @@ services:
       # remain the right target for INBOUND mail (issue reports, form notices).
       - key: EMAIL_FROM
         value: education@cpcqc.org
+      # Interest/enrollment correspondence comes from the QI lead so hospitals
+      # reply to a named person. Change here (or in the dashboard) when the role
+      # changes — no code edit needed.
+      - key: EMAIL_FROM_ENROLLMENT
+        value: ajohnson@cpcqc.org
       - key: SENDGRID_API_KEY
         sync: false
 

@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
 import { resolveActiveHospitalId, type AuthContext } from '@/middleware/auth.js';
+import { env } from '@/config/env.js';
 import { sendEmail } from '@/modules/notifications/notifications.service.js';
 
 // ---------- Types + zod schemas ----------
@@ -753,10 +754,12 @@ async function sendSubmissionEmails(form: InterestFormShape, wasUpdate: boolean)
     toEmail: form.submitterEmail,
     subject: `CPCQC ${form.programYear} Interest Form — ${verb}`,
     kind: 'annual_interest.confirmation',
+    fromEmail: env.EMAIL_FROM_ENROLLMENT,
     body:
       `Hi ${form.submitterName},\n\n` +
-      `We've ${verb} your ${form.programYear} interest form for ${form.hospital.name}. ` +
-      `A CPCQC program manager will review all submissions and follow up with the detailed initiative-specific Enrollment Forms for the cohorts you're accepted into.\n\n` +
+      `Your CPCQC Quality Improvement Initiative Interest form has been received and will be reviewed by CPCQC staff.\n\n` +
+      `${wasUpdate ? `This replaces your earlier submission for ${form.hospital.name}.` : `Submitted for ${form.hospital.name}.`} ` +
+      `A CPCQC program manager will follow up with the detailed initiative-specific Enrollment Forms for the cohorts you're accepted into.\n\n` +
       `Your submission:\n${summary}\n\n` +
       `You can update your submission until the window closes by signing in to the tracker and visiting the 2027 Interest page.\n\n` +
       `Questions? qi@cpcqc.org`,
@@ -768,6 +771,7 @@ async function sendSubmissionEmails(form: InterestFormShape, wasUpdate: boolean)
     toEmail: 'qi@cpcqc.org',
     subject: `[${form.programYear} Interest] ${form.hospital.name} ${verb} their submission`,
     kind: 'annual_interest.staff_notification',
+    fromEmail: env.EMAIL_FROM_ENROLLMENT,
     body:
       `${form.hospital.name} (${form.submitterName}, ${form.submitterRole}) just ${verb} their ${form.programYear} interest form.\n\n` +
       `${summary}\n\n` +
@@ -791,6 +795,7 @@ async function sendAcceptanceEmail(form: InterestFormShape): Promise<void> {
     toEmail: form.submitterEmail,
     subject: `CPCQC ${form.programYear} — ${form.hospital.name} has been accepted`,
     kind: 'annual_interest.accepted',
+    fromEmail: env.EMAIL_FROM_ENROLLMENT,
     body:
       `Hi ${form.submitterName},\n\n` +
       `Good news — ${form.hospital.name} has been accepted ${cohortLine}.\n\n` +
