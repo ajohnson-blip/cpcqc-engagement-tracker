@@ -213,20 +213,47 @@ export async function verifyPublicInterestForm(token: string) {
   });
   if (!row) throw new HttpError(404, 'That confirmation link is not valid.');
 
-  if (!row.verifiedAt) {
+  const hospital = await db.query.hospitals.findFirst({
+    where: eq(schema.hospitals.id, row.hospitalId),
+  });
+
+  const firstConfirmation = !row.verifiedAt;
+  if (firstConfirmation) {
     await db
       .update(schema.annualInterestForms)
       .set({ verifiedAt: new Date(), updatedAt: new Date() })
       .where(eq(schema.annualInterestForms.id, row.id));
-  }
 
-  const hospital = await db.query.hospitals.findFirst({
-    where: eq(schema.hospitals.id, row.hospitalId),
-  });
+    // Notify staff on CONFIRMATION, not submission: an unverified row is just
+    // someone who typed an address, and telling the team about those would make
+    // the notification worth ignoring. Only fired once — a second click on the
+    // same link is a no-op.
+    const ranked = (row.rankedInitiatives as Array<{ code: string; rank: number }> | null) ?? [];
+    const order = [...ranked].sort((a, b) => a.rank - b.rank).map((r) => `${r.rank}. ${r.code}`);
+    await sendEmail({
+      toEmail: 'qi@cpcqc.org',
+      fromEmail: env.EMAIL_FROM_ENROLLMENT,
+      kind: 'annual_interest.public_staff_notification',
+      subject: `[${row.programYear} Interest] ${hospital?.name ?? 'A hospital'} submitted (public form)`,
+      body: [
+        `${hospital?.name ?? 'A hospital'} submitted a ${row.programYear} interest form via the public form.`,
+        '',
+        `Submitted by: ${row.submitterName} (${row.submitterRole})`,
+        `Email: ${row.submitterEmail} — confirmed`,
+        `Intends to enroll in: ${row.intendedInitiativeCount}`,
+        `Ranking: ${order.join(', ') || '(none)'}`,
+        '',
+        'This came from the public form, so the hospital is asserted by the submitter',
+        'and backed only by a confirmed email address — worth a glance during triage.',
+        '',
+        'Review at /staff/interest-forms',
+      ].join('\n'),
+    });
+  }
   return {
     programYear: row.programYear,
     hospitalName: hospital?.name ?? 'your hospital',
     submitterName: row.submitterName,
-    alreadyVerified: !!row.verifiedAt,
+    alreadyVerified: !firstConfirmation,
   };
 }

@@ -639,6 +639,57 @@ export const ceProgramLogos = pgTable('ce_program_logos', {
   ...timestamps,
 });
 
+/**
+ * Step 2 of annual enrollment — the legally mandated form.
+ *
+ * One row per (programYear, hospital, initiative): a hospital enrolling in two
+ * initiatives files two forms. The champion roster lives per form rather than
+ * per hospital because CPCQC confirmed champions often differ by initiative.
+ *
+ * Identity mirrors the public interest form — no account needed, confirmed by an
+ * emailed token that is also the only way to edit. That matters more here than
+ * on the interest form: this is the record that satisfies the statute, so a
+ * silent overwrite by a stranger would be considerably worse.
+ */
+export const enrollmentForms = pgTable(
+  'enrollment_forms',
+  {
+    id: idCol(),
+    programYear: integer('program_year').notNull(),
+    hospitalId: text('hospital_id')
+      .notNull()
+      .references(() => hospitals.id, { onDelete: 'cascade' }),
+    /** 'SPARK' | 'SOAR' | 'NEST' | 'TTT' */
+    initiativeCode: text('initiative_code').notNull(),
+    ehr: text('ehr'),
+    ehrOther: text('ehr_other'),
+    /** [{ role, name, email, title, isPrimary, redcapAccess, dashboardAccess }] —
+     *  always read and written whole, never queried across hospitals. */
+    champions: jsonb('champions'),
+    /** TtT continues a two-year cohort: those hospitals attest instead of
+     *  enrolling, so no roster is collected and this is the submission. */
+    tttContinuationAttested: boolean('ttt_continuation_attested').notNull().default(false),
+    submitterName: text('submitter_name').notNull(),
+    submitterRole: text('submitter_role').notNull(),
+    submitterEmail: text('submitter_email').notNull(),
+    submitterUserId: text('submitter_user_id').references(() => users.id, { onDelete: 'set null' }),
+    verificationTokenHash: text('verification_token_hash'),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    /** 'portal' | 'public' — shown in staff triage. */
+    submittedVia: text('submitted_via').notNull().default('public'),
+    ...timestamps,
+  },
+  (t) => ({
+    uniqYearHospitalInitiative: uniqueIndex('enrollment_forms_year_hospital_initiative_uniq').on(
+      t.programYear,
+      t.hospitalId,
+      t.initiativeCode,
+    ),
+    yearIdx: index('enrollment_forms_year_idx').on(t.programYear),
+    verificationIdx: index('enrollment_forms_verification_idx').on(t.verificationTokenHash),
+  }),
+);
+
 export const auditLog = pgTable(
   'audit_log',
   {
@@ -745,6 +796,10 @@ export const enrollmentWindows = pgTable(
     programYear: integer('program_year').notNull().unique(),
     opensAt: date('opens_at').notNull(),
     closesAt: date('closes_at').notNull(),
+    /** Step 2 dates, distinct from the interest window above. NULL = the
+     *  enrollment step isn't open for that year. */
+    enrollmentOpensAt: date('enrollment_opens_at'),
+    enrollmentClosesAt: date('enrollment_closes_at'),
     ...timestamps,
   },
   (t) => ({
