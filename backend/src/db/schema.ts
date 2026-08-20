@@ -787,6 +787,17 @@ export const annualInterestForms = pgTable(
     // { SPARK: 'why...', SOAR: 'why...' } — keys are the codes ranked 1 and 2.
     reasoning: jsonb('reasoning').notNull(),
     status: annualInterestFormStatus('status').notNull().default('submitted'),
+    /**
+     * Public submission identity. A portal submission is provably that hospital
+     * (it came from their login); a public one is only as good as the verified
+     * email behind it. The token is the ONLY way to edit a public submission
+     * later — without that, the unique (year, hospital) index would let any
+     * stranger silently overwrite a hospital's real entry.
+     */
+    verificationTokenHash: text('verification_token_hash'),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    /** 'portal' | 'public' — shown in staff triage. */
+    submittedVia: text('submitted_via').notNull().default('portal'),
     // PM scratchpad — same pattern as task_instances.staff_note. Free text
     // visible only to staff. Cleared on resubmission preserves history? No
     // — preserved across resubmits since PM commentary is about the hospital,
