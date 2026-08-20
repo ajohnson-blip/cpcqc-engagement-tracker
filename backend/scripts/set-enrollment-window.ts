@@ -10,7 +10,11 @@
  *
  * Usage:
  *   npm run set-window -- --year=2028 --opens=2026-08-01 --closes=2026-12-31
+ *   npm run set-window -- --year=2028 --enrollment-opens=2026-08-01 --enrollment-closes=2026-12-31
  *   npm run set-window -- --year=2028 --delete
+ *
+ * The two steps have separate dates (interest Sep-Oct, enrollment Nov-Dec), so
+ * either pair can be set independently; omitting a pair leaves it untouched.
  *
  * Against production, prefix NODE_ENV=production and DATABASE_URL — the pool
  * only enables TLS in production, and Render's external endpoint requires it.
@@ -50,30 +54,54 @@ async function main() {
 
   const opens = arg('opens');
   const closes = arg('closes');
-  if (!opens || !ISO.test(opens) || !closes || !ISO.test(closes)) {
-    throw new Error('--opens and --closes must both be YYYY-MM-DD.');
+  const eOpens = arg('enrollment-opens');
+  const eCloses = arg('enrollment-closes');
+
+  const pair = (a?: string, b?: string, label = '') => {
+    if (!a && !b) return null;
+    if (!a || !ISO.test(a) || !b || !ISO.test(b)) {
+      throw new Error(`${label} dates must both be YYYY-MM-DD.`);
+    }
+    if (b < a) throw new Error(`${label} close cannot be before open.`);
+    return { a, b };
+  };
+  const interest = pair(opens, closes, '--opens/--closes');
+  const enrollment = pair(eOpens, eCloses, '--enrollment-opens/--enrollment-closes');
+  if (!interest && !enrollment) {
+    throw new Error('Give --opens/--closes and/or --enrollment-opens/--enrollment-closes.');
   }
-  if (closes < opens) throw new Error('--closes cannot be before --opens.');
 
   if (existing) {
     await db
       .update(schema.enrollmentWindows)
-      .set({ opensAt: opens, closesAt: closes, updatedAt: new Date() })
+      .set({
+        ...(interest ? { opensAt: interest.a, closesAt: interest.b } : {}),
+        ...(enrollment ? { enrollmentOpensAt: enrollment.a, enrollmentClosesAt: enrollment.b } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(schema.enrollmentWindows.programYear, year));
-    console.log(`Updated ${year}: ${existing.opensAt} → ${existing.closesAt}  becomes  ${opens} → ${closes}`);
+    console.log(`Updated ${year}.`);
   } else {
+    if (!interest) throw new Error('A new year needs --opens and --closes for the interest step.');
     await db.insert(schema.enrollmentWindows).values({
       id: uuid(),
       programYear: year,
-      opensAt: opens,
-      closesAt: closes,
+      opensAt: interest.a,
+      closesAt: interest.b,
+      enrollmentOpensAt: enrollment?.a ?? null,
+      enrollmentClosesAt: enrollment?.b ?? null,
     });
-    console.log(`Created ${year}: ${opens} → ${closes}`);
+    console.log(`Created ${year}.`);
   }
 
+  const row = await db.query.enrollmentWindows.findFirst({
+    where: eq(schema.enrollmentWindows.programYear, year),
+  });
   const today = new Date().toISOString().slice(0, 10);
-  const state = today < opens ? 'not open yet' : today > closes ? 'closed' : 'OPEN NOW';
-  console.log(`As of ${today} this window is: ${state}`);
+  const describe = (o?: string | null, c?: string | null) =>
+    !o || !c ? 'not configured' : `${o} → ${c} (${today < o ? 'not open yet' : today > c ? 'closed' : 'OPEN NOW'})`;
+  console.log(`  Interest:   ${describe(row?.opensAt, row?.closesAt)}`);
+  console.log(`  Enrollment: ${describe(row?.enrollmentOpensAt, row?.enrollmentClosesAt)}`);
 }
 
 main()
