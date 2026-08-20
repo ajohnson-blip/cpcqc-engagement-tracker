@@ -28,7 +28,7 @@ import { db, schema } from '@/db/index.js';
 import { env } from '@/config/env.js';
 import { HttpError } from '@/middleware/errors.js';
 import { logger } from '@/config/logger.js';
-import { exportRecords } from './redcap.client.js';
+import { exportRecords, exportMetadata } from './redcap.client.js';
 import { buildSoarGrid, monthDeadline, NTSV_FORM, NO_NTSV_FORM, type SoarCell } from './soar-engagement.js';
 import {
   dispositionToTask,
@@ -153,6 +153,9 @@ export interface SoarSyncRow {
   onTime: boolean | null;
   daysFromDeadline: number | null;
   submissionDate: string | null;
+  /** Which required fields were blank and on how many rows — the "why" behind
+   *  an incomplete verdict. Empty unless the cell is incomplete. */
+  missingFields: Array<{ field: string; label: string; rows: number; form: string }>;
   currentStatus: TaskStatus;
   currentOutcome: TaskOutcome;
   newStatus: TaskStatus;
@@ -283,6 +286,24 @@ function decide(cell: SoarCell | undefined, deadline: string, today: string, gra
   };
 }
 
+
+/**
+ * Flatten a cell's per-form missing-field tallies into one list for the UI.
+ * Only meaningful when the cell is incomplete; a complete cell has none.
+ */
+function collectMissing(
+  forms: Array<{ form: string; rollup: { missingCounts: Array<{ field: string; rows: number }> } | undefined }>,
+  labels: Map<string, string>,
+): Array<{ field: string; label: string; rows: number; form: string }> {
+  const out: Array<{ field: string; label: string; rows: number; form: string }> = [];
+  for (const { form, rollup } of forms) {
+    for (const m of rollup?.missingCounts ?? []) {
+      out.push({ field: m.field, label: labels.get(m.field) ?? m.field, rows: m.rows, form });
+    }
+  }
+  return out.sort((a, b) => b.rows - a.rows || a.label.localeCompare(b.label));
+}
+
 async function updateTaskInstance(
   ti: typeof schema.taskInstances.$inferSelect,
   patch: { status: TaskStatus; outcome: TaskOutcome; completedOn: string | null; note: string; payload: Record<string, unknown> },
@@ -336,6 +357,21 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
   const programYear = opts.programYear ?? 2026;
   const today = new Date().toISOString().slice(0, 10);
   const fetchedAt = new Date().toISOString();
+
+  // Field labels from the live data dictionary, so staff read "Date of
+  // delivery" rather than delivery_date_1. Best-effort: a failure here must not
+  // stop a sync, it just falls back to the variable names.
+  const fieldLabels = new Map<string, string>();
+  try {
+    const meta = await exportMetadata({ token: env.REDCAP_SOAR_TOKEN });
+    for (const m of meta) {
+      const name = String(m['field_name'] ?? '').trim();
+      const label = String(m['field_label'] ?? '').replace(/<[^>]*>/g, '').trim();
+      if (name && label) fieldLabels.set(name, label);
+    }
+  } catch {
+    /* labels are a convenience; variable names still identify the field */
+  }
 
   const records = await exportRecords({
     token: env.REDCAP_SOAR_TOKEN,
@@ -555,6 +591,16 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
         ntsvRows: cell?.ntsv.nRows ?? 0,
         ntsvComplete: cell?.ntsv.nComplete ?? 0,
         noNtsvRows: cell?.noNtsv.nRows ?? 0,
+        missingFields:
+          decision.category === 'incomplete'
+            ? collectMissing(
+                [
+                  { form: 'NTSV', rollup: cell?.ntsv },
+                  { form: 'No-NTSV attestation', rollup: cell?.noNtsv },
+                ],
+                fieldLabels,
+              )
+            : [],
         onTime: effCell?.onTime ?? null,
         daysFromDeadline: effCell?.daysFromDeadline ?? null,
         submissionDate: subDate,

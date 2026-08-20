@@ -167,13 +167,32 @@ export interface FormRollup {
   earliestDate: string | null;
   /** True when a row's date field held a value that wasn't a valid date. */
   invalidDate: boolean;
+  /**
+   * Which required fields were blank, and on how many rows. The per-row check
+   * already computes this; it used to be thrown away at rollup, leaving staff
+   * with "3/5 complete" and no way to see what was actually wrong without
+   * opening REDCap. Sorted by frequency, so the common gap reads first.
+   */
+  missingCounts: Array<{ field: string; rows: number }>;
 }
 
 function rollup(rows: RedcapRow[], check: (r: RedcapRow) => RowCheck, dateField: string): FormRollup {
   if (rows.length === 0) {
-    return { submitted: false, nRows: 0, nComplete: 0, pctComplete: 0, allComplete: false, earliestDate: null, invalidDate: false };
+    return { submitted: false, nRows: 0, nComplete: 0, pctComplete: 0, allComplete: false, earliestDate: null, invalidDate: false, missingCounts: [] };
   }
   const nComplete = rows.reduce((n, r) => n + (check(r).complete ? 1 : 0), 0);
+  // Tally blank fields across the incomplete rows only — a field missing on
+  // every row is a different problem from one missing on a single row.
+  const tally = new Map<string, number>();
+  for (const r of rows) {
+    const res = check(r);
+    if (res.complete) continue;
+    for (const f of res.missing) tally.set(f, (tally.get(f) ?? 0) + 1);
+  }
+  const missingCounts = [...tally.entries()]
+    .map(([field, n]) => ({ field, rows: n }))
+    .sort((a, b) => b.rows - a.rows || a.field.localeCompare(b.field));
+
   const filled = rows.map((r) => String(r[dateField] ?? '').trim()).filter((d) => d !== '');
   const valid = filled.filter((d) => isValidDate(d)).sort();
   return {
@@ -184,6 +203,7 @@ function rollup(rows: RedcapRow[], check: (r: RedcapRow) => RowCheck, dateField:
     allComplete: nComplete === rows.length,
     earliestDate: valid[0] ?? null,
     invalidDate: valid.length < filled.length,
+    missingCounts,
   };
 }
 
