@@ -970,47 +970,14 @@ function TrainingDetail({
         />
 
         {busy === 'preview' && <p className="mt-3 text-xs text-slate-500">Reading file…</p>}
-
-        {/* Late arrivals and corrected addresses don't warrant editing and
-            re-uploading the whole roster file. */}
-        <div className="mt-4 border-t border-slate-100 pt-4">
-          <p className="mb-2 text-xs font-semibold text-slate-700">Or add one person</p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              addOne();
-            }}
-            className="flex flex-wrap items-end gap-2"
-          >
-            <label className="min-w-[8rem] flex-1">
-              <span className="mb-1 block text-[11px] text-slate-500">Name</span>
-              <input
-                value={manualName}
-                onChange={(e) => setManualName(e.target.value)}
-                placeholder="Jane Doe"
-                className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-              />
-            </label>
-            <label className="min-w-[10rem] flex-1">
-              <span className="mb-1 block text-[11px] text-slate-500">Email</span>
-              <input
-                type="email"
-                value={manualEmail}
-                onChange={(e) => setManualEmail(e.target.value)}
-                placeholder="jane@hospital.org"
-                className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={!manualName.trim() || !manualEmail.trim() || busy === 'addOne'}
-              className="inline-flex items-center gap-1.5 rounded-full bg-cpcqc-purple px-4 py-1.5 text-xs font-bold text-white transition hover:bg-cpcqc-purple-dark disabled:opacity-50"
-            >
-              <UserPlus className="h-3.5 w-3.5" />
-              {busy === 'addOne' ? 'Adding…' : 'Add'}
-            </button>
-          </form>
-        </div>
+        {/* Roster problems belong beside the roster. These used to render in the
+            Send section further down, so a failed upload looked like nothing
+            had happened at all. */}
+        {err && busy !== 'send' && (
+          <p className="mt-3 rounded-lg bg-cpcqc-pink-dark/10 px-3 py-2 text-xs text-cpcqc-pink-dark">
+            {err}
+          </p>
+        )}
 
         {preview && (
           <div className="mt-4 rounded-lg border border-slate-200 p-3">
@@ -1059,6 +1026,47 @@ function TrainingDetail({
             </div>
           </div>
         )}
+        {/* Late arrivals and corrected addresses don't warrant editing and
+            re-uploading the whole roster file. */}
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          <p className="mb-2 text-xs font-semibold text-slate-700">Or add one person</p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              addOne();
+            }}
+            className="flex flex-wrap items-end gap-2"
+          >
+            <label className="min-w-[8rem] flex-1">
+              <span className="mb-1 block text-[11px] text-slate-500">Name</span>
+              <input
+                value={manualName}
+                onChange={(e) => setManualName(e.target.value)}
+                placeholder="Jane Doe"
+                className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              />
+            </label>
+            <label className="min-w-[10rem] flex-1">
+              <span className="mb-1 block text-[11px] text-slate-500">Email</span>
+              <input
+                type="email"
+                value={manualEmail}
+                onChange={(e) => setManualEmail(e.target.value)}
+                placeholder="jane@hospital.org"
+                className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={!manualName.trim() || !manualEmail.trim() || busy === 'addOne'}
+              className="inline-flex items-center gap-1.5 rounded-full bg-cpcqc-purple px-4 py-1.5 text-xs font-bold text-white transition hover:bg-cpcqc-purple-dark disabled:opacity-50"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              {busy === 'addOne' ? 'Adding…' : 'Add'}
+            </button>
+          </form>
+        </div>
+
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1097,10 +1105,18 @@ function TrainingDetail({
             <Send className="h-4 w-4" />
             {busy === 'send'
               ? 'Sending…'
-              : unsent === 0
-                ? 'All certificates sent'
-                : `Send to ${unsent} participant${unsent === 1 ? '' : 's'}`}
+              : detail.certificates.length === 0
+                ? 'No participants yet'
+                : unsent === 0
+                  ? 'All certificates sent'
+                  : `Send to ${unsent} participant${unsent === 1 ? '' : 's'}`}
           </button>
+          {detail.certificates.length === 0 && (
+            <p className="w-full text-xs text-slate-500">
+              Upload a roster and click <strong>Add to roster</strong> to confirm it — choosing a
+              file only previews it.
+            </p>
+          )}
           {failed > 0 && (
             <button
               onClick={() =>
