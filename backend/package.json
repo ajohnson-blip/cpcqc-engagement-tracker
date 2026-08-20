@@ -29,7 +29,8 @@
     "create-cpcqc-staff": "tsx scripts/create-cpcqc-staff.ts",
     "create-user": "tsx scripts/create-user.ts",
     "create-hospital-user": "tsx scripts/create-hospital-user.ts",
-    "lint": "eslint . --ext .ts"
+    "lint": "eslint . --ext .ts",
+    "set-window": "tsx scripts/set-enrollment-window.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
