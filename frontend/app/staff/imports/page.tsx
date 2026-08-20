@@ -498,6 +498,35 @@ function PreCriteriaCells({
 }
 
 /** Per-month lock control shown in each period-group header. */
+/**
+ * Finalized periods are locked — the sync can't change them and there's nothing
+ * to act on, so they're hidden by default to keep the live months in view.
+ * Hidden, never dropped: staff still need to check what was finalized, and a
+ * count that silently disappeared would look like data loss.
+ */
+function FinalizedToggle({
+  hiddenCount,
+  showing,
+  onToggle,
+}: {
+  hiddenCount: number;
+  showing: boolean;
+  onToggle: () => void;
+}) {
+  if (hiddenCount === 0) return null;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-cpcqc-purple-dark/20 px-3 py-1 text-xs font-semibold text-cpcqc-purple-dark/70 transition hover:bg-cpcqc-purple/5"
+    >
+      {showing
+        ? `Hide ${hiddenCount} finalized period${hiddenCount === 1 ? '' : 's'}`
+        : `${hiddenCount} finalized period${hiddenCount === 1 ? '' : 's'} hidden — show`}
+    </button>
+  );
+}
+
 function FinalizeButton({
   program,
   period,
@@ -545,6 +574,7 @@ function FinalizeButton({
 function SparkRedcapSync() {
   const [loading, setLoading] = useState<false | 'preview' | 'apply'>(false);
   const [result, setResult] = useState<SparkSyncResult | null>(null);
+  const [showFinalized, setShowFinalized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<OverrideMap>({});
 
@@ -578,6 +608,11 @@ function SparkRedcapSync() {
     (acc[r.quarter] ??= []).push(r);
     return acc;
   }, {});
+
+  // A period is finalized as a unit, so the first row answers for all of them.
+  const finalizedPeriodCount = (result?.quartersInScope ?? []).filter(
+    (k) => (byQuarter[k] ?? []).length > 0 && (byQuarter[k] ?? [])[0]?.finalized,
+  ).length;
 
   return (
     <section className="mt-10 border-t border-cpcqc-purple-dark/10 pt-8">
@@ -685,6 +720,7 @@ function SparkRedcapSync() {
               const rows = byQuarter[q] ?? [];
               if (rows.length === 0) return null;
               const finalized = rows[0]?.finalized ?? false;
+              if (finalized && !showFinalized) return null;
               return (
                 <div key={q}>
                   <div className="flex items-center justify-between gap-2">
@@ -759,6 +795,12 @@ function SparkRedcapSync() {
               );
             })}
           </div>
+
+          <FinalizedToggle
+            hiddenCount={finalizedPeriodCount}
+            showing={showFinalized}
+            onToggle={() => setShowFinalized((v) => !v)}
+          />
         </div>
       )}
     </section>
@@ -823,6 +865,7 @@ function DetailCell({
 function NestRedcapSync() {
   const [loading, setLoading] = useState<false | 'preview' | 'apply'>(false);
   const [result, setResult] = useState<NestSyncResult | null>(null);
+  const [showFinalized, setShowFinalized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<OverrideMap>({});
 
@@ -856,6 +899,11 @@ function NestRedcapSync() {
     (acc[r.period] ??= []).push(r);
     return acc;
   }, {});
+
+  // A period is finalized as a unit, so the first row answers for all of them.
+  const finalizedPeriodCount = (result?.periodsInScope ?? []).filter(
+    (k) => (byPeriod[k] ?? []).length > 0 && (byPeriod[k] ?? [])[0]?.finalized,
+  ).length;
 
   return (
     <section className="mt-10 border-t border-cpcqc-purple-dark/10 pt-8">
@@ -958,6 +1006,7 @@ function NestRedcapSync() {
               const rows = byPeriod[p] ?? [];
               if (rows.length === 0) return null;
               const finalized = rows[0]?.finalized ?? false;
+              if (finalized && !showFinalized) return null;
               return (
                 <div key={p}>
                   <div className="flex items-center justify-between gap-2">
@@ -1027,6 +1076,12 @@ function NestRedcapSync() {
               );
             })}
           </div>
+
+          <FinalizedToggle
+            hiddenCount={finalizedPeriodCount}
+            showing={showFinalized}
+            onToggle={() => setShowFinalized((v) => !v)}
+          />
         </div>
       )}
     </section>
@@ -1049,6 +1104,7 @@ const SOAR_CATEGORY_META: Record<SoarSyncCategory, { label: string; className: s
 function SoarRedcapSync() {
   const [loading, setLoading] = useState<false | 'preview' | 'apply'>(false);
   const [result, setResult] = useState<SoarSyncResult | null>(null);
+  const [showFinalized, setShowFinalized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<OverrideMap>({});
 
@@ -1082,6 +1138,11 @@ function SoarRedcapSync() {
     (acc[r.period] ??= []).push(r);
     return acc;
   }, {});
+
+  // A period is finalized as a unit, so the first row answers for all of them.
+  const finalizedPeriodCount = (result?.periodsInScope ?? []).filter(
+    (k) => (byPeriod[k] ?? []).length > 0 && (byPeriod[k] ?? [])[0]?.finalized,
+  ).length;
 
   return (
     <section className="mt-10 border-t border-cpcqc-purple-dark/10 pt-8">
@@ -1198,6 +1259,7 @@ function SoarRedcapSync() {
               const rows = byPeriod[p] ?? [];
               if (rows.length === 0) return null;
               const finalized = rows[0]?.finalized ?? false;
+              if (finalized && !showFinalized) return null;
               return (
                 <div key={p}>
                   <div className="flex items-center justify-between gap-2">
@@ -1271,6 +1333,12 @@ function SoarRedcapSync() {
               );
             })}
           </div>
+
+          <FinalizedToggle
+            hiddenCount={finalizedPeriodCount}
+            showing={showFinalized}
+            onToggle={() => setShowFinalized((v) => !v)}
+          />
         </div>
       )}
     </section>
@@ -1295,6 +1363,7 @@ const TTT_CATEGORY_META: Record<TttSyncCategory, { label: string; className: str
 function TttRedcapSync() {
   const [loading, setLoading] = useState<false | 'preview' | 'apply'>(false);
   const [result, setResult] = useState<TttSyncResult | null>(null);
+  const [showFinalized, setShowFinalized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<OverrideMap>({});
 
@@ -1328,6 +1397,11 @@ function TttRedcapSync() {
     (acc[r.period] ??= []).push(r);
     return acc;
   }, {});
+
+  // A period is finalized as a unit, so the first row answers for all of them.
+  const finalizedPeriodCount = (result?.periodsInScope ?? []).filter(
+    (k) => (byPeriod[k] ?? []).length > 0 && (byPeriod[k] ?? [])[0]?.finalized,
+  ).length;
 
   return (
     <section className="mt-10 border-t border-cpcqc-purple-dark/10 pt-8">
@@ -1449,6 +1523,7 @@ function TttRedcapSync() {
               const rows = byPeriod[p] ?? [];
               if (rows.length === 0) return null;
               const finalized = rows[0]?.finalized ?? false;
+              if (finalized && !showFinalized) return null;
               return (
                 <div key={p}>
                   <div className="flex items-center justify-between gap-2">
@@ -1529,6 +1604,12 @@ function TttRedcapSync() {
               );
             })}
           </div>
+
+          <FinalizedToggle
+            hiddenCount={finalizedPeriodCount}
+            showing={showFinalized}
+            onToggle={() => setShowFinalized((v) => !v)}
+          />
         </div>
       )}
     </section>
