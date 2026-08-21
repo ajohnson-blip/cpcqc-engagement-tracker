@@ -49,6 +49,9 @@ interface Ctx {
   initiativeCode: Code;
   isTttContinuation: boolean;
   alreadySubmitted: boolean;
+  currentlyEnrolled: string[];
+  inSoarSustainability: boolean;
+  caution: string | null;
   copyableFrom: Array<{ initiativeCode: string; championCount: number }>;
 }
 
@@ -73,7 +76,7 @@ export default function PublicEnrollmentFormPage() {
 
   const [config, setConfig] = useState<Config | null>(null);
   const [win, setWin] = useState<WindowState | null>(null);
-  const [hospitals, setHospitals] = useState<Array<{ id: string; name: string }>>([]);
+  const [hospitals, setHospitals] = useState<Array<{ id: string; name: string; system: string | null }>>([]);
   const [hospitalId, setHospitalId] = useState('');
   const [initiative, setInitiative] = useState<Code | ''>('');
   const [ctx, setCtx] = useState<Ctx | null>(null);
@@ -96,7 +99,7 @@ export default function PublicEnrollmentFormPage() {
     Promise.all([
       api.get<Config>('/public/enrollment-forms/config'),
       api.get<WindowState>(`/public/enrollment-forms/window?programYear=${programYear}`),
-      api.get<{ hospitals: Array<{ id: string; name: string }> }>('/public/enrollment-forms/hospitals'),
+      api.get<{ hospitals: Array<{ id: string; name: string; system: string | null }> }>('/public/enrollment-forms/hospitals'),
     ])
       .then(([c, w, h]) => {
         setConfig(c);
@@ -279,7 +282,7 @@ export default function PublicEnrollmentFormPage() {
                   className="form-input"
                 >
                   <option value="">Select your hospital…</option>
-                  {hospitals.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+                  {hospitals.map((h) => <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>)}
                 </select>
               </Field>
               <Field label="Initiative" required>
@@ -306,6 +309,25 @@ export default function PublicEnrollmentFormPage() {
                 confirmation email, or contact{' '}
                 <a className="underline" href="mailto:qi@cpcqc.org">qi@cpcqc.org</a> — we
                 won&rsquo;t overwrite an existing enrollment.
+              </p>
+            </div>
+          )}
+
+          {ctx?.caution && (
+            <div className="flex gap-2 rounded-xl bg-cpcqc-orange-dark/10 px-4 py-3 text-sm text-cpcqc-orange-dark">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
+              <p>{ctx.caution}</p>
+            </div>
+          )}
+
+          {ctx && !ctx.alreadySubmitted && ctx.currentlyEnrolled.length > 0 && (
+            <div className="flex gap-2 rounded-xl border border-cpcqc-purple-dark/15 bg-cpcqc-cream-dark/20 px-4 py-3 text-sm text-cpcqc-purple-dark/80">
+              <Info size={16} className="mt-0.5 shrink-0" aria-hidden />
+              <p>
+                Our records show {ctx.hospitalName} currently in{' '}
+                <strong>{ctx.currentlyEnrolled.join(', ')}</strong>
+                {ctx.inSoarSustainability && ' (SOAR as a sustainability year)'}. Enrollment is per
+                initiative, so this form covers {initiative} only.
               </p>
             </div>
           )}
@@ -375,6 +397,18 @@ export default function PublicEnrollmentFormPage() {
                     title="Key champions"
                     description="Name, email and hospital title are required for each starred role. Mark exactly one person as the primary contact — this is the individual the CPCQC team will consider the first line of contact for communication."
                   >
+                    <div className="mb-3 space-y-1 rounded-lg bg-cpcqc-cream-dark/20 px-3 py-2 text-xs text-cpcqc-purple-dark/80">
+                      <p>
+                        <strong>One person may hold more than one role.</strong> If your nurse
+                        champion is also the data champion, enter them in both — use{' '}
+                        <em>Same as…</em> to copy their details across.
+                      </p>
+                      <p>
+                        Please be as accurate and complete as possible with names and email
+                        addresses. This information is used for communication and to provide access
+                        to REDCap and QI data dashboards.
+                      </p>
+                    </div>
                     {ctx.copyableFrom.length > 0 && (
                       <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-cpcqc-cream-dark/30 px-3 py-2">
                         <Copy size={14} className="text-cpcqc-purple-dark/70" aria-hidden />
@@ -418,6 +452,35 @@ export default function PublicEnrollmentFormPage() {
                             </div>
                             {r.description && (
                               <p className="mb-2 text-xs text-cpcqc-purple-dark/60">{r.description}</p>
+                            )}
+                            {champions.some((x) => x.role !== r.key && x.name.trim()) && (
+                              <label className="mb-2 flex items-center gap-2 text-xs text-cpcqc-purple-dark/70">
+                                Same as
+                                <select
+                                  value=""
+                                  onChange={(e) => {
+                                    const src = champions.find((x) => x.role === e.target.value);
+                                    if (!src) return;
+                                    // Copy the person, not their access requests or primary
+                                    // flag — those are per-role decisions.
+                                    setChampion(r.key, {
+                                      name: src.name,
+                                      email: src.email,
+                                      title: src.title,
+                                    });
+                                  }}
+                                  className="rounded border border-cpcqc-purple-dark/20 px-2 py-0.5 text-xs"
+                                >
+                                  <option value="">choose…</option>
+                                  {champions
+                                    .filter((x) => x.role !== r.key && x.name.trim())
+                                    .map((x) => (
+                                      <option key={x.role} value={x.role}>
+                                        {config.championRoles.find((cr) => cr.key === x.role)?.label}
+                                      </option>
+                                    ))}
+                                </select>
+                              </label>
                             )}
                             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                               <input value={c.name} onChange={(e) => setChampion(r.key, { name: e.target.value })} placeholder="Name" className="form-input" />
@@ -478,6 +541,13 @@ export default function PublicEnrollmentFormPage() {
       </form>
     </Shell>
   );
+}
+
+/** "East Morgan County Hospital (Banner)" — but not "Banner Fort Collins
+ *  Medical Center (Banner)", which would just be noise. */
+function hospitalLabel(h: { name: string; system: string | null }): string {
+  if (!h.system) return h.name;
+  return h.name.toLowerCase().includes(h.system.toLowerCase()) ? h.name : `${h.name} (${h.system})`;
 }
 
 function Shell({ children }: { children: React.ReactNode }) {

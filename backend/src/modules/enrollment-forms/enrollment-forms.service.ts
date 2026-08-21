@@ -94,6 +94,15 @@ export interface EnrollmentContext {
   /** TtT hospitals attest to continuing rather than filing a full enrollment. */
   isTttContinuation: boolean;
   alreadySubmitted: boolean;
+  /**
+   * What this hospital is doing right now. The interest form knew this and the
+   * enrollment form did not, so a hospital was offered TtT it was never in, and
+   * SOAR it had just graduated from — with nothing on screen to say so.
+   */
+  currentlyEnrolled: string[];
+  inSoarSustainability: boolean;
+  /** Set when this pairing looks wrong, e.g. TtT for a hospital not in it. */
+  caution: string | null;
   /** Other initiatives this hospital has already enrolled in this year — the
    *  source for "copy champions from…". */
   copyableFrom: Array<{ initiativeCode: string; championCount: number }>;
@@ -117,6 +126,31 @@ export async function getEnrollmentContext(
     ),
   });
 
+  const enrollments = await db
+    .select({ code: schema.initiatives.code, track: schema.cohorts.track })
+    .from(schema.enrollments)
+    .innerJoin(schema.cohorts, eq(schema.cohorts.id, schema.enrollments.cohortId))
+    .innerJoin(schema.initiatives, eq(schema.initiatives.id, schema.cohorts.initiativeId))
+    .where(and(eq(schema.enrollments.hospitalId, hospitalId), eq(schema.enrollments.status, 'enrolled')));
+  const currentlyEnrolled = enrollments.map((e) => e.code);
+  const inSoarSustainability = enrollments.some(
+    (e) => e.code === 'SOAR' && e.track === 'sustainability',
+  );
+
+  // Advisory, never blocking: CPCQC decides who enrols, and a hospital may have
+  // been accepted into something the tracker doesn't know about yet. But an
+  // obviously odd pairing should say so rather than sail through.
+  let caution: string | null = null;
+  if (initiativeCode === 'TTT' && !currentlyEnrolled.includes('TTT')) {
+    caution =
+      `Our records don't show ${hospital.name} in Turning the Tide. TtT is a two-year cohort and ` +
+      `CPCQC isn't enrolling new hospitals — if you believe this is wrong, contact qi@cpcqc.org before submitting.`;
+  } else if (initiativeCode === 'SOAR' && inSoarSustainability) {
+    caution =
+      `${hospital.name} is completing a SOAR sustainability year. Sustainability is capped at one year, and ` +
+      `hospitals that meet their metrics graduate from SOAR — check with CPCQC before enrolling in SOAR again.`;
+  }
+
   const others = await db
     .select()
     .from(schema.enrollmentForms)
@@ -133,6 +167,9 @@ export async function getEnrollmentContext(
     initiativeCode,
     isTttContinuation: initiativeCode === 'TTT',
     alreadySubmitted: !!existing,
+    currentlyEnrolled,
+    inSoarSustainability,
+    caution,
     copyableFrom: others
       .filter((o) => o.initiativeCode !== initiativeCode && o.initiativeCode !== 'TTT')
       .map((o) => ({
@@ -255,8 +292,9 @@ export async function submitEnrollmentForm(input: EnrollmentSubmitInput) {
       'Please confirm it by opening this link:',
       verifyUrl,
       '',
-      'Enrollment is not complete until you do. Keep this link — it is also how you',
-      'edit your submission while the window is open.',
+      'Enrollment is not complete until you confirm by clicking the link.',
+      '',
+      'Need to change something afterwards? Email qi@cpcqc.org and we will update it for you.',
       '',
       "If you didn't fill in this form, you can ignore this email and nothing will be recorded.",
       '',

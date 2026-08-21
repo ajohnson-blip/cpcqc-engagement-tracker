@@ -65,7 +65,7 @@ function Verifier() {
       <p className="mt-3 text-sm text-cpcqc-purple-dark/70">
         {result.hospitalName} — {result.initiativeCode}, {result.programYear}
       </p>
-      <p className="mt-4 text-xs text-cpcqc-purple-dark/60">
+      <p className="mt-4 text-sm text-cpcqc-purple-dark/75">
         If you need support, please contact{' '}
         <a className="underline" href="mailto:qi@cpcqc.org">qi@cpcqc.org</a>. Enrolling in another
         initiative? Each has its own enrollment form.

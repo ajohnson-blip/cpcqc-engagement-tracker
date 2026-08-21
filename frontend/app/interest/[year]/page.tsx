@@ -50,7 +50,7 @@ export default function PublicInterestFormPage() {
   const programYear = parseInt(useParams<{ year: string }>().year, 10);
 
   const [win, setWin] = useState<WindowResp | null>(null);
-  const [hospitals, setHospitals] = useState<Array<{ id: string; name: string }>>([]);
+  const [hospitals, setHospitals] = useState<Array<{ id: string; name: string; system: string | null }>>([]);
   const [hospitalId, setHospitalId] = useState('');
   const [ctx, setCtx] = useState<HospitalCtx | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -69,7 +69,7 @@ export default function PublicInterestFormPage() {
   useEffect(() => {
     Promise.all([
       api.get<WindowResp>(`/public/interest-forms/window?programYear=${programYear}`),
-      api.get<{ hospitals: Array<{ id: string; name: string }> }>('/public/interest-forms/hospitals'),
+      api.get<{ hospitals: Array<{ id: string; name: string; system: string | null }> }>('/public/interest-forms/hospitals'),
     ])
       .then(([w, h]) => { setWin(w); setHospitals(h.hospitals); })
       .catch((e: Error) => setLoadError(e.message));
@@ -240,7 +240,7 @@ export default function PublicInterestFormPage() {
               >
                 <option value="">Select your hospital…</option>
                 {hospitals.map((h) => (
-                  <option key={h.id} value={h.id}>{h.name}</option>
+                  <option key={h.id} value={h.id}>{hospitalLabel(h)}</option>
                 ))}
               </select>
             </Field>
@@ -272,9 +272,13 @@ export default function PublicInterestFormPage() {
                   </p>
                   {ctx.currentlyEnrolledInTTT && (
                     <p className="mt-2">
-                      {ctx.hospitalName} is in Turning the Tide, a two-year cohort — that
-                      continuation carries into {programYear} and counts toward your
-                      two-initiative limit, so you can add up to one more below.
+                      {ctx.hospitalName} is in Turning the Tide, a two-year cohort, so that
+                      continues into {programYear} automatically and counts as one of your two
+                      initiatives. That means you can <strong>enrol in at most one more</strong>{' '}
+                      — or none at all, if Turning the Tide is enough for {programYear}. Please
+                      still rank all {rankable.length} initiatives below: ranking is a
+                      preference, not a commitment, and it tells us where to place you if a
+                      space opens.
                     </p>
                   )}
                   {ctx.currentlyInSoarSustainability && (
@@ -305,8 +309,16 @@ export default function PublicInterestFormPage() {
                       className="form-input"
                     >
                       <option value="">Select…</option>
-                      <option value={1}>1 initiative</option>
-                      <option value={2}>2 initiatives</option>
+                      <option value={1}>
+                        {ctx.currentlyEnrolledInTTT
+                          ? '1 — Turning the Tide only, no additional initiative'
+                          : '1 initiative'}
+                      </option>
+                      <option value={2}>
+                        {ctx.currentlyEnrolledInTTT
+                          ? '2 — Turning the Tide plus one more'
+                          : '2 initiatives'}
+                      </option>
                     </select>
                   </Field>
                 </div>
@@ -398,6 +410,13 @@ export default function PublicInterestFormPage() {
       </form>
     </Shell>
   );
+}
+
+/** "East Morgan County Hospital (Banner)" — but not "Banner Fort Collins
+ *  Medical Center (Banner)", which would just be noise. */
+function hospitalLabel(h: { name: string; system: string | null }): string {
+  if (!h.system) return h.name;
+  return h.name.toLowerCase().includes(h.system.toLowerCase()) ? h.name : `${h.name} (${h.system})`;
 }
 
 function Shell({ children }: { children: React.ReactNode }) {

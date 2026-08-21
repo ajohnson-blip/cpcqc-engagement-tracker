@@ -28,11 +28,19 @@ export type RankableCode = 'SPARK' | 'SOAR' | 'NEST';
 
 const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
 
-/** Hospitals offered in the public dropdown. Names only — nothing sensitive,
- *  and the submitter has to be able to find themselves in the list. */
-export async function listHospitalsForPublicForm(): Promise<Array<{ id: string; name: string }>> {
+/**
+ * Hospitals offered in the public dropdown.
+ *
+ * The system is included because several facilities don't carry it in their
+ * legal name — East Morgan County Hospital, Sterling Regional MedCenter and
+ * Wray Community District Hospital are all Banner — so someone looking for
+ * "Banner…" would scroll straight past their own hospital.
+ */
+export async function listHospitalsForPublicForm(): Promise<
+  Array<{ id: string; name: string; system: string | null }>
+> {
   const rows = await db
-    .select({ id: schema.hospitals.id, name: schema.hospitals.name })
+    .select({ id: schema.hospitals.id, name: schema.hospitals.name, system: schema.hospitals.system })
     .from(schema.hospitals);
   return rows.sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -193,8 +201,10 @@ export async function submitPublicInterestForm(
       'Please confirm it by opening this link:',
       verifyUrl,
       '',
-      'Your form is not final until you do. Keep this link — it is also how you edit',
-      'your submission while the window is open.',
+      'Your form is not final until you confirm by clicking the link.',
+      '',
+      'Need to change something afterwards? Email qi@cpcqc.org and we will update it',
+      'for you — the window is open until CPCQC closes it.',
       '',
       "If you didn't fill in this form, you can ignore this email and nothing will be recorded.",
       '',

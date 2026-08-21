@@ -64,9 +64,10 @@ function Verifier() {
         A program manager will be in touch with next steps, including the initiative-specific
         Enrollment Forms in November.
       </p>
-      <p className="mt-4 text-xs text-cpcqc-purple-dark/60">
-        Keep the email containing this link — it&rsquo;s how you edit your submission while the
-        window is open.
+      <p className="mt-4 text-sm text-cpcqc-purple-dark/75">
+        Need to change something? Email{' '}
+        <a className="underline" href="mailto:qi@cpcqc.org">qi@cpcqc.org</a> and we&rsquo;ll update
+        it for you.
       </p>
     </div>
   );
