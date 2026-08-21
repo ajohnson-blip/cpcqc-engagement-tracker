@@ -603,6 +603,9 @@ export const ceCertificates = pgTable(
     certificateCode: text('certificate_code').notNull(),
     recipientName: text('recipient_name').notNull(),
     recipientEmail: text('recipient_email').notNull(),
+    /** When this person completed it. NULL = use the training's own date, which
+     *  is right for live sessions; asynchronous courses differ per participant. */
+    completionDate: date('completion_date'),
     /** Delivery state mirrors `notifications`: sentAt set = delivered to
      *  SendGrid; sendError set with no sentAt = failed; both null = not sent. */
     sentAt: timestamp('sent_at', { withTimezone: true }),

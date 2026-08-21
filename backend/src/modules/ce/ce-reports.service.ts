@@ -184,6 +184,7 @@ export async function listReportParticipants(
       recipientName: schema.ceCertificates.recipientName,
       recipientEmail: schema.ceCertificates.recipientEmail,
       certificateCode: schema.ceCertificates.certificateCode,
+      completionDate: schema.ceCertificates.completionDate,
       sentAt: schema.ceCertificates.sentAt,
       programCode: schema.ceTrainings.programCode,
       title: schema.ceTrainings.title,
@@ -201,7 +202,8 @@ export async function listReportParticipants(
     recipientEmail: r.recipientEmail,
     programLabel: ceProgramLabel(r.programCode),
     title: r.title,
-    trainingDate: r.trainingDate,
+    // Report the date the certificate actually carries.
+    trainingDate: r.completionDate ?? r.trainingDate,
     activityId: r.activityId,
     contactHours: Number(r.contactHours) || 0,
     certificateCode: r.certificateCode,

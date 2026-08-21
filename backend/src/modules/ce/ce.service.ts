@@ -177,6 +177,7 @@ export async function getTraining(trainingId: string) {
       certificateCode: c.certificateCode,
       recipientName: c.recipientName,
       recipientEmail: c.recipientEmail,
+      completionDate: c.completionDate ?? null,
       sentAt: c.sentAt ? c.sentAt.toISOString() : null,
       sendError: c.sendError,
       sendCount: c.sendCount,
@@ -237,6 +238,7 @@ export async function importRoster(
       certificateCode: newCertificateCode(year),
       recipientName: r.name,
       recipientEmail: r.email,
+      completionDate: r.completionDate ?? null,
     }));
 
   if (toInsert.length > 0) {
@@ -330,7 +332,7 @@ export async function removeCertificate(certificateId: string) {
  */
 export async function buildCertificatePdf(
   training: typeof schema.ceTrainings.$inferSelect,
-  cert: { recipientName: string; certificateCode: string },
+  cert: { recipientName: string; certificateCode: string; completionDate?: string | null },
 ): Promise<Buffer> {
   const [program, cpcqc] = await Promise.all([
     loadLogo(training.programCode),
@@ -340,7 +342,9 @@ export async function buildCertificatePdf(
     programCode: training.programCode,
     programLabel: hostLogoFallbackLabel(training.programCode),
     trainingTitle: training.title,
-    trainingDate: training.trainingDate,
+    // An asynchronous course is completed on different days by different
+    // people, so the participant's own date wins where the roster supplied one.
+    trainingDate: cert.completionDate || training.trainingDate,
     contactHours: training.contactHours,
     activityId: training.activityId,
     recipientName: cert.recipientName,

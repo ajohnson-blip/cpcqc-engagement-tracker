@@ -235,9 +235,15 @@ router.post('/trainings/:id/roster/preview', rawUploadBody, async (req, res) => 
   await getTraining(req.params.id); // 404s if the training doesn't exist
   const parsed = parseRoster(await rowsFromUpload(req.body as Buffer));
   if (parsed.rows.length === 0 && parsed.problems.length === 0) {
+    // Naming the headers we actually found turns an unactionable refusal into
+    // an obvious fix — usually the column is called something we don't know yet.
+    const seen = parsed.headersSeen.length
+      ? ` Columns found: ${parsed.headersSeen.slice(0, 12).join(', ')}.`
+      : ' No column headers were found at all — is the first sheet the roster?';
     throw new HttpError(
       400,
-      'No name/email columns found. The file needs a header row with a name column (or First/Last) and an email column.',
+      'Could not find name and email columns. The file needs a header row with a name column ' +
+        `(or First/Last) and an email column.${seen}`,
     );
   }
   res.json(parsed);

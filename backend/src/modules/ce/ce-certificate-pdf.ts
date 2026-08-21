@@ -115,8 +115,12 @@ function draw(doc: PDFKit.PDFDocument, data: CertificateData) {
     doc.font(font).fontSize(size).fillColor(color).text(text, left, y, { width, align: 'center' });
   };
 
+  // Vertical rhythm note: the body used to finish around 360pt on a 612pt page,
+  // leaving the bottom third empty above the footer. The offsets below spread
+  // the block down so it reads as centred between the logos and the
+  // accreditation line, rather than top-weighted.
   // ---- Header band: host logo · title · CPCQC logo ----
-  const headerTop = 34;
+  const headerTop = 40;
   const logoBoxH = 58;
 
   const hostLogo = data.logos?.program ?? null;
@@ -147,12 +151,12 @@ function draw(doc: PDFKit.PDFDocument, data: CertificateData) {
   centerText('Certificate of Completion', headerTop + 14, 23, SLATE);
 
   // ---- Recipient ----
-  centerText('PRESENTED TO :', headerTop + 62, 12, PURPLE_DEEP);
+  centerText('PRESENTED TO :', headerTop + 78, 12, PURPLE_DEEP);
 
   // The template uses a script face. pdfkit ships only the standard 14 PostScript
   // fonts, so Times-Italic stands in — embedding a licensed script font would be
   // the only way to match exactly.
-  const nameY = headerTop + 84;
+  const nameY = headerTop + 104;
   doc
     .font('Times-Italic')
     .fontSize(38)
@@ -160,7 +164,7 @@ function draw(doc: PDFKit.PDFDocument, data: CertificateData) {
     .text(data.recipientName, left, nameY, { width, align: 'center', lineBreak: false });
 
   // Rule under the name
-  const ruleY = nameY + 52;
+  const ruleY = nameY + 56;
   doc
     .moveTo(left + 40, ruleY)
     .lineTo(right - 40, ruleY)
@@ -172,16 +176,16 @@ function draw(doc: PDFKit.PDFDocument, data: CertificateData) {
   // NB: the source template misspells this as "RECEIPIENT"; corrected here.
   centerText(
     'THIS CERTIFICATE ACKNOWLEDGES THAT THE RECIPIENT',
-    ruleY + 22,
+    ruleY + 36,
     14,
     PURPLE_DEEP,
     'Helvetica-Bold',
   );
-  centerText('HAS SUCCESSFULLY COMPLETED', ruleY + 40, 14, PURPLE_DEEP, 'Helvetica-Bold');
+  centerText('HAS SUCCESSFULLY COMPLETED', ruleY + 56, 14, PURPLE_DEEP, 'Helvetica-Bold');
 
   // Title: shrink to fit rather than wrapping to a third line.
   const title = data.trainingTitle.toUpperCase();
-  const titleY = ruleY + 68;
+  const titleY = ruleY + 94;
   let titleSize = 26;
   doc.font('Helvetica-Bold');
   while (titleSize > 14 && doc.fontSize(titleSize).heightOfString(title, { width }) > 76) {
@@ -189,16 +193,16 @@ function draw(doc: PDFKit.PDFDocument, data: CertificateData) {
   }
   doc.fontSize(titleSize).fillColor(PURPLE).text(title, left, titleY, { width, align: 'center' });
 
-  const afterTitle = titleY + doc.heightOfString(title, { width }) + 10;
-  centerText(formatTrainingDate(data.trainingDate), afterTitle, 13, PURPLE);
+  const afterTitle = titleY + doc.heightOfString(title, { width }) + 26;
+  centerText(formatTrainingDate(data.trainingDate), afterTitle, 14, PURPLE);
   centerText(
     `${formatContactHours(data.contactHours)}   Nursing Contact Hours`,
-    afterTitle + 24,
+    afterTitle + 38,
     12,
     '#2A2536',
     'Helvetica-Bold',
   );
-  centerText('offered by CPCQC www.cpcqc.org', afterTitle + 40, 11, '#2A2536', 'Helvetica-Bold');
+  centerText('offered by CPCQC www.cpcqc.org', afterTitle + 62, 11, '#2A2536', 'Helvetica-Bold');
 
   // ---- Footer: disclaimer (left) · activity ID (right) ----
   const footerY = doc.page.height - doc.page.margins.bottom - 34;

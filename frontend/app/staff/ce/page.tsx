@@ -35,6 +35,21 @@ import type {
 } from '@/lib/types';
 
 /**
+ * Pull the server's message out of a failed response.
+ *
+ * The API returns { error: { code, message } }; reading `.message` off the top
+ * level silently yields undefined, so every failure here fell back to a generic
+ * string and the real reason — which the server had already worked out — was
+ * thrown away. The shared `api` client gets this right; these raw fetches did not.
+ */
+async function apiErrorMessage(res: Response, fallback: string): Promise<string> {
+  const body = (await res.json().catch(() => null)) as
+    | { error?: { message?: string }; message?: string }
+    | null;
+  return body?.error?.message ?? body?.message ?? `${fallback} (HTTP ${res.status})`;
+}
+
+/**
  * Fetch a PDF through the authenticated client and hand it to the browser.
  * A plain <a href> can't carry the Bearer token, so these endpoints must be
  * fetched and turned into a blob URL. `filename` triggers a download; omitting
@@ -43,8 +58,7 @@ import type {
 async function openPdf(path: string, filename?: string): Promise<void> {
   const res = await apiFetch(path);
   if (!res.ok) {
-    const detail = await res.json().catch(() => ({}) as { message?: string });
-    throw new Error(detail.message ?? `Could not load the PDF (HTTP ${res.status}).`);
+    throw new Error(await apiErrorMessage(res, 'Could not load the PDF'));
   }
   const url = URL.createObjectURL(await res.blob());
   if (filename) {
@@ -462,8 +476,7 @@ function LogoManager({
         { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file },
       );
       if (!res.ok) {
-        const detail = (await res.json().catch(() => ({}))) as { message?: string };
-        throw new Error(detail.message ?? 'Upload failed.');
+        throw new Error(await apiErrorMessage(res, 'Upload failed'));
       }
       await onChanged();
       setVersion((v) => v + 1);
@@ -819,7 +832,7 @@ function TrainingDetail({
         headers: { 'Content-Type': 'application/octet-stream' },
         body: file,
       });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? 'Preview failed.');
+      if (!res.ok) throw new Error(await apiErrorMessage(res, 'Could not read that file'));
       setPreview(await res.json());
       setPendingFile(file);
     } catch (e) {
@@ -841,7 +854,7 @@ function TrainingDetail({
         headers: { 'Content-Type': 'application/octet-stream' },
         body: pendingFile,
       });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? 'Import failed.');
+      if (!res.ok) throw new Error(await apiErrorMessage(res, 'Import failed'));
       const result: CeRosterImportResult = await res.json();
       setMsg(
         `Added ${result.added} participant${result.added === 1 ? '' : 's'}` +

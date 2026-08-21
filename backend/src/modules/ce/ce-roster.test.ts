@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   parseRoster,
+  toIsoDate,
   isPlausibleEmail,
   tidyName,
   splitCsvLine,
@@ -67,7 +68,7 @@ describe('parseRoster', () => {
     expect(r.rows).toHaveLength(2);
     expect(r.rows[0]).toMatchObject({ name: 'Jane Doe', email: 'jane@cpcqc.org', sourceRow: 2 });
     expect(r.problems).toHaveLength(0);
-    expect(r.detected).toEqual({ nameColumns: ['Name'], emailColumn: 'Email' });
+    expect(r.detected).toEqual({ nameColumns: ['Name'], emailColumn: 'Email', dateColumn: null });
   });
 
   it('finds the header when the export has junk rows above it', () => {
@@ -166,5 +167,59 @@ describe('certificateFilename', () => {
   });
   it('strips characters that break filenames', () => {
     expect(certificateFilename('A/B "C"', "O'Brien")).toBe('CE-Certificate_AB-C_OBrien.pdf');
+  });
+});
+
+describe('toIsoDate — asynchronous courses carry a per-participant date', () => {
+  it('accepts the formats CPCQC actually types', () => {
+    expect(toIsoDate('2026-09-09')).toBe('2026-09-09');
+    expect(toIsoDate('9/9/2026')).toBe('2026-09-09');
+    expect(toIsoDate('09/09/2026')).toBe('2026-09-09');
+    expect(toIsoDate('9-9-26')).toBe('2026-09-09');
+  });
+  it('decodes Excel serial numbers', () => {
+    // Excel stores dates as days since its 1899-12-30 epoch; a date-formatted
+    // cell arrives as a bare number, which would otherwise look like nonsense.
+    expect(toIsoDate(46274)).toBe('2026-09-09');
+    expect(toIsoDate('46274')).toBe('2026-09-09');
+  });
+  it('accepts a real Date, as ExcelJS often supplies', () => {
+    expect(toIsoDate(new Date(Date.UTC(2026, 8, 9)))).toBe('2026-09-09');
+  });
+  it('returns null for blanks and nonsense, so the training date is used', () => {
+    expect(toIsoDate('')).toBeNull();
+    expect(toIsoDate(null)).toBeNull();
+    expect(toIsoDate(undefined)).toBeNull();
+    expect(toIsoDate('not a date')).toBeNull();
+  });
+});
+
+describe('parseRoster — completion dates', () => {
+  it('reads a completion-date column when present', () => {
+    const r = parseRoster([
+      ['Name', 'Email', 'Completion Date'],
+      ['Jane Doe', 'jane@x.org', '9/9/2026'],
+      ['John Smith', 'john@x.org', '2026-09-11'],
+    ]);
+    expect(r.detected.dateColumn).toBe('Completion Date');
+    expect(r.rows[0].completionDate).toBe('2026-09-09');
+    expect(r.rows[1].completionDate).toBe('2026-09-11');
+  });
+  it('leaves the date unset when the column is absent or blank', () => {
+    const r = parseRoster([
+      ['Name', 'Email', 'Completion Date'],
+      ['Jane Doe', 'jane@x.org', ''],
+    ]);
+    expect(r.rows[0].completionDate).toBeUndefined();
+    const noCol = parseRoster([['Name', 'Email'], ['Jane Doe', 'jane@x.org']]);
+    expect(noCol.rows[0].completionDate).toBeUndefined();
+    expect(noCol.detected.dateColumn).toBeNull();
+  });
+  it('reports the headers it saw when detection fails', () => {
+    // "no name/email columns" is unactionable alone; the headers usually make
+    // the mismatch obvious.
+    const r = parseRoster([['Widget', 'Quantity'], ['Sprocket', '4']]);
+    expect(r.rows).toHaveLength(0);
+    expect(r.headersSeen).toEqual(['Widget', 'Quantity']);
   });
 });
