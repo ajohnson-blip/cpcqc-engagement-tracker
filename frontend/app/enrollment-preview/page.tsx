@@ -327,6 +327,13 @@ export default function EnrollmentFormPreviewPage() {
                   title="Key champions"
                   description="Name, email and hospital title are required for each starred role. Mark exactly one person as the primary contact — this is the individual the CPCQC team will consider the first line of contact for communication."
                 >
+                  <div className="mb-3 rounded-lg bg-cpcqc-cream-dark/20 px-3 py-2 text-xs text-cpcqc-purple-dark/80">
+                    <strong>
+                      CPCQC strongly encourages a multidisciplinary team with diverse support. If
+                      possible, recruit a champion for each role.
+                    </strong>{' '}
+                    Where that isn&rsquo;t possible, one person may hold more than one role.
+                  </div>
                   <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-cpcqc-cream-dark/30 px-3 py-2">
                     <Copy size={14} className="text-cpcqc-purple-dark/70" aria-hidden />
                     <span className="text-xs text-cpcqc-purple-dark/80">

@@ -12,8 +12,8 @@
  * users; this one is reachable by anyone with the link.
  */
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { useParams } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import { AlertTriangle, CalendarDays, MailCheck, Info } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 
@@ -46,8 +46,33 @@ function fmtDate(iso: string): string {
   });
 }
 
+interface EditableForm {
+  hospitalId: string;
+  submitterName: string;
+  submitterRole: string;
+  submitterEmail: string;
+  intendedInitiativeCount: number;
+  rankedInitiatives: Array<{ code: Code; rank: number }>;
+  reasoning: Partial<Record<Code, string>>;
+  editable: boolean;
+  closesAt: string | null;
+}
+
 export default function PublicInterestFormPage() {
+  return (
+    <Suspense fallback={<Shell><p className="text-sm text-cpcqc-purple-dark/70">Loading…</p></Shell>}>
+      <InterestForm />
+    </Suspense>
+  );
+}
+
+function InterestForm() {
   const programYear = parseInt(useParams<{ year: string }>().year, 10);
+  // Arriving with ?token= means "reopen what I sent" — the emailed link is the
+  // only proof of being the original submitter, so it is what authorises editing.
+  const editToken = useSearchParams().get('token');
+  const [editing, setEditing] = useState<EditableForm | null>(null);
+  const [editClosed, setEditClosed] = useState<string | null>(null);
 
   const [win, setWin] = useState<WindowResp | null>(null);
   const [hospitals, setHospitals] = useState<Array<{ id: string; name: string; system: string | null }>>([]);
@@ -65,6 +90,33 @@ export default function PublicInterestFormPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
+
+  // Load an existing submission when editing, and prefill from it.
+  useEffect(() => {
+    if (!editToken) return;
+    api
+      .post<EditableForm>('/public/interest-forms/load', { token: editToken })
+      .then((f) => {
+        setEditing(f);
+        setHospitalId(f.hospitalId);
+        setName(f.submitterName);
+        setRole(f.submitterRole);
+        setEmail(f.submitterEmail);
+        setIntended(f.intendedInitiativeCount as 1 | 2);
+        const r: Record<Code, Rank> = { SPARK: '', SOAR: '', NEST: '' };
+        for (const x of f.rankedInitiatives) r[x.code] = x.rank as Rank;
+        setRanks(r);
+        setWhys({ SPARK: '', SOAR: '', NEST: '', ...f.reasoning } as Record<Code, string>);
+        if (!f.editable) {
+          setEditClosed(
+            f.closesAt
+              ? `The window closed on ${fmtDate(f.closesAt)}, so this submission can no longer be changed. Contact qi@cpcqc.org if something needs correcting.`
+              : 'This submission can no longer be changed.',
+          );
+        }
+      })
+      .catch((e: Error) => setLoadError(e.message));
+  }, [editToken]);
 
   useEffect(() => {
     Promise.all([
@@ -89,6 +141,12 @@ export default function PublicInterestFormPage() {
       setLoadError(e instanceof Error ? e.message : 'Could not load that hospital.');
     }
   }, [programYear]);
+
+  // In edit mode the hospital comes from the submission, so its context has to
+  // be fetched too — the ranking pool depends on it.
+  useEffect(() => {
+    if (editing?.hospitalId) void loadCtx(editing.hospitalId);
+  }, [editing?.hospitalId, loadCtx]);
 
   const rankable = ctx?.rankable ?? [];
   const takenRanks = useMemo(() => {
@@ -117,13 +175,34 @@ export default function PublicInterestFormPage() {
   }
 
   const isOpen = win?.state === 'open';
-  const canSubmit = errors.length === 0 && isOpen && !ctx?.alreadySubmitted && !submitting;
+  // Editing an existing submission doesn't trip the "already submitted" guard —
+  // that guard exists to stop a stranger overwriting, and the token proves this
+  // is the same person.
+  const canSubmit =
+    errors.length === 0 &&
+    !submitting &&
+    (editToken ? !editClosed : isOpen && !ctx?.alreadySubmitted);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setSubmitError(null);
     try {
+      if (editToken) {
+        await api.post('/public/interest-forms/update', {
+          token: editToken,
+          submitterName: name,
+          submitterRole: role,
+          submitterEmail: email,
+          intendedInitiativeCount: intended,
+          rankedInitiatives: rankable
+            .filter((c) => typeof ranks[c] === 'number')
+            .map((c) => ({ code: c, rank: ranks[c] as number })),
+          reasoning: Object.fromEntries(rankable.map((c) => [c, whys[c]])),
+        });
+        setSentTo('__updated__');
+        return;
+      }
       const res = await api.post<{ sentTo: string }>('/public/interest-forms', {
         programYear,
         hospitalId,
@@ -151,6 +230,24 @@ export default function PublicInterestFormPage() {
   }
   if (!win) return <Shell><p className="text-sm text-cpcqc-purple-dark/70">Loading…</p></Shell>;
 
+  if (sentTo === '__updated__') {
+    return (
+      <Shell>
+        <div className="rounded-2xl bg-white p-8 text-center shadow-card">
+          <MailCheck className="mx-auto h-10 w-10 text-cpcqc-teal-dark" />
+          <h2 className="mt-3 font-rounded text-xl font-bold text-cpcqc-purple-dark">
+            Your changes are saved
+          </h2>
+          <p className="mt-2 text-sm text-cpcqc-purple-dark/80">
+            {editing?.closesAt
+              ? `You can keep changing this until ${fmtDate(editing.closesAt)} using the link in your confirmation email.`
+              : 'You can keep changing this using the link in your confirmation email.'}
+          </p>
+        </div>
+      </Shell>
+    );
+  }
+
   if (sentTo) {
     return (
       <Shell>
@@ -175,9 +272,28 @@ export default function PublicInterestFormPage() {
 
   return (
     <Shell>
+      {editToken && (
+        <div
+          className={
+            'mb-6 rounded-xl px-4 py-3 text-sm ' +
+            (editClosed
+              ? 'bg-cpcqc-pink-dark/10 text-cpcqc-pink-dark'
+              : 'bg-cpcqc-teal-dark/10 text-cpcqc-purple-dark')
+          }
+        >
+          {editClosed ?? (
+            <>
+              <strong>Editing your submission.</strong> Change anything below and save — your
+              earlier answers are already filled in
+              {editing?.closesAt ? <>, and you can keep editing until {fmtDate(editing.closesAt)}</> : ''}.
+            </>
+          )}
+        </div>
+      )}
+
       <header className="mb-6">
         <h1 className="font-rounded text-3xl font-extrabold text-cpcqc-purple-dark">
-          Express interest in {programYear} CPCQC initiatives
+          {editToken ? `Edit your ${programYear} interest form` : `Express interest in ${programYear} CPCQC initiatives`}
         </h1>
         <p className="mt-2 max-w-2xl text-cpcqc-purple-dark/80">
           Step one of CPCQC&rsquo;s two-step annual enrollment. No account needed — tell us which
@@ -402,7 +518,11 @@ export default function PublicInterestFormPage() {
                 disabled={!canSubmit}
                 className="w-full rounded-lg bg-cpcqc-purple px-4 py-2.5 font-rounded font-bold text-white shadow-sm transition hover:bg-cpcqc-purple/90 disabled:opacity-60"
               >
-                {submitting ? 'Submitting…' : 'Submit interest form'}
+                {submitting
+                  ? 'Saving…'
+                  : editToken
+                    ? 'Save changes'
+                    : 'Submit interest form'}
               </button>
             </>
           )}

@@ -10,8 +10,8 @@
  * and an already-enrolled pairing must be refused rather than overwritten.
  */
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { useParams } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import { AlertTriangle, CalendarDays, MailCheck, Info, Copy } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 
@@ -71,8 +71,35 @@ const emptyChampion = (role: RoleKey): Champion => ({
   role, name: '', email: '', title: '', isPrimary: false, redcapAccess: false, dashboardAccess: false,
 });
 
+interface EditableEnrollment {
+  hospitalId: string;
+  initiativeCode: Code;
+  submitterName: string;
+  submitterRole: string;
+  submitterEmail: string;
+  ehr: string | null;
+  ehrOther: string | null;
+  champions: Champion[];
+  tttContinuationAttested: boolean;
+  editable: boolean;
+  closesAt: string | null;
+}
+
 export default function PublicEnrollmentFormPage() {
+  return (
+    <Suspense fallback={<Shell><p className="text-sm text-cpcqc-purple-dark/70">Loading…</p></Shell>}>
+      <EnrollmentForm />
+    </Suspense>
+  );
+}
+
+function EnrollmentForm() {
   const programYear = parseInt(useParams<{ year: string }>().year, 10);
+  // ?token= reopens an existing enrollment; the emailed link is the only proof
+  // of being the original submitter.
+  const editToken = useSearchParams().get('token');
+  const [editing, setEditing] = useState<EditableEnrollment | null>(null);
+  const [editClosed, setEditClosed] = useState<string | null>(null);
 
   const [config, setConfig] = useState<Config | null>(null);
   const [win, setWin] = useState<WindowState | null>(null);
@@ -109,6 +136,32 @@ export default function PublicEnrollmentFormPage() {
       })
       .catch((e: Error) => setLoadError(e.message));
   }, [programYear]);
+
+  useEffect(() => {
+    if (!editToken) return;
+    api
+      .post<EditableEnrollment>('/public/enrollment-forms/load', { token: editToken })
+      .then((f) => {
+        setEditing(f);
+        setHospitalId(f.hospitalId);
+        setInitiative(f.initiativeCode);
+        setName(f.submitterName);
+        setRole(f.submitterRole);
+        setEmail(f.submitterEmail);
+        setEhr(f.ehr ?? '');
+        setEhrOther(f.ehrOther ?? '');
+        setAttested(f.tttContinuationAttested);
+        if (f.champions.length) setChampions(f.champions);
+        if (!f.editable) {
+          setEditClosed(
+            f.closesAt
+              ? `The enrollment deadline passed on ${fmtDate(f.closesAt)}, so this form can no longer be changed. Contact qi@cpcqc.org if something needs correcting.`
+              : 'This enrollment can no longer be changed.',
+          );
+        }
+      })
+      .catch((e: Error) => setLoadError(e.message));
+  }, [editToken]);
 
   const loadCtx = useCallback(async (hid: string, code: Code | '') => {
     setCtx(null);
@@ -149,6 +202,10 @@ export default function PublicEnrollmentFormPage() {
     }
   }
 
+  useEffect(() => {
+    if (editing) void loadCtx(editing.hospitalId, editing.initiativeCode);
+  }, [editing, loadCtx]);
+
   const isTtt = initiative === 'TTT';
   const isOpen = win?.state === 'open';
 
@@ -174,13 +231,31 @@ export default function PublicEnrollmentFormPage() {
   }
   if (ctx && isTtt && !attested) errors.push('Confirm the continuation attestation to submit.');
 
-  const canSubmit = errors.length === 0 && isOpen && !ctx?.alreadySubmitted && !submitting;
+  // The "already submitted" guard stops strangers overwriting; the token proves
+  // this is the same person, so editing bypasses it.
+  const canSubmit =
+    errors.length === 0 &&
+    !submitting &&
+    (editToken ? !editClosed : isOpen && !ctx?.alreadySubmitted);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setSubmitError(null);
     try {
+      if (editToken) {
+        await api.post('/public/enrollment-forms/update', {
+          token: editToken,
+          submitterName: name,
+          submitterRole: role,
+          submitterEmail: email,
+          ...(isTtt
+            ? { tttContinuationAttested: attested }
+            : { ehr, ehrOther, champions: champions.filter((c) => c.name.trim() || c.isPrimary) }),
+        });
+        setSentTo('__updated__');
+        return;
+      }
       const res = await api.post<{ sentTo: string }>('/public/enrollment-forms', {
         programYear,
         hospitalId,
@@ -202,6 +277,24 @@ export default function PublicEnrollmentFormPage() {
 
   if (loadError) return <Shell><p className="text-sm text-cpcqc-pink-dark">{loadError}</p></Shell>;
   if (!config || !win) return <Shell><p className="text-sm text-cpcqc-purple-dark/70">Loading…</p></Shell>;
+
+  if (sentTo === '__updated__') {
+    return (
+      <Shell>
+        <div className="rounded-2xl bg-white p-8 text-center shadow-card">
+          <MailCheck className="mx-auto h-10 w-10 text-cpcqc-teal-dark" />
+          <h2 className="mt-3 font-rounded text-xl font-bold text-cpcqc-purple-dark">
+            Your changes are saved
+          </h2>
+          <p className="mt-2 text-sm text-cpcqc-purple-dark/80">
+            {editing?.closesAt
+              ? `You can keep changing this until ${fmtDate(editing.closesAt)} using the link in your confirmation email.`
+              : 'You can keep changing this using the link in your confirmation email.'}
+          </p>
+        </div>
+      </Shell>
+    );
+  }
 
   if (sentTo) {
     return (
@@ -231,7 +324,7 @@ export default function PublicEnrollmentFormPage() {
           Step 2 of 2
         </p>
         <h1 className="mt-1 font-rounded text-3xl font-extrabold text-cpcqc-purple-dark">
-          {programYear} CPCQC Enrollment
+          {editToken ? `Edit your ${programYear} enrollment` : `${programYear} CPCQC Enrollment`}
         </h1>
         <p className="mt-2 max-w-2xl text-cpcqc-purple-dark/80">
           This is the step required under Colorado law — a hospital without a submitted enrollment
@@ -239,6 +332,24 @@ export default function PublicEnrollmentFormPage() {
           has its own form, so repeat this for any other initiative you were accepted into.
         </p>
       </header>
+
+      {editToken && (
+        <div
+          className={
+            'mb-6 rounded-xl px-4 py-3 text-sm ' +
+            (editClosed
+              ? 'bg-cpcqc-pink-dark/10 text-cpcqc-pink-dark'
+              : 'bg-cpcqc-teal-dark/10 text-cpcqc-purple-dark')
+          }
+        >
+          {editClosed ?? (
+            <>
+              <strong>Editing your enrollment.</strong> Change anything below and save
+              {editing?.closesAt ? <> — you can keep editing until {fmtDate(editing.closesAt)}</> : ''}.
+            </>
+          )}
+        </div>
+      )}
 
       <div
         className={
@@ -399,9 +510,12 @@ export default function PublicEnrollmentFormPage() {
                   >
                     <div className="mb-3 space-y-1 rounded-lg bg-cpcqc-cream-dark/20 px-3 py-2 text-xs text-cpcqc-purple-dark/80">
                       <p>
-                        <strong>One person may hold more than one role.</strong> If your nurse
-                        champion is also the data champion, enter them in both — use{' '}
-                        <em>Same as…</em> to copy their details across.
+                        <strong>
+                          CPCQC strongly encourages a multidisciplinary team with diverse support.
+                          If possible, recruit a champion for each role.
+                        </strong>{' '}
+                        Where that isn&rsquo;t possible, one person may hold more than one — enter
+                        them in both and use <em>Same as…</em> to copy their details across.
                       </p>
                       <p>
                         Please be as accurate and complete as possible with names and email
@@ -526,7 +640,13 @@ export default function PublicEnrollmentFormPage() {
                 disabled={!canSubmit}
                 className="w-full rounded-lg bg-cpcqc-purple px-4 py-2.5 font-rounded font-bold text-white shadow-sm transition hover:bg-cpcqc-purple/90 disabled:opacity-60"
               >
-                {submitting ? 'Submitting…' : isTtt ? 'Submit continuation attestation' : `Enroll in ${initiative}`}
+                {submitting
+                  ? 'Saving…'
+                  : editToken
+                    ? 'Save changes'
+                    : isTtt
+                      ? 'Submit continuation attestation'
+                      : `Enroll in ${initiative}`}
               </button>
             </>
           )}

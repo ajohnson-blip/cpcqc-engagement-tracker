@@ -18,6 +18,8 @@ import {
   getPublicHospitalContext,
   submitPublicInterestForm,
   verifyPublicInterestForm,
+  loadInterestFormForEdit,
+  updateInterestFormByToken,
 } from './public-interest.service.js';
 
 const router = Router();
@@ -74,6 +76,22 @@ router.post('/', submitLimiter, async (req, res) => {
     return;
   }
   res.status(201).json(await submitPublicInterestForm(input));
+});
+
+/** Load a submission for editing. POST so the token stays out of URLs, logs
+ *  and browser history. */
+router.post('/load', async (req, res) => {
+  const token = z.string().min(20).parse((req.body as { token?: string })?.token);
+  res.json(await loadInterestFormForEdit(token));
+});
+
+router.post('/update', submitLimiter, async (req, res) => {
+  const body = z
+    .object({ token: z.string().min(20) })
+    .and(submitSchema.omit({ programYear: true, hospitalId: true }))
+    .parse(req.body);
+  const { token, ...input } = body;
+  res.json(await updateInterestFormByToken(token, input));
 });
 
 router.post('/verify', async (req, res) => {

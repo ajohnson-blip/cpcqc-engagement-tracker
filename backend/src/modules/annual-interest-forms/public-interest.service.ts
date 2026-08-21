@@ -15,6 +15,10 @@
  * hospital name could silently replace that hospital's real submission. A
  * second person submitting for an already-claimed hospital is therefore
  * refused and pointed at CPCQC, rather than overwriting.
+ *
+ * The token also authorises EDITING, until the window closes. Holding the link
+ * is proof of being the original submitter — the same property that makes it
+ * safe to confirm with — so it is the natural key for "change what I sent".
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
@@ -203,8 +207,9 @@ export async function submitPublicInterestForm(
       '',
       'Your form is not final until you confirm by clicking the link.',
       '',
-      'Need to change something afterwards? Email qi@cpcqc.org and we will update it',
-      'for you — the window is open until CPCQC closes it.',
+      'Keep this email. The same link reopens your submission if you need to change',
+      'it — right up until the window closes. After that it becomes the record CPCQC',
+      'plans cohorts from, so contact qi@cpcqc.org instead.',
       '',
       "If you didn't fill in this form, you can ignore this email and nothing will be recorded.",
       '',
@@ -266,4 +271,92 @@ export async function verifyPublicInterestForm(token: string) {
     submitterName: row.submitterName,
     alreadyVerified: !firstConfirmation,
   };
+}
+
+
+/** A submission loaded for editing, plus whether editing is still allowed. */
+export interface EditableInterestForm {
+  programYear: number;
+  hospitalId: string;
+  hospitalName: string;
+  submitterName: string;
+  submitterRole: string;
+  submitterEmail: string;
+  intendedInitiativeCount: number;
+  rankedInitiatives: Array<{ code: RankableCode; rank: number }>;
+  reasoning: Partial<Record<RankableCode, string>>;
+  verified: boolean;
+  /** False once the window has closed — the form then reads as a record. */
+  editable: boolean;
+  closesAt: string | null;
+}
+
+async function findByToken(token: string) {
+  const row = await db.query.annualInterestForms.findFirst({
+    where: eq(schema.annualInterestForms.verificationTokenHash, hashToken(token)),
+  });
+  if (!row) throw new HttpError(404, 'That link is not valid.');
+  return row;
+}
+
+export async function loadInterestFormForEdit(token: string): Promise<EditableInterestForm> {
+  const row = await findByToken(token);
+  const hospital = await db.query.hospitals.findFirst({
+    where: eq(schema.hospitals.id, row.hospitalId),
+  });
+  const window = await db.query.enrollmentWindows.findFirst({
+    where: eq(schema.enrollmentWindows.programYear, row.programYear),
+  });
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    programYear: row.programYear,
+    hospitalId: row.hospitalId,
+    hospitalName: hospital?.name ?? 'your hospital',
+    submitterName: row.submitterName,
+    submitterRole: row.submitterRole,
+    submitterEmail: row.submitterEmail,
+    intendedInitiativeCount: row.intendedInitiativeCount,
+    rankedInitiatives: (row.rankedInitiatives as Array<{ code: RankableCode; rank: number }>) ?? [],
+    reasoning: (row.reasoning as Partial<Record<RankableCode, string>>) ?? {},
+    verified: !!row.verifiedAt,
+    editable: !!window && today <= window.closesAt,
+    closesAt: window?.closesAt ?? null,
+  };
+}
+
+/**
+ * Update a submission from its emailed link. Refused once the window has
+ * closed: after that the form is the record CPCQC planned cohorts from, and a
+ * late change would silently disagree with decisions already made.
+ */
+export async function updateInterestFormByToken(
+  token: string,
+  input: Omit<PublicSubmitInput, 'programYear' | 'hospitalId'>,
+): Promise<{ updated: true }> {
+  const row = await findByToken(token);
+  const current = await loadInterestFormForEdit(token);
+  if (!current.editable) {
+    throw new HttpError(
+      400,
+      `The ${row.programYear} interest window has closed, so this submission can no longer be changed. Contact qi@cpcqc.org if something needs correcting.`,
+    );
+  }
+
+  const ctx = await getPublicHospitalContext(row.hospitalId, row.programYear);
+  validate({ ...input, programYear: row.programYear, hospitalId: row.hospitalId }, ctx);
+
+  await db
+    .update(schema.annualInterestForms)
+    .set({
+      submitterName: input.submitterName.trim(),
+      submitterRole: input.submitterRole.trim(),
+      submitterEmail: input.submitterEmail.trim(),
+      intendedInitiativeCount: input.intendedInitiativeCount,
+      rankedInitiatives: input.rankedInitiatives,
+      reasoning: input.reasoning,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.annualInterestForms.id, row.id));
+
+  return { updated: true };
 }

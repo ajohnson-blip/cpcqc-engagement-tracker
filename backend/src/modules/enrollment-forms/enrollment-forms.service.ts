@@ -294,7 +294,9 @@ export async function submitEnrollmentForm(input: EnrollmentSubmitInput) {
       '',
       'Enrollment is not complete until you confirm by clicking the link.',
       '',
-      'Need to change something afterwards? Email qi@cpcqc.org and we will update it for you.',
+      'Keep this email. The same link reopens this form if you need to change it —',
+      'right up until the enrollment deadline. After that it is the record that',
+      'satisfies the statute, so contact qi@cpcqc.org instead.',
       '',
       "If you didn't fill in this form, you can ignore this email and nothing will be recorded.",
       '',
@@ -387,4 +389,101 @@ export async function verifyEnrollmentForm(token: string) {
     submitterName: row.submitterName,
     alreadyVerified: !firstConfirmation,
   };
+}
+
+
+/** A submission loaded for editing, plus whether editing is still allowed. */
+export interface EditableEnrollmentForm {
+  programYear: number;
+  hospitalId: string;
+  hospitalName: string;
+  initiativeCode: InitiativeCode;
+  submitterName: string;
+  submitterRole: string;
+  submitterEmail: string;
+  ehr: string | null;
+  ehrOther: string | null;
+  champions: Champion[];
+  tttContinuationAttested: boolean;
+  verified: boolean;
+  /** False once the window has closed — enrollment is then the legal record. */
+  editable: boolean;
+  closesAt: string | null;
+}
+
+async function findByToken(token: string) {
+  const row = await db.query.enrollmentForms.findFirst({
+    where: eq(schema.enrollmentForms.verificationTokenHash, hashToken(token)),
+  });
+  if (!row) throw new HttpError(404, 'That link is not valid.');
+  return row;
+}
+
+export async function loadEnrollmentFormForEdit(token: string): Promise<EditableEnrollmentForm> {
+  const row = await findByToken(token);
+  const hospital = await db.query.hospitals.findFirst({
+    where: eq(schema.hospitals.id, row.hospitalId),
+  });
+  const window = await getEnrollmentStepWindow(row.programYear);
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    programYear: row.programYear,
+    hospitalId: row.hospitalId,
+    hospitalName: hospital?.name ?? 'your hospital',
+    initiativeCode: row.initiativeCode as InitiativeCode,
+    submitterName: row.submitterName,
+    submitterRole: row.submitterRole,
+    submitterEmail: row.submitterEmail,
+    ehr: row.ehr,
+    ehrOther: row.ehrOther,
+    champions: (row.champions as Champion[] | null) ?? [],
+    tttContinuationAttested: row.tttContinuationAttested,
+    verified: !!row.verifiedAt,
+    editable: !!window.closesAt && today <= window.closesAt,
+    closesAt: window.closesAt,
+  };
+}
+
+/**
+ * Update an enrollment from its emailed link. Refused after the deadline: this
+ * is the record that satisfies the statute, so what it said on Dec 1 is what
+ * counts, and a later edit would quietly disagree with it.
+ */
+export async function updateEnrollmentFormByToken(
+  token: string,
+  input: Omit<EnrollmentSubmitInput, 'programYear' | 'hospitalId' | 'initiativeCode'>,
+): Promise<{ updated: true }> {
+  const row = await findByToken(token);
+  const current = await loadEnrollmentFormForEdit(token);
+  if (!current.editable) {
+    throw new HttpError(
+      400,
+      `The ${row.programYear} enrollment deadline has passed, so this form can no longer be changed. Contact qi@cpcqc.org if something needs correcting.`,
+    );
+  }
+
+  const full: EnrollmentSubmitInput = {
+    ...input,
+    programYear: row.programYear,
+    hospitalId: row.hospitalId,
+    initiativeCode: row.initiativeCode as InitiativeCode,
+  };
+  validate(full);
+
+  const isTtt = row.initiativeCode === 'TTT';
+  await db
+    .update(schema.enrollmentForms)
+    .set({
+      submitterName: input.submitterName.trim(),
+      submitterRole: input.submitterRole.trim(),
+      submitterEmail: input.submitterEmail.trim(),
+      ehr: isTtt ? null : (input.ehr ?? null),
+      ehrOther: isTtt ? null : (input.ehrOther?.trim() || null),
+      champions: isTtt ? null : (input.champions ?? []),
+      tttContinuationAttested: isTtt ? !!input.tttContinuationAttested : false,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.enrollmentForms.id, row.id));
+
+  return { updated: true };
 }

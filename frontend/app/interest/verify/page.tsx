@@ -65,9 +65,11 @@ function Verifier() {
         Enrollment Forms in November.
       </p>
       <p className="mt-4 text-sm text-cpcqc-purple-dark/75">
-        Need to change something? Email{' '}
-        <a className="underline" href="mailto:qi@cpcqc.org">qi@cpcqc.org</a> and we&rsquo;ll update
-        it for you.
+        Need to change something?{' '}
+        <a className="underline" href={`/interest/${result.programYear}?token=${encodeURIComponent(token)}`}>
+          Reopen your submission
+        </a>{' '}
+        — the same link is in your confirmation email.
       </p>
     </div>
   );
