@@ -219,30 +219,34 @@ export interface FormRollup {
   /** True when a row's date field held a value that wasn't a valid date. */
   invalidDate: boolean;
   /**
-   * Which required fields were blank, and on how many rows. The per-row check
-   * already computes this; it used to be thrown away at rollup, leaving staff
-   * with "3/5 complete" and no way to see what was actually wrong without
-   * opening REDCap. Sorted by frequency, so the common gap reads first.
+   * Which rows were incomplete and what each was missing. Per-record rather
+   * than a field tally, because "one record missing two things" and "two
+   * records missing one thing each" are different problems: the first is an
+   * abandoned entry, the second is a scattered gap. A count alone can't tell
+   * them apart, and staff need the record id to find it in REDCap.
    */
-  missingCounts: Array<{ field: string; rows: number }>;
+  incompleteRows: Array<{ recordId: string; missing: string[] }>;
 }
 
 function rollup(rows: RedcapRow[], check: (r: RedcapRow) => RowCheck): FormRollup {
   if (rows.length === 0) {
-    return { submitted: false, nRows: 0, nComplete: 0, pctComplete: 0, allComplete: false, earliestDate: null, invalidDate: false, missingCounts: [] };
+    return { submitted: false, nRows: 0, nComplete: 0, pctComplete: 0, allComplete: false, earliestDate: null, invalidDate: false, incompleteRows: [] };
   }
   const nComplete = rows.reduce((n, r) => n + (check(r).complete ? 1 : 0), 0);
-  // Tally blank fields across the incomplete rows only — a field missing on
-  // every row is a different problem from one missing on a single row.
-  const tally = new Map<string, number>();
+  // Identify each incomplete row so staff can open it in REDCap. Repeating
+  // instruments reuse a record_id across instances, so the instance number is
+  // part of the identity where present.
+  const incompleteRows: Array<{ recordId: string; missing: string[] }> = [];
   for (const r of rows) {
     const res = check(r);
     if (res.complete) continue;
-    for (const f of res.missing) tally.set(f, (tally.get(f) ?? 0) + 1);
+    const id = String(r['record_id'] ?? '').trim() || '(no record id)';
+    const instance = String(r['redcap_repeat_instance'] ?? '').trim();
+    incompleteRows.push({
+      recordId: instance ? `${id} #${instance}` : id,
+      missing: res.missing,
+    });
   }
-  const missingCounts = [...tally.entries()]
-    .map(([field, n]) => ({ field, rows: n }))
-    .sort((a, b) => b.rows - a.rows || a.field.localeCompare(b.field));
 
   const filled = rows.map((r) => String(r[F_SUBMIT_DATE] ?? '').trim()).filter((d) => d !== '');
   const valid = filled.filter((d) => isValidDate(d)).sort();
@@ -254,7 +258,7 @@ function rollup(rows: RedcapRow[], check: (r: RedcapRow) => RowCheck): FormRollu
     allComplete: nComplete === rows.length,
     earliestDate: valid[0] ?? null,
     invalidDate: valid.length < filled.length,
-    missingCounts,
+    incompleteRows,
   };
 }
 

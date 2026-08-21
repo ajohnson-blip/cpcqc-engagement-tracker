@@ -153,9 +153,13 @@ export interface SoarSyncRow {
   onTime: boolean | null;
   daysFromDeadline: number | null;
   submissionDate: string | null;
-  /** Which required fields were blank and on how many rows — the "why" behind
-   *  an incomplete verdict. Empty unless the cell is incomplete. */
-  missingFields: Array<{ field: string; label: string; rows: number; form: string }>;
+  /** Incomplete rows grouped by REDCap record — which record is missing what.
+   *  Empty unless the cell is incomplete. */
+  incompleteRecords: Array<{
+    recordId: string;
+    form: string;
+    fields: Array<{ field: string; label: string }>;
+  }>;
   currentStatus: TaskStatus;
   currentOutcome: TaskOutcome;
   newStatus: TaskStatus;
@@ -288,20 +292,27 @@ function decide(cell: SoarCell | undefined, deadline: string, today: string, gra
 
 
 /**
- * Flatten a cell's per-form missing-field tallies into one list for the UI.
- * Only meaningful when the cell is incomplete; a complete cell has none.
+ * Group a cell's incomplete rows by REDCap record, so staff can see whether one
+ * record is missing several things or several records are each missing one.
+ * The PMs asked for exactly that distinction: the first is an abandoned entry,
+ * the second a scattered gap, and they warrant different conversations.
  */
 function collectMissing(
-  forms: Array<{ form: string; rollup: { missingCounts: Array<{ field: string; rows: number }> } | undefined }>,
+  forms: Array<{ form: string; rollup: { incompleteRows: Array<{ recordId: string; missing: string[] }> } | undefined }>,
   labels: Map<string, string>,
-): Array<{ field: string; label: string; rows: number; form: string }> {
-  const out: Array<{ field: string; label: string; rows: number; form: string }> = [];
+): Array<{ recordId: string; form: string; fields: Array<{ field: string; label: string }> }> {
+  const out: Array<{ recordId: string; form: string; fields: Array<{ field: string; label: string }> }> = [];
   for (const { form, rollup } of forms) {
-    for (const m of rollup?.missingCounts ?? []) {
-      out.push({ field: m.field, label: labels.get(m.field) ?? m.field, rows: m.rows, form });
+    for (const r of rollup?.incompleteRows ?? []) {
+      out.push({
+        recordId: r.recordId,
+        form,
+        fields: r.missing.map((f) => ({ field: f, label: labels.get(f) ?? f })),
+      });
     }
   }
-  return out.sort((a, b) => b.rows - a.rows || a.label.localeCompare(b.label));
+  // Most-incomplete first: the records needing the most attention read first.
+  return out.sort((a, b) => b.fields.length - a.fields.length || a.recordId.localeCompare(b.recordId));
 }
 
 async function updateTaskInstance(
@@ -591,7 +602,7 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
         ntsvRows: cell?.ntsv.nRows ?? 0,
         ntsvComplete: cell?.ntsv.nComplete ?? 0,
         noNtsvRows: cell?.noNtsv.nRows ?? 0,
-        missingFields:
+        incompleteRecords:
           decision.category === 'incomplete'
             ? collectMissing(
                 [

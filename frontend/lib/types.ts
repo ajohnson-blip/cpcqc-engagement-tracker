@@ -204,9 +204,13 @@ export interface NestSyncRow {
   onTime: boolean | null;
   daysFromDeadline: number | null;
   submissionDate: string | null;
-  /** Which required fields were blank and on how many rows — the "why" behind
-   *  an incomplete verdict. Empty unless the row is incomplete. */
-  missingFields: Array<{ field: string; label: string; rows: number; form: string }>;
+  /** Incomplete rows grouped by REDCap record — which record is missing what.
+   *  Empty unless the row is incomplete. */
+  incompleteRecords: Array<{
+    recordId: string;
+    form: string;
+    fields: Array<{ field: string; label: string }>;
+  }>;
   currentStatus: SyncTaskStatus;
   currentOutcome: SyncTaskOutcome;
   newStatus: SyncTaskStatus;
@@ -264,9 +268,13 @@ export interface SoarSyncRow {
   onTime: boolean | null;
   daysFromDeadline: number | null;
   submissionDate: string | null;
-  /** Which required fields were blank and on how many rows — the "why" behind
-   *  an incomplete verdict. Empty unless the row is incomplete. */
-  missingFields: Array<{ field: string; label: string; rows: number; form: string }>;
+  /** Incomplete rows grouped by REDCap record — which record is missing what.
+   *  Empty unless the row is incomplete. */
+  incompleteRecords: Array<{
+    recordId: string;
+    form: string;
+    fields: Array<{ field: string; label: string }>;
+  }>;
   currentStatus: SyncTaskStatus;
   currentOutcome: SyncTaskOutcome;
   newStatus: SyncTaskStatus;

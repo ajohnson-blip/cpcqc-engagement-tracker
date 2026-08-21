@@ -845,36 +845,45 @@ const NEST_CATEGORY_META: Record<NestSyncCategory, { label: string; className: s
 /**
  * Details cell for the NEST and SOAR previews.
  *
- * "3/5 rows complete" told staff a month was incomplete but not what was wrong,
- * so answering "why?" meant opening REDCap. The specific blank fields are
- * collapsed behind a disclosure: the tables stay scannable, and the answer is
- * one click away rather than in another system.
+ * Grouped by REDCap record, not by field. PMs pointed out that one record
+ * missing two things and two records each missing one are different problems —
+ * an abandoned entry versus a scattered gap — and a field tally can't tell them
+ * apart. The record id is shown so the row can be opened in REDCap directly.
  */
 function DetailCell({
   note,
-  missingFields,
+  incompleteRecords,
 }: {
   note: string;
-  missingFields?: Array<{ field: string; label: string; rows: number; form: string }>;
+  incompleteRecords?: Array<{
+    recordId: string;
+    form: string;
+    fields: Array<{ field: string; label: string }>;
+  }>;
 }) {
-  const missing = missingFields ?? [];
+  const records = incompleteRecords ?? [];
   return (
     <td className="px-3 py-2 text-xs text-cpcqc-purple-dark/70">
       <span>{note}</span>
-      {missing.length > 0 && (
+      {records.length > 0 && (
         <details className="mt-1">
           <summary className="cursor-pointer font-semibold text-cpcqc-purple hover:underline">
-            Why incomplete — {missing.length} field{missing.length === 1 ? '' : 's'}
+            Why incomplete — {records.length} record{records.length === 1 ? '' : 's'}
           </summary>
-          <ul className="mt-1 space-y-1 border-l-2 border-cpcqc-purple/20 pl-2">
-            {missing.map((m) => (
-              <li key={`${m.form}-${m.field}`}>
-                <span className="font-semibold text-cpcqc-purple-dark/80">{m.label}</span>
-                <span className="text-cpcqc-purple-dark/50"> · {m.form}</span>
-                <br />
-                <span className="text-cpcqc-purple-dark/50">
-                  blank on {m.rows} row{m.rows === 1 ? '' : 's'} · <code>{m.field}</code>
+          <ul className="mt-1 space-y-1.5 border-l-2 border-cpcqc-purple/20 pl-2">
+            {records.map((r, i) => (
+              <li key={`${r.form}-${r.recordId}-${i}`}>
+                <span className="font-semibold text-cpcqc-purple-dark/80">
+                  Record {r.recordId}
                 </span>
+                <span className="text-cpcqc-purple-dark/50"> · {r.form}</span>
+                <ul className="mt-0.5 list-disc pl-4 text-cpcqc-purple-dark/60">
+                  {r.fields.map((f) => (
+                    <li key={f.field}>
+                      {f.label} <code className="text-cpcqc-purple-dark/40">{f.field}</code>
+                    </li>
+                  ))}
+                </ul>
               </li>
             ))}
           </ul>
@@ -1094,7 +1103,7 @@ function NestRedcapSync() {
                               <td className="px-3 py-2 text-cpcqc-purple-dark/80">
                                 {r.chartSubmitted ? `${r.chartComplete}/${r.chartRows}` : '—'}
                               </td>
-                              <DetailCell note={r.note} missingFields={r.missingFields} />
+                              <DetailCell note={r.note} incompleteRecords={r.incompleteRecords} />
                             </tr>
                           );
                         })}
@@ -1358,7 +1367,7 @@ function SoarRedcapSync() {
                               <td className="px-3 py-2 text-cpcqc-purple-dark/80">
                                 {r.submissionDate ?? (r.ntsvSubmitted || r.noNtsvSubmitted ? '(no date)' : '—')}
                               </td>
-                              <DetailCell note={r.note} missingFields={r.missingFields} />
+                              <DetailCell note={r.note} incompleteRecords={r.incompleteRecords} />
                             </tr>
                           );
                         })}
