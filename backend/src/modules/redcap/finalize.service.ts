@@ -3,7 +3,8 @@
  * is finalized, the sync leaves those tasks alone — no recompute, no overwrite —
  * so PMs don't have to re-review months they've already signed off on. Reversible.
  */
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { v4 as uuid } from 'uuid';
 import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
 
@@ -12,7 +13,7 @@ export async function setPeriodFinalized(opts: {
   period: string; // "2026-06" or "2026-Q2"
   finalize: boolean;
   actorUserId: string | null;
-}): Promise<{ affected: number; finalized: boolean; finalizedBy: string | null }> {
+}): Promise<{ affected: number; finalized: boolean; finalizedBy: string | null; unresolved: number }> {
   const init = await db.query.initiatives.findFirst({
     where: eq(schema.initiatives.code, opts.initiativeCode),
   });
@@ -29,7 +30,7 @@ export async function setPeriodFinalized(opts: {
   }
 
   const rows = await db
-    .select({ id: schema.taskInstances.id })
+    .select({ id: schema.taskInstances.id, status: schema.taskInstances.status })
     .from(schema.taskInstances)
     .innerJoin(schema.taskTemplates, eq(schema.taskTemplates.id, schema.taskInstances.taskTemplateId))
     .innerJoin(schema.programYears, eq(schema.programYears.id, schema.taskInstances.programYearId))
@@ -42,7 +43,14 @@ export async function setPeriodFinalized(opts: {
       ),
     );
   const ids = rows.map((r) => r.id);
-  if (ids.length === 0) return { affected: 0, finalized: opts.finalize, finalizedBy: byLabel };
+  if (ids.length === 0) return { affected: 0, finalized: opts.finalize, finalizedBy: byLabel, unresolved: 0 };
+
+  // Locking a month the sync hasn't settled is almost always a misclick: those
+  // tasks stop being updated while looking decided. Counted so the record says
+  // what was frozen, not just that something was.
+  const unresolved = rows.filter(
+    (r) => r.status === 'not_started' || r.status === 'needs_revision',
+  ).length;
 
   const now = new Date();
   await db
@@ -54,5 +62,20 @@ export async function setPeriodFinalized(opts: {
     })
     .where(inArray(schema.taskInstances.id, ids));
 
-  return { affected: ids.length, finalized: opts.finalize, finalizedBy: byLabel };
+  // Finalizing is consequential and was the one action here leaving no trace —
+  // establishing who locked a month meant querying the database by hand.
+  await db.insert(schema.auditLog).values({
+    id: uuid(),
+    actorUserId: opts.actorUserId,
+    actorRole: 'cpcqc_staff',
+    action: opts.finalize ? 'redcap.period_finalized' : 'redcap.period_unlocked',
+    entityType: 'task_period',
+    entityId: `${opts.initiativeCode}:${opts.period}`,
+    diff: { affected: ids.length, unresolved, finalized: opts.finalize },
+    note: opts.finalize
+      ? `Finalized ${opts.initiativeCode} ${opts.period} (${ids.length} tasks, ${unresolved} unresolved at lock time)${byLabel ? ` by ${byLabel}` : ''}.`
+      : `Unlocked ${opts.initiativeCode} ${opts.period} (${ids.length} tasks) — the sync will update them again.`,
+  });
+
+  return { affected: ids.length, finalized: opts.finalize, finalizedBy: byLabel, unresolved };
 }

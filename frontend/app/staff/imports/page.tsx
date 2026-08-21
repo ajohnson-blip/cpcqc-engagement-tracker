@@ -531,15 +531,30 @@ function FinalizeButton({
   program,
   period,
   finalized,
+  unresolvedCount = 0,
+  totalCount = 0,
   onDone,
 }: {
   program: 'SPARK' | 'NEST' | 'SOAR' | 'TTT';
   period: string;
   finalized: boolean;
+  /** Tasks the sync hasn't settled (not started / needs revision). */
+  unresolvedCount?: number;
+  totalCount?: number;
   onDone: () => void | Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   async function toggle() {
+    // Finalizing stops the sync touching the month, so locking one that isn't
+    // settled quietly freezes those tasks as-is. The button sits beside every
+    // period heading and used to act on a single click.
+    if (!finalized) {
+      const warn =
+        unresolvedCount > 0
+          ? `\n\n${unresolvedCount} of ${totalCount} are still unresolved (not started or needing revision). Those will stay as they are — the sync will no longer update them, even if the hospital submits later.`
+          : '';
+      if (!window.confirm(`Finalize ${program} ${period}?${warn}\n\nYou can unlock it again afterwards.`)) return;
+    }
     setBusy(true);
     try {
       const res = await apiFetch('/api/staff/imports/redcap/finalize', {
@@ -727,7 +742,14 @@ function SparkRedcapSync() {
                     <h3 className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
                       {q}
                     </h3>
-                    <FinalizeButton program="SPARK" period={q} finalized={finalized} onDone={() => run(true)} />
+                    <FinalizeButton
+                      program="SPARK"
+                      period={q}
+                      finalized={finalized}
+                      unresolvedCount={rows.filter((x) => x.newStatus === 'not_started' || x.newStatus === 'needs_revision').length}
+                      totalCount={rows.length}
+                      onDone={() => run(true)}
+                    />
                   </div>
                   <div className="mt-2 overflow-x-auto rounded-xl border border-cpcqc-purple-dark/10">
                     <table className="w-full text-left text-sm">
@@ -1013,7 +1035,14 @@ function NestRedcapSync() {
                     <h3 className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
                       {p}
                     </h3>
-                    <FinalizeButton program="NEST" period={p} finalized={finalized} onDone={() => run(true)} />
+                    <FinalizeButton
+                      program="NEST"
+                      period={p}
+                      finalized={finalized}
+                      unresolvedCount={rows.filter((x) => x.newStatus === 'not_started' || x.newStatus === 'needs_revision').length}
+                      totalCount={rows.length}
+                      onDone={() => run(true)}
+                    />
                   </div>
                   <div className="mt-2 overflow-x-auto rounded-xl border border-cpcqc-purple-dark/10">
                     <table className="w-full text-left text-sm">
@@ -1266,7 +1295,14 @@ function SoarRedcapSync() {
                     <h3 className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
                       {p}
                     </h3>
-                    <FinalizeButton program="SOAR" period={p} finalized={finalized} onDone={() => run(true)} />
+                    <FinalizeButton
+                      program="SOAR"
+                      period={p}
+                      finalized={finalized}
+                      unresolvedCount={rows.filter((x) => x.newStatus === 'not_started' || x.newStatus === 'needs_revision').length}
+                      totalCount={rows.length}
+                      onDone={() => run(true)}
+                    />
                   </div>
                   <div className="mt-2 overflow-x-auto rounded-xl border border-cpcqc-purple-dark/10">
                     <table className="w-full text-left text-sm">
@@ -1530,7 +1566,14 @@ function TttRedcapSync() {
                     <h3 className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
                       {p}
                     </h3>
-                    <FinalizeButton program="TTT" period={p} finalized={finalized} onDone={() => run(true)} />
+                    <FinalizeButton
+                      program="TTT"
+                      period={p}
+                      finalized={finalized}
+                      unresolvedCount={rows.filter((x) => x.newStatus === 'not_started' || x.newStatus === 'needs_revision').length}
+                      totalCount={rows.length}
+                      onDone={() => run(true)}
+                    />
                   </div>
                   <div className="mt-2 overflow-x-auto rounded-xl border border-cpcqc-purple-dark/10">
                     <table className="w-full text-left text-sm">
