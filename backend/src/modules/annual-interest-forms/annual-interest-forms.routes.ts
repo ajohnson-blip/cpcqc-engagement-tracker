@@ -32,6 +32,7 @@ import {
   staffUpdateInterestForm,
   submitAnnualInterestForm,
   windowStateFor,
+  setAcceptedInitiatives,
 } from './annual-interest-forms.service.js';
 
 // ---------- Portal-side router ----------
@@ -112,6 +113,17 @@ staffAnnualInterestRouter.patch('/:id', requireAuth, async (req, res) => {
 staffAnnualInterestRouter.post('/bulk-accept', requireAuth, async (req, res) => {
   const result = await bulkAcceptInterestForms(req.body, req.auth!);
   res.json(result);
+});
+
+/** Record per-initiative acceptance — the list that decides who is sent which
+ *  enrollment form. */
+staffAnnualInterestRouter.patch('/:id/acceptance', requireAuth, async (req, res) => {
+  const body = z
+    .object({ acceptedInitiatives: z.array(z.enum(['SPARK', 'SOAR', 'NEST', 'TTT'])).max(4) })
+    .parse(req.body);
+  res.json(
+    await setAcceptedInitiatives(req.params.id, body.acceptedInitiatives, req.auth?.userId ?? null),
+  );
 });
 
 staffAnnualInterestRouter.get('/export', requireAuth, async (req, res) => {

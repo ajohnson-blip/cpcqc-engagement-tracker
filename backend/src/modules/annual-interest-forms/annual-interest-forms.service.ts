@@ -824,3 +824,56 @@ function formatSubmissionSummary(form: InterestFormShape): string {
       : `  Intent: ${form.intendedInitiativeCount} additional initiative(s) for ${form.programYear}`;
   return `${intentLine}\n  Rankings:\n${ranked}`;
 }
+
+
+/**
+ * Record which initiatives a hospital is accepted into.
+ *
+ * Per-initiative rather than a single status, because enrollment forms are sent
+ * per initiative: a hospital may be accepted for SPARK and not NEST, and the
+ * form-level status can't express that. This list is what decides who receives
+ * which enrollment form alongside their acceptance letter.
+ */
+export async function setAcceptedInitiatives(
+  formId: string,
+  accepted: string[],
+  actorUserId: string | null,
+): Promise<{ id: string; acceptedInitiatives: string[] }> {
+  const row = await db.query.annualInterestForms.findFirst({
+    where: eq(schema.annualInterestForms.id, formId),
+  });
+  if (!row) throw new HttpError(404, 'Interest form not found.');
+
+  let byLabel: string | null = null;
+  if (actorUserId) {
+    const u = await db.query.users.findFirst({ where: eq(schema.users.id, actorUserId) });
+    byLabel = u ? [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email : actorUserId;
+  }
+
+  await db
+    .update(schema.annualInterestForms)
+    .set({
+      acceptedInitiatives: accepted,
+      acceptanceDecidedAt: new Date(),
+      acceptanceDecidedBy: byLabel,
+      // Keep the form-level status coherent with the per-initiative decision.
+      status: accepted.length > 0 ? 'accepted' : 'declined',
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.annualInterestForms.id, formId));
+
+  await db.insert(schema.auditLog).values({
+    id: uuid(),
+    actorUserId,
+    actorRole: 'cpcqc_staff',
+    action: 'annual_interest.acceptance_set',
+    entityType: 'annual_interest_form',
+    entityId: formId,
+    diff: { from: row.acceptedInitiatives ?? [], to: accepted },
+    note: accepted.length
+      ? `Accepted for ${accepted.join(', ')}${byLabel ? ` by ${byLabel}` : ''}.`
+      : `Not accepted for any initiative${byLabel ? ` by ${byLabel}` : ''}.`,
+  });
+
+  return { id: formId, acceptedInitiatives: accepted };
+}

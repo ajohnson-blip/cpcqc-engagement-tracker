@@ -856,6 +856,15 @@ export const annualInterestForms = pgTable(
     verifiedAt: timestamp('verified_at', { withTimezone: true }),
     /** 'portal' | 'public' — shown in staff triage. */
     submittedVia: text('submitted_via').notNull().default('portal'),
+    /**
+     * Initiative codes this hospital is accepted into, e.g. ['SPARK'].
+     * Per-initiative because enrollment forms are per-initiative: a hospital
+     * can be accepted for one thing and not another, which a single
+     * form-level status cannot express.
+     */
+    acceptedInitiatives: jsonb('accepted_initiatives'),
+    acceptanceDecidedAt: timestamp('acceptance_decided_at', { withTimezone: true }),
+    acceptanceDecidedBy: text('acceptance_decided_by'),
     // PM scratchpad — same pattern as task_instances.staff_note. Free text
     // visible only to staff. Cleared on resubmission preserves history? No
     // — preserved across resubmits since PM commentary is about the hospital,
