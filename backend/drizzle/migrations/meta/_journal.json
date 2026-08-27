@@ -176,6 +176,13 @@
       "when": 1787300000000,
       "tag": "0024_accepted_initiatives",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1787400000000,
+      "tag": "0025_drop_accepted_initiatives",
+      "breakpoints": true
     }
   ]
 }

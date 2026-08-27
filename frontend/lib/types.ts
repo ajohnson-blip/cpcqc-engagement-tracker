@@ -780,6 +780,10 @@ export interface AnnualInterestForm {
   staffNote: string | null;
   decidedInitiatives: RankableInitiativeCode[] | null;
   decidedAt: string | null;
+  decidedBy: string | null;
+  /** 'portal' = submitted from that hospital's login; 'public' = accountless. */
+  submittedVia: 'portal' | 'public';
+  verifiedAt: string | null;
   flags: {
     currentlyEnrolledInTTT: boolean;
     currentlyInSoarSustainability: boolean;

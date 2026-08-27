@@ -64,6 +64,10 @@ const ANNUAL_STATUS_STYLE: Record<AnnualInterestForm['status'], string> = {
   declined: 'bg-cpcqc-pink-dark/15 text-cpcqc-pink-dark',
 };
 
+// Matches the detail modal and bulk-accept dialog. TTT is absent on purpose:
+// continuation is statutory, not something CPCQC accepts a hospital into.
+const RANKABLE_CODES: RankableInitiativeCode[] = ['SPARK', 'SOAR', 'NEST'];
+
 function AnnualPanel() {
   // Year picker hardcoded for now — could be a dropdown once there's >1 year
   // worth of submissions in the DB.
@@ -282,6 +286,7 @@ function AnnualPanel() {
                 <th className="px-4 py-3">Intent</th>
                 <th className="px-4 py-3">Flags</th>
                 <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Accepted for</th>
                 <th className="px-4 py-3 text-right">Action</th>
               </tr>
             </thead>
@@ -336,6 +341,9 @@ function AnnualPanel() {
                         ? 'New'
                         : f.status.replace('_', ' ')}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <AcceptanceToggles form={f} onUpdated={handleUpdated} />
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
@@ -499,6 +507,98 @@ function IntentTile({ label, count }: { label: string; count: number }) {
   );
 }
 
+/**
+ * Per-initiative acceptance, decided one hospital at a time.
+ *
+ * This is the list CPCQC works from when sending enrollment forms in November:
+ * a hospital accepted for SPARK but not NEST gets one form, not two. Bulk
+ * accept handles "these twelve all go to SPARK"; this handles the rest of the
+ * cohort-planning meeting, where decisions land row by row.
+ *
+ * Saves on click rather than behind a Save button — the alternative is a PM
+ * ticking twenty rows and losing the lot to a stray navigation. Each chip
+ * reverts visibly if its request fails.
+ */
+function AcceptanceToggles({
+  form,
+  onUpdated,
+}: {
+  form: AnnualInterestForm;
+  onUpdated: (f: AnnualInterestForm) => void;
+}) {
+  const [saving, setSaving] = useState<RankableInitiativeCode | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const accepted = form.decidedInitiatives ?? [];
+
+  async function toggle(code: RankableInitiativeCode) {
+    if (saving) return;
+    setError(null);
+    setSaving(code);
+    const next = accepted.includes(code)
+      ? accepted.filter((c) => c !== code)
+      : [...accepted, code];
+    try {
+      const res = await api.patch<{ form: AnnualInterestForm }>(
+        `/staff/annual-interest-forms/${form.id}/acceptance`,
+        { acceptedInitiatives: next },
+      );
+      onUpdated(res.form);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not save.');
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="inline-flex flex-wrap gap-1">
+        {RANKABLE_CODES.map((code) => {
+          const on = accepted.includes(code);
+          // Ranking it isn't required to be accepted for it, but a hospital
+          // that didn't rank something is an unusual enough choice to mark.
+          const ranked = form.rankedInitiatives.some((r) => r.code === code);
+          return (
+            <button
+              key={code}
+              type="button"
+              aria-pressed={on}
+              disabled={saving !== null}
+              onClick={() => void toggle(code)}
+              title={
+                ranked
+                  ? on
+                    ? `Accepted for ${code} — click to remove`
+                    : `Accept for ${code}`
+                  : `${form.hospital.name} did not rank ${code}`
+              }
+              className={clsx(
+                'rounded-full px-2 py-0.5 text-xs font-bold uppercase tracking-wide transition',
+                'disabled:cursor-wait disabled:opacity-60',
+                on
+                  ? 'bg-cpcqc-teal-dark text-white'
+                  : 'bg-white text-cpcqc-purple-dark/60 ring-1 ring-cpcqc-purple-dark/20 hover:bg-cpcqc-purple-dark/5',
+                !on && !ranked && 'italic opacity-60',
+              )}
+            >
+              {code}
+            </button>
+          );
+        })}
+      </div>
+      {error ? (
+        <span className="text-xs font-semibold text-cpcqc-pink-dark">{error}</span>
+      ) : form.decidedAt ? (
+        <span className="text-xs text-cpcqc-purple-dark/50">
+          {accepted.length === 0 ? 'None' : `${accepted.length} accepted`} ·{' '}
+          {fmtDate(form.decidedAt)}
+          {form.decidedBy ? ` · ${form.decidedBy}` : ''}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function RankBadges({ form }: { form: AnnualInterestForm }) {
   const byRank = [...form.rankedInitiatives].sort((a, b) => a.rank - b.rank);
   return (
@@ -543,10 +643,13 @@ function FlagPills({ form }: { form: AnnualInterestForm }) {
       color: 'bg-cpcqc-teal-dark/15 text-cpcqc-teal-dark',
     });
   }
-  if (form.decidedInitiatives && form.decidedInitiatives.length > 0) {
+  // A public submission is only as good as the email behind it. An unconfirmed
+  // one still holds this hospital's slot for the year (one form per hospital),
+  // so it needs a human to look at it before it blocks the real submitter.
+  if (form.submittedVia === 'public' && !form.verifiedAt) {
     flags.push({
-      label: `→ ${form.decidedInitiatives.join(', ')}`,
-      color: 'bg-cpcqc-purple/15 text-cpcqc-purple',
+      label: 'Public — email unconfirmed',
+      color: 'bg-cpcqc-orange-dark/15 text-cpcqc-orange-dark',
     });
   }
   if (flags.length === 0) {

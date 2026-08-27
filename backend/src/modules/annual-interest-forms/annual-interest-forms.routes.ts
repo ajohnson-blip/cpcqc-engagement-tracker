@@ -115,15 +115,24 @@ staffAnnualInterestRouter.post('/bulk-accept', requireAuth, async (req, res) => 
   res.json(result);
 });
 
-/** Record per-initiative acceptance — the list that decides who is sent which
- *  enrollment form. */
+/**
+ * Record per-initiative acceptance — the list that decides who is sent which
+ * enrollment form. An empty array is a real answer ("reviewed, accepted for
+ * nothing"), not a no-op, so there is no minimum length.
+ *
+ * TTT is absent by design: continuation is statutory, not something CPCQC
+ * accepts a hospital into, so TtT hospitals get their continuation form from
+ * their existing enrollment rather than from this decision.
+ */
 staffAnnualInterestRouter.patch('/:id/acceptance', requireAuth, async (req, res) => {
+  const id = z.string().uuid().parse(req.params.id);
   const body = z
-    .object({ acceptedInitiatives: z.array(z.enum(['SPARK', 'SOAR', 'NEST', 'TTT'])).max(4) })
+    .object({
+      acceptedInitiatives: z.array(z.enum(RANKABLE_INITIATIVE_CODES)).max(3),
+    })
     .parse(req.body);
-  res.json(
-    await setAcceptedInitiatives(req.params.id, body.acceptedInitiatives, req.auth?.userId ?? null),
-  );
+  const form = await setAcceptedInitiatives(id, body.acceptedInitiatives, req.auth?.userId ?? null);
+  res.json({ form });
 });
 
 staffAnnualInterestRouter.get('/export', requireAuth, async (req, res) => {

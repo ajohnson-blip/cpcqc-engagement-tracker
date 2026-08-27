@@ -666,6 +666,16 @@ export interface InterestFormShape {
   staffNote: string | null;
   decidedInitiatives: RankableInitiativeCode[] | null;
   decidedAt: string | null;
+  /** Display name of the staff member who last recorded the decision. */
+  decidedBy: string | null;
+  /**
+   * How the submitter proved they speak for this hospital. A 'portal'
+   * submission came from someone holding that hospital's login; a 'public' one
+   * is only as good as the email behind it, so staff triage shows both this
+   * and whether that email was ever confirmed.
+   */
+  submittedVia: 'portal' | 'public';
+  verifiedAt: string | null;
   flags: {
     currentlyEnrolledInTTT: boolean;
     // Completing a SOAR sustainability year in (programYear-1) — SOAR was
@@ -714,6 +724,16 @@ async function shapeRow(id: string): Promise<InterestFormShape | null> {
     row.programYear - 1,
   );
 
+  let decidedByLabel: string | null = null;
+  if (row.decidedBy) {
+    const u = await db.query.users.findFirst({
+      where: eq(schema.users.id, row.decidedBy),
+    });
+    decidedByLabel = u
+      ? [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email
+      : null;
+  }
+
   return {
     id: row.id,
     programYear: row.programYear,
@@ -733,6 +753,9 @@ async function shapeRow(id: string): Promise<InterestFormShape | null> {
       | RankableInitiativeCode[]
       | null,
     decidedAt: row.decidedAt?.toISOString() ?? null,
+    decidedBy: decidedByLabel,
+    submittedVia: row.submittedVia === 'public' ? 'public' : 'portal',
+    verifiedAt: row.verifiedAt?.toISOString() ?? null,
     flags: {
       currentlyEnrolledInTTT: (tttEnrolled[0]?.count ?? 0) > 0,
       currentlyInSoarSustainability: inSoarSustainability,
@@ -827,35 +850,34 @@ function formatSubmissionSummary(form: InterestFormShape): string {
 
 
 /**
- * Record which initiatives a hospital is accepted into.
+ * Record which initiatives a hospital is accepted into, one form at a time.
  *
  * Per-initiative rather than a single status, because enrollment forms are sent
  * per initiative: a hospital may be accepted for SPARK and not NEST, and the
  * form-level status can't express that. This list is what decides who receives
  * which enrollment form alongside their acceptance letter.
+ *
+ * Deliberately silent: unlike the status-based accept path, ticking a box here
+ * emails no one. CPCQC sends acceptance letters by hand alongside the
+ * enrollment forms in November, so an automatic email on each keystroke of a
+ * cohort-planning meeting would reach hospitals before the decision is final.
  */
 export async function setAcceptedInitiatives(
   formId: string,
-  accepted: string[],
+  accepted: RankableInitiativeCode[],
   actorUserId: string | null,
-): Promise<{ id: string; acceptedInitiatives: string[] }> {
+): Promise<InterestFormShape> {
   const row = await db.query.annualInterestForms.findFirst({
     where: eq(schema.annualInterestForms.id, formId),
   });
   if (!row) throw new HttpError(404, 'Interest form not found.');
 
-  let byLabel: string | null = null;
-  if (actorUserId) {
-    const u = await db.query.users.findFirst({ where: eq(schema.users.id, actorUserId) });
-    byLabel = u ? [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email : actorUserId;
-  }
-
   await db
     .update(schema.annualInterestForms)
     .set({
-      acceptedInitiatives: accepted,
-      acceptanceDecidedAt: new Date(),
-      acceptanceDecidedBy: byLabel,
+      decidedInitiatives: accepted,
+      decidedAt: new Date(),
+      decidedBy: actorUserId,
       // Keep the form-level status coherent with the per-initiative decision.
       status: accepted.length > 0 ? 'accepted' : 'declined',
       updatedAt: new Date(),
@@ -869,11 +891,13 @@ export async function setAcceptedInitiatives(
     action: 'annual_interest.acceptance_set',
     entityType: 'annual_interest_form',
     entityId: formId,
-    diff: { from: row.acceptedInitiatives ?? [], to: accepted },
+    diff: { from: row.decidedInitiatives ?? [], to: accepted },
     note: accepted.length
-      ? `Accepted for ${accepted.join(', ')}${byLabel ? ` by ${byLabel}` : ''}.`
-      : `Not accepted for any initiative${byLabel ? ` by ${byLabel}` : ''}.`,
+      ? `Accepted for ${accepted.join(', ')}.`
+      : 'Not accepted for any initiative.',
   });
 
-  return { id: formId, acceptedInitiatives: accepted };
+  const shaped = await shapeRow(formId);
+  if (!shaped) throw new HttpError(500, 'Failed to fetch shaped row');
+  return shaped;
 }
