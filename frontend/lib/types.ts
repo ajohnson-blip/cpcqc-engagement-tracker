@@ -931,3 +931,51 @@ export interface CeReport {
   }>;
   activities: CeActivityRow[];
 }
+
+// ---------- Staff enrollment-forms view (step 2 of annual enrollment) ----------
+
+export type EnrollableInitiativeCode = 'SPARK' | 'SOAR' | 'NEST' | 'TTT';
+
+export interface EnrollmentChampion {
+  role: 'nurse' | 'provider' | 'data' | 'csuite' | 'other';
+  name: string;
+  email: string;
+  title: string;
+  isPrimary: boolean;
+  /** Requested by the hospital — CPCQC grants access separately. */
+  redcapAccess: boolean;
+  dashboardAccess: boolean;
+}
+
+export interface StaffEnrollmentForm {
+  id: string;
+  programYear: number;
+  hospital: { id: string; name: string };
+  initiativeCode: EnrollableInitiativeCode;
+  submitterName: string;
+  submitterRole: string;
+  submitterEmail: string;
+  ehr: string | null;
+  ehrOther: string | null;
+  champions: EnrollmentChampion[];
+  tttContinuationAttested: boolean;
+  submittedVia: 'portal' | 'public';
+  verifiedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EnrollmentCoverage {
+  initiativeCode: EnrollableInitiativeCode;
+  expected: Array<{ id: string; name: string }>;
+  submittedCount: number;
+  outstanding: Array<{ id: string; name: string }>;
+  unexpectedCount: number;
+}
+
+export interface StaffEnrollmentOverview {
+  programYear: number;
+  window: { opensAt: string | null; closesAt: string | null };
+  forms: StaffEnrollmentForm[];
+  coverage: EnrollmentCoverage[];
+}

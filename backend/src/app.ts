@@ -17,6 +17,7 @@ import importsRoutes from '@/modules/imports/imports.routes.js';
 import ceRoutes from '@/modules/ce/ce.routes.js';
 import publicInterestRouter from '@/modules/annual-interest-forms/public-interest.routes.js';
 import publicEnrollmentRouter from '@/modules/enrollment-forms/enrollment-forms.routes.js';
+import staffEnrollmentRouter from '@/modules/enrollment-forms/enrollment-forms.staff.routes.js';
 import reportsRoutes from '@/modules/reports/reports.routes.js';
 import issueReportsRoutes from '@/modules/issue-reports/issue-reports.routes.js';
 import {
@@ -72,6 +73,7 @@ export function createApp() {
   app.use('/public/enrollment-forms', publicEnrollmentRouter);
   app.use('/portal/annual-interest-forms', portalAnnualInterestRouter);
   app.use('/staff/annual-interest-forms', staffAnnualInterestRouter);
+  app.use('/staff/enrollment-forms', staffEnrollmentRouter);
 
   // TODO: mount other module routes as they're built
   // app.use('/enrollments', enrollmentsRoutes);

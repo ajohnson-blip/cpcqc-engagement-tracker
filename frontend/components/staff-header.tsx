@@ -76,6 +76,17 @@ export function StaffHeader() {
             Interest Forms
           </Link>
           <Link
+            href="/staff/enrollment-forms"
+            className={clsx(
+              'rounded-full px-3 py-1.5 font-rounded text-xs font-bold uppercase tracking-wide transition',
+              activeMatch('/staff/enrollment-forms')
+                ? 'bg-cpcqc-purple text-white'
+                : 'text-cpcqc-purple-dark hover:bg-cpcqc-purple/10',
+            )}
+          >
+            Enrollment Forms
+          </Link>
+          <Link
             href="/staff/reports"
             className={clsx(
               'rounded-full px-3 py-1.5 font-rounded text-xs font-bold uppercase tracking-wide transition',
