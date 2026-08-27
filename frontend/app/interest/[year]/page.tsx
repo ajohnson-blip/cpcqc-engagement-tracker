@@ -300,6 +300,15 @@ function InterestForm() {
           initiatives you&rsquo;re considering and rank your preferences. CPCQC reviews all interest
           forms together, then follows up with the initiative-specific Enrollment Forms in November.
         </p>
+        {/* Said before they start, not after: the duplicate guard already
+            refuses a second submission, but discovering that at the end means
+            filling the whole form for nothing. */}
+        <p className="mt-3 max-w-2xl rounded-lg bg-cpcqc-cream-dark/30 px-4 py-2 text-sm text-cpcqc-purple-dark/80">
+          <strong className="text-cpcqc-purple-dark">One form per hospital.</strong> If a colleague
+          has already submitted for your hospital, you don&rsquo;t need to submit again — one
+          response covers the whole hospital. Choose your hospital below and we&rsquo;ll tell you
+          straight away if it&rsquo;s already been submitted.
+        </p>
       </header>
 
       <div className="mb-6 space-y-2 rounded-xl border border-cpcqc-purple-dark/15 bg-cpcqc-cream-dark/20 px-4 py-3 text-sm text-cpcqc-purple-dark/80">

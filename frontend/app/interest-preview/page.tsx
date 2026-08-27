@@ -129,6 +129,12 @@ export default function InterestFormPreviewPage() {
           </p>
         </header>
 
+        <p className="mb-4 max-w-2xl rounded-lg bg-cpcqc-cream-dark/30 px-4 py-2 text-sm text-cpcqc-purple-dark/80">
+          <strong className="text-cpcqc-purple-dark">One form per hospital.</strong> If a colleague
+          has already submitted for your hospital, you don&rsquo;t need to submit again — one
+          response covers the whole hospital.
+        </p>
+
         <div className="mb-6 space-y-2 rounded-xl border border-cpcqc-purple-dark/15 bg-cpcqc-cream-dark/20 px-4 py-3 text-sm text-cpcqc-purple-dark/80">
           <p>
             <strong className="text-cpcqc-purple-dark">New for {PROGRAM_YEAR}:</strong> CPCQC is
