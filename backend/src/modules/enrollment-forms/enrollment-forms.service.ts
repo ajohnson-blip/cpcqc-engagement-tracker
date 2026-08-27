@@ -137,6 +137,17 @@ export async function getEnrollmentContext(
     (e) => e.code === 'SOAR' && e.track === 'sustainability',
   );
 
+  // What CPCQC decided on this hospital's interest form, if anything yet.
+  // Null decidedInitiatives means undecided — a very different thing from an
+  // empty list, and not something to warn anyone about.
+  const interest = await db.query.annualInterestForms.findFirst({
+    where: and(
+      eq(schema.annualInterestForms.programYear, programYear),
+      eq(schema.annualInterestForms.hospitalId, hospitalId),
+    ),
+  });
+  const decided = (interest?.decidedInitiatives ?? null) as string[] | null;
+
   // Advisory, never blocking: CPCQC decides who enrols, and a hospital may have
   // been accepted into something the tracker doesn't know about yet. But an
   // obviously odd pairing should say so rather than sail through.
@@ -149,6 +160,16 @@ export async function getEnrollmentContext(
     caution =
       `${hospital.name} is completing a SOAR sustainability year. Sustainability is capped at one year, and ` +
       `hospitals that meet their metrics graduate from SOAR — check with CPCQC before enrolling in SOAR again.`;
+  } else if (initiativeCode !== 'TTT' && decided && !decided.includes(initiativeCode)) {
+    // Enrollment forms are sent per acceptance, so reaching this page for an
+    // initiative CPCQC didn't accept usually means a wrong link or a shared
+    // one. Said, not enforced: acceptances happen after the interest deadline
+    // too, and a hospital turned away by the tracker would simply not enroll.
+    caution =
+      `CPCQC's records show ${hospital.name} accepted for ` +
+      `${decided.length ? decided.join(', ') : 'no initiatives'} in ${programYear}, not ${initiativeCode}. ` +
+      `If you were told otherwise, email qi@cpcqc.org before submitting — enrollment forms are sent per initiative, ` +
+      `so this may be the wrong link.`;
   }
 
   const others = await db
