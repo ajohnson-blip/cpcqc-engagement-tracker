@@ -170,7 +170,11 @@ router.post('/redcap/ttt', requireAuth, requireStaff, express.json(), async (req
 /**
  * POST /staff/imports/redcap/finalize
  * Lock (or unlock) a program's month so the sync won't touch it again.
- * Body: { program: 'SPARK'|'NEST', period: '2026-06'|'2026-Q2', finalize: bool }
+ * Body: { program: 'SPARK'|'NEST', period: '2026-06'|'2026-Q2', finalize: bool,
+ *         acknowledgeUnresolved?: bool }
+ *
+ * Finalizing a month with unresolved tasks returns 409 unless acknowledged —
+ * locking freezes them, and the sync can no longer correct what it froze.
  */
 router.post('/redcap/finalize', requireAuth, requireStaff, express.json(), async (req, res) => {
   const body = z
@@ -178,6 +182,9 @@ router.post('/redcap/finalize', requireAuth, requireStaff, express.json(), async
       program: z.enum(['SPARK', 'NEST', 'SOAR', 'TTT']),
       period: z.string().min(1).max(20),
       finalize: z.boolean(),
+      // Sent on the retry after the client has shown the operator how many
+      // tasks are unsettled; the first call is deliberately refused.
+      acknowledgeUnresolved: z.boolean().optional(),
     })
     .parse(req.body);
   const result = await setPeriodFinalized({
@@ -185,6 +192,7 @@ router.post('/redcap/finalize', requireAuth, requireStaff, express.json(), async
     period: body.period,
     finalize: body.finalize,
     actorUserId: req.auth?.userId ?? null,
+    acknowledgeUnresolved: body.acknowledgeUnresolved,
   });
   res.json(result);
 });

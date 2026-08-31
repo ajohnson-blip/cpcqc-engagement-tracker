@@ -13,6 +13,12 @@ export async function setPeriodFinalized(opts: {
   period: string; // "2026-06" or "2026-Q2"
   finalize: boolean;
   actorUserId: string | null;
+  /**
+   * Set once the caller has been told how many tasks are unsettled and chosen
+   * to lock the month anyway. Without it, finalizing an unsettled month is
+   * refused — see the 409 below.
+   */
+  acknowledgeUnresolved?: boolean;
 }): Promise<{ affected: number; finalized: boolean; finalizedBy: string | null; unresolved: number }> {
   const init = await db.query.initiatives.findFirst({
     where: eq(schema.initiatives.code, opts.initiativeCode),
@@ -51,6 +57,19 @@ export async function setPeriodFinalized(opts: {
   const unresolved = rows.filter(
     (r) => r.status === 'not_started' || r.status === 'needs_revision',
   ).length;
+
+  // Refuse rather than warn. Counting this was not enough: SOAR 2026-07 was
+  // locked with 12 of 16 tasks not_started, which froze them there — so the
+  // tracker told twelve hospitals they had submitted nothing for July, and the
+  // sync could no longer correct it. The caller has to say it meant to.
+  if (opts.finalize && unresolved > 0 && !opts.acknowledgeUnresolved) {
+    throw new HttpError(
+      409,
+      `${unresolved} of ${ids.length} ${opts.initiativeCode} tasks for ${opts.period} are still unresolved. ` +
+        `Finalizing freezes them as they are — the sync will stop updating them. ` +
+        `Run the sync first, or confirm to lock the month anyway.`,
+    );
+  }
 
   const now = new Date();
   await db

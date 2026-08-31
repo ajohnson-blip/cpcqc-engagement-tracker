@@ -497,6 +497,32 @@ function PreCriteriaCells({
   );
 }
 
+/**
+ * Tasks the sync hasn't settled — not started, or sent back for revision.
+ * Finalizing a period freezes these where they stand, so they decide both
+ * whether locking needs a deliberate confirmation and whether a locked period
+ * may be hidden.
+ */
+function unresolvedIn(rows: Array<{ newStatus: string }>): number {
+  return rows.filter((r) => r.newStatus === 'not_started' || r.newStatus === 'needs_revision')
+    .length;
+}
+
+/**
+ * Shown on a locked month the sync never settled. Without it the month simply
+ * looked empty: hospitals appeared to have submitted nothing, with no clue on
+ * screen that a lock — not the data — was the reason.
+ */
+function FrozenNotice({ unresolved, total }: { unresolved: number; total: number }) {
+  return (
+    <div className="mt-2 rounded-xl bg-cpcqc-orange-dark/10 px-3 py-2 text-xs text-cpcqc-orange-dark">
+      <strong>This month is finalized with {unresolved} of {total} tasks unresolved.</strong>{' '}
+      They are frozen as they stand, so hospitals see “nothing submitted” and the sync cannot
+      correct them. Unlock the month, run the sync, then finalize again.
+    </div>
+  );
+}
+
 /** Per-month lock control shown in each period-group header. */
 /**
  * Finalized periods are locked — the sync can't change them and there's nothing
@@ -546,23 +572,52 @@ function FinalizeButton({
   const [busy, setBusy] = useState(false);
   async function toggle() {
     // Finalizing stops the sync touching the month, so locking one that isn't
-    // settled quietly freezes those tasks as-is. The button sits beside every
-    // period heading and used to act on a single click.
+    // settled freezes those tasks as-is. A plain confirm was not enough here:
+    // SOAR 2026-07 was locked through this dialog with 12 of 16 tasks not
+    // started, which left twelve hospitals recorded as having submitted
+    // nothing for July and put the month beyond the sync's reach. So an
+    // unsettled month now costs a typed word; a settled one still costs a
+    // click.
+    let acknowledgeUnresolved = false;
     if (!finalized) {
-      const warn =
-        unresolvedCount > 0
-          ? `\n\n${unresolvedCount} of ${totalCount} are still unresolved (not started or needing revision). Those will stay as they are — the sync will no longer update them, even if the hospital submits later.`
-          : '';
-      if (!window.confirm(`Finalize ${program} ${period}?${warn}\n\nYou can unlock it again afterwards.`)) return;
+      if (unresolvedCount > 0) {
+        const typed = window.prompt(
+          `${unresolvedCount} of ${totalCount} ${program} tasks for ${period} are still unresolved ` +
+            `(not started or needing revision).\n\n` +
+            `Finalizing freezes them exactly as they are. The sync will not update them again, ` +
+            `even if a hospital submits later, and hospitals will keep seeing "nothing submitted" ` +
+            `for this month.\n\n` +
+            `Run the sync first if you haven't. To lock the month anyway, type FINALIZE.`,
+        );
+        if (typed?.trim().toUpperCase() !== 'FINALIZE') return;
+        acknowledgeUnresolved = true;
+      } else if (
+        !window.confirm(`Finalize ${program} ${period}?\n\nYou can unlock it again afterwards.`)
+      ) {
+        return;
+      }
     }
     setBusy(true);
     try {
       const res = await apiFetch('/api/staff/imports/redcap/finalize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ program, period, finalize: !finalized }),
+        body: JSON.stringify({
+          program,
+          period,
+          finalize: !finalized,
+          acknowledgeUnresolved,
+        }),
       });
-      if (!res.ok) throw new Error(`Finalize failed (${res.status})`);
+      if (!res.ok) {
+        // The server refuses an unacknowledged lock of an unsettled month and
+        // says why; show that rather than a bare status code.
+        const detail = await res
+          .json()
+          .then((d) => d?.error?.message as string | undefined)
+          .catch(() => undefined);
+        throw new Error(detail ?? `Finalize failed (${res.status})`);
+      }
       await onDone();
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
@@ -625,9 +680,12 @@ function SparkRedcapSync() {
   }, {});
 
   // A period is finalized as a unit, so the first row answers for all of them.
-  const finalizedPeriodCount = (result?.quartersInScope ?? []).filter(
-    (k) => (byQuarter[k] ?? []).length > 0 && (byQuarter[k] ?? [])[0]?.finalized,
-  ).length;
+  // Counts only what is actually hidden — a period frozen with unresolved
+  // tasks stays on screen, so counting it here would make the toggle lie.
+  const finalizedPeriodCount = (result?.quartersInScope ?? []).filter((k) => {
+    const rs = byQuarter[k] ?? [];
+    return rs.length > 0 && rs[0]?.finalized && unresolvedIn(rs) === 0;
+  }).length;
 
   return (
     <section className="mt-10 border-t border-cpcqc-purple-dark/10 pt-8">
@@ -735,7 +793,12 @@ function SparkRedcapSync() {
               const rows = byQuarter[q] ?? [];
               if (rows.length === 0) return null;
               const finalized = rows[0]?.finalized ?? false;
-              if (finalized && !showFinalized) return null;
+              const unresolvedCount = unresolvedIn(rows);
+              // A month frozen mid-review is not signed off, and hiding it is
+              // how SOAR's July went missing: locked with 12 of 16 tasks not
+              // started, it vanished from the page that would have shown why.
+              // Only settled months are hidden.
+              if (finalized && !showFinalized && unresolvedCount === 0) return null;
               return (
                 <div key={q}>
                   <div className="flex items-center justify-between gap-2">
@@ -746,11 +809,14 @@ function SparkRedcapSync() {
                       program="SPARK"
                       period={q}
                       finalized={finalized}
-                      unresolvedCount={rows.filter((x) => x.newStatus === 'not_started' || x.newStatus === 'needs_revision').length}
+                      unresolvedCount={unresolvedCount}
                       totalCount={rows.length}
                       onDone={() => run(true)}
                     />
                   </div>
+                  {finalized && unresolvedCount > 0 && (
+                    <FrozenNotice unresolved={unresolvedCount} total={rows.length} />
+                  )}
                   <div className="mt-2 overflow-x-auto rounded-xl border border-cpcqc-purple-dark/10">
                     <table className="w-full text-left text-sm">
                       <thead className="bg-cpcqc-cream/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
@@ -932,9 +998,12 @@ function NestRedcapSync() {
   }, {});
 
   // A period is finalized as a unit, so the first row answers for all of them.
-  const finalizedPeriodCount = (result?.periodsInScope ?? []).filter(
-    (k) => (byPeriod[k] ?? []).length > 0 && (byPeriod[k] ?? [])[0]?.finalized,
-  ).length;
+  // Counts only what is actually hidden — a period frozen with unresolved
+  // tasks stays on screen, so counting it here would make the toggle lie.
+  const finalizedPeriodCount = (result?.periodsInScope ?? []).filter((k) => {
+    const rs = byPeriod[k] ?? [];
+    return rs.length > 0 && rs[0]?.finalized && unresolvedIn(rs) === 0;
+  }).length;
 
   return (
     <section className="mt-10 border-t border-cpcqc-purple-dark/10 pt-8">
@@ -1037,7 +1106,12 @@ function NestRedcapSync() {
               const rows = byPeriod[p] ?? [];
               if (rows.length === 0) return null;
               const finalized = rows[0]?.finalized ?? false;
-              if (finalized && !showFinalized) return null;
+              const unresolvedCount = unresolvedIn(rows);
+              // A month frozen mid-review is not signed off, and hiding it is
+              // how SOAR's July went missing: locked with 12 of 16 tasks not
+              // started, it vanished from the page that would have shown why.
+              // Only settled months are hidden.
+              if (finalized && !showFinalized && unresolvedCount === 0) return null;
               return (
                 <div key={p}>
                   <div className="flex items-center justify-between gap-2">
@@ -1048,11 +1122,14 @@ function NestRedcapSync() {
                       program="NEST"
                       period={p}
                       finalized={finalized}
-                      unresolvedCount={rows.filter((x) => x.newStatus === 'not_started' || x.newStatus === 'needs_revision').length}
+                      unresolvedCount={unresolvedCount}
                       totalCount={rows.length}
                       onDone={() => run(true)}
                     />
                   </div>
+                  {finalized && unresolvedCount > 0 && (
+                    <FrozenNotice unresolved={unresolvedCount} total={rows.length} />
+                  )}
                   <div className="mt-2 overflow-x-auto rounded-xl border border-cpcqc-purple-dark/10">
                     <table className="w-full text-left text-sm">
                       <thead className="bg-cpcqc-cream/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
@@ -1178,9 +1255,12 @@ function SoarRedcapSync() {
   }, {});
 
   // A period is finalized as a unit, so the first row answers for all of them.
-  const finalizedPeriodCount = (result?.periodsInScope ?? []).filter(
-    (k) => (byPeriod[k] ?? []).length > 0 && (byPeriod[k] ?? [])[0]?.finalized,
-  ).length;
+  // Counts only what is actually hidden — a period frozen with unresolved
+  // tasks stays on screen, so counting it here would make the toggle lie.
+  const finalizedPeriodCount = (result?.periodsInScope ?? []).filter((k) => {
+    const rs = byPeriod[k] ?? [];
+    return rs.length > 0 && rs[0]?.finalized && unresolvedIn(rs) === 0;
+  }).length;
 
   return (
     <section className="mt-10 border-t border-cpcqc-purple-dark/10 pt-8">
@@ -1297,7 +1377,12 @@ function SoarRedcapSync() {
               const rows = byPeriod[p] ?? [];
               if (rows.length === 0) return null;
               const finalized = rows[0]?.finalized ?? false;
-              if (finalized && !showFinalized) return null;
+              const unresolvedCount = unresolvedIn(rows);
+              // A month frozen mid-review is not signed off, and hiding it is
+              // how SOAR's July went missing: locked with 12 of 16 tasks not
+              // started, it vanished from the page that would have shown why.
+              // Only settled months are hidden.
+              if (finalized && !showFinalized && unresolvedCount === 0) return null;
               return (
                 <div key={p}>
                   <div className="flex items-center justify-between gap-2">
@@ -1308,11 +1393,14 @@ function SoarRedcapSync() {
                       program="SOAR"
                       period={p}
                       finalized={finalized}
-                      unresolvedCount={rows.filter((x) => x.newStatus === 'not_started' || x.newStatus === 'needs_revision').length}
+                      unresolvedCount={unresolvedCount}
                       totalCount={rows.length}
                       onDone={() => run(true)}
                     />
                   </div>
+                  {finalized && unresolvedCount > 0 && (
+                    <FrozenNotice unresolved={unresolvedCount} total={rows.length} />
+                  )}
                   <div className="mt-2 overflow-x-auto rounded-xl border border-cpcqc-purple-dark/10">
                     <table className="w-full text-left text-sm">
                       <thead className="bg-cpcqc-cream/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
@@ -1444,9 +1532,12 @@ function TttRedcapSync() {
   }, {});
 
   // A period is finalized as a unit, so the first row answers for all of them.
-  const finalizedPeriodCount = (result?.periodsInScope ?? []).filter(
-    (k) => (byPeriod[k] ?? []).length > 0 && (byPeriod[k] ?? [])[0]?.finalized,
-  ).length;
+  // Counts only what is actually hidden — a period frozen with unresolved
+  // tasks stays on screen, so counting it here would make the toggle lie.
+  const finalizedPeriodCount = (result?.periodsInScope ?? []).filter((k) => {
+    const rs = byPeriod[k] ?? [];
+    return rs.length > 0 && rs[0]?.finalized && unresolvedIn(rs) === 0;
+  }).length;
 
   return (
     <section className="mt-10 border-t border-cpcqc-purple-dark/10 pt-8">
@@ -1568,7 +1659,12 @@ function TttRedcapSync() {
               const rows = byPeriod[p] ?? [];
               if (rows.length === 0) return null;
               const finalized = rows[0]?.finalized ?? false;
-              if (finalized && !showFinalized) return null;
+              const unresolvedCount = unresolvedIn(rows);
+              // A month frozen mid-review is not signed off, and hiding it is
+              // how SOAR's July went missing: locked with 12 of 16 tasks not
+              // started, it vanished from the page that would have shown why.
+              // Only settled months are hidden.
+              if (finalized && !showFinalized && unresolvedCount === 0) return null;
               return (
                 <div key={p}>
                   <div className="flex items-center justify-between gap-2">
@@ -1579,11 +1675,14 @@ function TttRedcapSync() {
                       program="TTT"
                       period={p}
                       finalized={finalized}
-                      unresolvedCount={rows.filter((x) => x.newStatus === 'not_started' || x.newStatus === 'needs_revision').length}
+                      unresolvedCount={unresolvedCount}
                       totalCount={rows.length}
                       onDone={() => run(true)}
                     />
                   </div>
+                  {finalized && unresolvedCount > 0 && (
+                    <FrozenNotice unresolved={unresolvedCount} total={rows.length} />
+                  )}
                   <div className="mt-2 overflow-x-auto rounded-xl border border-cpcqc-purple-dark/10">
                     <table className="w-full text-left text-sm">
                       <thead className="bg-cpcqc-cream/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
