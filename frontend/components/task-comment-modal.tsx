@@ -113,7 +113,7 @@ export function TaskCommentModal({ task, onClose, onUpdated }: TaskCommentModalP
                 Status
               </div>
               <div className="mt-0.5">
-                <TaskStatusPill status={task.status} outcome={task.outcome} />
+                <TaskStatusPill status={task.status} outcome={task.outcome} taskType={task.template.taskType} />
               </div>
             </div>
           </div>

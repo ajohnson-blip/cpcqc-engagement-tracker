@@ -625,7 +625,7 @@ function FinalizeButton({
         const kept =
           needsRevisionCount > 0
             ? `\n\n${needsRevisionCount} hospital${needsRevisionCount === 1 ? ' is' : 's are'} ` +
-              `marked "needs revision". Locking keeps that as the record for this month.`
+              `marked incomplete. Locking keeps that as the record for this month.`
             : '';
         if (
           !window.confirm(

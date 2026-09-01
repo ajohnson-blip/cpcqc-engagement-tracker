@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import type { RequirementStatus, TaskStatus, TaskOutcome } from '@/lib/types';
+import type { RequirementStatus, TaskStatus, TaskOutcome, TaskType } from '@/lib/types';
 
 const REQ_STATUS_STYLES: Record<RequirementStatus, { bg: string; fg: string; label: string }> = {
   met: { bg: 'bg-cpcqc-teal-dark', fg: 'text-white', label: 'Met' },
@@ -44,12 +44,34 @@ export function RequirementStatusPill({
 export function TaskStatusPill({
   status,
   outcome,
+  taskType,
   className,
 }: {
   status: TaskStatus;
   outcome?: TaskOutcome;
+  /** Data submissions say "Incomplete" rather than "Needs revision" — see below. */
+  taskType?: TaskType;
   className?: string;
 }) {
+  // A data submission judged incomplete is a closed verdict, not an open
+  // action. The REDCap sync's own dropdown calls it "Incomplete", so a PM
+  // picked that word and the hospital was shown "Needs revision" — which reads
+  // as "go fix this", and reads worse once the month is locked and they can't.
+  // Elsewhere (advising, meetings, HRA) "Needs revision" is exactly right and
+  // is left alone.
+  if (status === 'needs_revision' && taskType === 'data_submission') {
+    return (
+      <span
+        className={clsx(
+          'inline-flex items-center rounded-full bg-cpcqc-pink-dark/15 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-cpcqc-pink-dark',
+          className,
+        )}
+        title="Submitted but incomplete — does not count toward compliance"
+      >
+        Incomplete
+      </span>
+    );
+  }
   // When the task is complete but the outcome was 'late' or 'missed', show
   // a distinct pill — these were recorded but do not count toward compliance.
   if (status === 'complete' && outcome === 'late') {

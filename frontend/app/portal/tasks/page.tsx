@@ -10,7 +10,10 @@ const STATUS_FILTERS: Array<{ value: TaskStatus | 'all'; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'not_started', label: 'Not started' },
   { value: 'current_activities', label: 'In progress' },
-  { value: 'needs_revision', label: 'Needs revision' },
+  // One status, two names: data submissions display as "Incomplete", every
+  // other task type as "Needs revision". The filter names both so it is not
+  // read as covering only half of what it selects.
+  { value: 'needs_revision', label: 'Needs revision / Incomplete' },
   { value: 'complete', label: 'Complete' },
 ];
 

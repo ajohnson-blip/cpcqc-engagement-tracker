@@ -74,7 +74,7 @@ export function TaskTable({
         </td>
         <td className="px-4 py-3 text-sm text-cpcqc-purple-dark/80">{fmtDate(task.dueOn)}</td>
         <td className="px-4 py-3">
-          <TaskStatusPill status={task.status} outcome={task.outcome} />
+          <TaskStatusPill status={task.status} outcome={task.outcome} taskType={task.template.taskType} />
         </td>
         <td className="max-w-[14rem] px-4 py-3 text-sm text-cpcqc-purple-dark/80">
           {noteText ? (
