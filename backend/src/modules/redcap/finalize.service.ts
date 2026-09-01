@@ -54,9 +54,13 @@ export async function setPeriodFinalized(opts: {
   // Locking a month the sync hasn't settled is almost always a misclick: those
   // tasks stop being updated while looking decided. Counted so the record says
   // what was frozen, not just that something was.
-  const unresolved = rows.filter(
-    (r) => r.status === 'not_started' || r.status === 'needs_revision',
-  ).length;
+  //
+  // Only not_started counts. needs_revision is a decision — a PM looked at an
+  // incomplete submission and said so — and treating it as unfinished business
+  // told PMs they hadn't reviewed months they had just finished reviewing.
+  // not_started is the genuinely undecided state: nobody, and no sync, has
+  // touched it, so freezing it asserts "submitted nothing" on no evidence.
+  const unresolved = rows.filter((r) => r.status === 'not_started').length;
 
   // Refuse rather than warn. Counting this was not enough: SOAR 2026-07 was
   // locked with 12 of 16 tasks not_started, which froze them there — so the

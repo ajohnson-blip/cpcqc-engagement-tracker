@@ -503,9 +503,21 @@ function PreCriteriaCells({
  * whether locking needs a deliberate confirmation and whether a locked period
  * may be hidden.
  */
-function unresolvedIn(rows: Array<{ newStatus: string }>): number {
-  return rows.filter((r) => r.newStatus === 'not_started' || r.newStatus === 'needs_revision')
-    .length;
+function unresolvedIn(rows: Array<{ currentStatus: string }>): number {
+  // currentStatus, not newStatus: locking freezes what is stored now, not what
+  // a preview says the sync would store. Counting the preview disagreed with
+  // the server's own check, so a month could show nothing to confirm and then
+  // be refused.
+  //
+  // And only not_started. needs_revision is a decision — a PM looked at an
+  // incomplete submission and recorded it — so counting it here told PMs they
+  // hadn't reviewed months they had just reviewed.
+  return rows.filter((r) => r.currentStatus === 'not_started').length;
+}
+
+/** Hospitals a PM has judged incomplete. A decision, not unfinished business. */
+function needsRevisionIn(rows: Array<{ currentStatus: string }>): number {
+  return rows.filter((r) => r.currentStatus === 'needs_revision').length;
 }
 
 /**
@@ -516,9 +528,21 @@ function unresolvedIn(rows: Array<{ newStatus: string }>): number {
 function FrozenNotice({ unresolved, total }: { unresolved: number; total: number }) {
   return (
     <div className="mt-2 rounded-xl bg-cpcqc-orange-dark/10 px-3 py-2 text-xs text-cpcqc-orange-dark">
-      <strong>This month is finalized with {unresolved} of {total} tasks unresolved.</strong>{' '}
-      They are frozen as they stand, so hospitals see “nothing submitted” and the sync cannot
-      correct them. Unlock the month, run the sync, then finalize again.
+      <strong>
+        This month is finalized with {unresolved} of {total} hospitals never synced.
+      </strong>{' '}
+      They are frozen showing “nothing submitted”, and the lock stops the sync correcting them.
+      {/* Spelled out as steps because the prose version was read as
+          "unlock, then finalize again" — the sync in the middle is the only
+          step that actually changes anything, and skipping it re-locks the
+          same frozen month. */}
+      <span className="mt-1 block">
+        To fix: <strong>1.</strong> Unlock month · <strong>2.</strong> Run the sync and click{' '}
+        <strong>Apply</strong> · <strong>3.</strong> Finalize again.
+      </span>
+      <span className="mt-1 block">
+        Unlocking on its own changes nothing — step 2 is what fills these hospitals in.
+      </span>
     </div>
   );
 }
@@ -558,14 +582,17 @@ function FinalizeButton({
   period,
   finalized,
   unresolvedCount = 0,
+  needsRevisionCount = 0,
   totalCount = 0,
   onDone,
 }: {
   program: 'SPARK' | 'NEST' | 'SOAR' | 'TTT';
   period: string;
   finalized: boolean;
-  /** Tasks the sync hasn't settled (not started / needs revision). */
+  /** Tasks nobody has decided yet — not started, never synced. */
   unresolvedCount?: number;
+  /** Tasks a PM has marked incomplete. Locking keeps them that way. */
+  needsRevisionCount?: number;
   totalCount?: number;
   onDone: () => void | Promise<void>;
 }) {
@@ -582,19 +609,31 @@ function FinalizeButton({
     if (!finalized) {
       if (unresolvedCount > 0) {
         const typed = window.prompt(
-          `${unresolvedCount} of ${totalCount} ${program} tasks for ${period} are still unresolved ` +
-            `(not started or needing revision).\n\n` +
-            `Finalizing freezes them exactly as they are. The sync will not update them again, ` +
-            `even if a hospital submits later, and hospitals will keep seeing "nothing submitted" ` +
-            `for this month.\n\n` +
-            `Run the sync first if you haven't. To lock the month anyway, type FINALIZE.`,
+          `${unresolvedCount} of ${totalCount} hospitals in ${program} ${period} have never been ` +
+            `synced — the tracker holds no data for them at all.\n\n` +
+            `Finalizing freezes them that way. Those hospitals will keep seeing "nothing ` +
+            `submitted" for this month, and the sync cannot correct it while the month is locked.\n\n` +
+            `If you have not already: close this, run the sync and click Apply, then finalize. ` +
+            `Applying is what fills these hospitals in — unlocking alone does not.\n\n` +
+            `To lock the month as-is anyway, type FINALIZE.`,
         );
         if (typed?.trim().toUpperCase() !== 'FINALIZE') return;
         acknowledgeUnresolved = true;
-      } else if (
-        !window.confirm(`Finalize ${program} ${period}?\n\nYou can unlock it again afterwards.`)
-      ) {
-        return;
+      } else {
+        // Name the needs-revision hospitals rather than staying silent about
+        // them: they are the ones a PM most expects the lock to preserve.
+        const kept =
+          needsRevisionCount > 0
+            ? `\n\n${needsRevisionCount} hospital${needsRevisionCount === 1 ? ' is' : 's are'} ` +
+              `marked "needs revision". Locking keeps that as the record for this month.`
+            : '';
+        if (
+          !window.confirm(
+            `Finalize ${program} ${period}?${kept}\n\nYou can unlock it again afterwards.`,
+          )
+        ) {
+          return;
+        }
       }
     }
     setBusy(true);
@@ -810,6 +849,7 @@ function SparkRedcapSync() {
                       period={q}
                       finalized={finalized}
                       unresolvedCount={unresolvedCount}
+                      needsRevisionCount={needsRevisionIn(rows)}
                       totalCount={rows.length}
                       onDone={() => run(true)}
                     />
@@ -1123,6 +1163,7 @@ function NestRedcapSync() {
                       period={p}
                       finalized={finalized}
                       unresolvedCount={unresolvedCount}
+                      needsRevisionCount={needsRevisionIn(rows)}
                       totalCount={rows.length}
                       onDone={() => run(true)}
                     />
@@ -1394,6 +1435,7 @@ function SoarRedcapSync() {
                       period={p}
                       finalized={finalized}
                       unresolvedCount={unresolvedCount}
+                      needsRevisionCount={needsRevisionIn(rows)}
                       totalCount={rows.length}
                       onDone={() => run(true)}
                     />
@@ -1676,6 +1718,7 @@ function TttRedcapSync() {
                       period={p}
                       finalized={finalized}
                       unresolvedCount={unresolvedCount}
+                      needsRevisionCount={needsRevisionIn(rows)}
                       totalCount={rows.length}
                       onDone={() => run(true)}
                     />
