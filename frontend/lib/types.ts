@@ -985,3 +985,45 @@ export interface StaffEnrollmentOverview {
   forms: StaffEnrollmentForm[];
   coverage: EnrollmentCoverage[];
 }
+
+// ---------- Funder-facing engagement metrics ----------
+
+export type EngagementMetricKey =
+  | 'enrollment'
+  | 'survey'
+  | 'coaching'
+  | 'meetings'
+  | 'dataSubmission';
+
+export interface EngagementMetric {
+  key: EngagementMetricKey;
+  label: string;
+  /** Tasks already due or already done. */
+  expected: number;
+  /** Completed and not recorded as missed / not submitted. */
+  engaged: number;
+  late: number;
+  rate: number | null;
+  /** Excluding late — the SB24-175 compliance view. */
+  strictRate: number | null;
+}
+
+export interface EngagementScope {
+  initiativeCode: string | null;
+  initiativeName: string | null;
+  hospitals: number;
+  metrics: EngagementMetric[];
+}
+
+export interface EngagementSummary {
+  programYear: number;
+  asOf: string;
+  overall: EngagementScope;
+  byInitiative: EngagementScope[];
+}
+
+export interface EngagementResponse {
+  summary: EngagementSummary;
+  /** Ready to paste into a grant report. */
+  narrative: string;
+}

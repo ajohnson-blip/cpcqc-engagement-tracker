@@ -3,7 +3,12 @@
 import { useEffect, useState } from 'react';
 import { Download, FileText, FileSpreadsheet, Users, Copy, Check, Mail } from 'lucide-react';
 import { api, apiFetch } from '@/lib/api';
-import type { InitiativeHospitalsResponse, ChampionContact, ChampionContactsResponse } from '@/lib/types';
+import type {
+  InitiativeHospitalsResponse,
+  ChampionContact,
+  ChampionContactsResponse,
+  EngagementResponse,
+} from '@/lib/types';
 
 const INITIATIVES = ['TTT', 'SPARK', 'SOAR', 'NEST'] as const;
 
@@ -75,10 +80,12 @@ export default function StaffReportsPage() {
         </select>
       </div>
 
+      <EngagementPanel programYear={programYear} />
+
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         <ReportCard
           title="Annual report"
-          description="The full CDPHE annual compliance report — every hospital × every enrollment, with per-initiative and per-hospital summaries plus the methodology appendix."
+          description="The full CDPHE annual compliance report — every hospital × every enrollment, with per-initiative and per-hospital summaries, the engagement-metrics sheet, and the methodology appendix."
           paths={[
             { format: 'xlsx', href: `/api/reports/annual?programYear=${programYear}&format=xlsx` },
             { format: 'pdf', href: `/api/reports/annual?programYear=${programYear}&format=pdf` },
@@ -423,4 +430,146 @@ async function triggerDownload(url: string) {
     URL.revokeObjectURL(a.href);
     a.remove();
   }, 1000);
+}
+
+
+/**
+ * The five funder-facing engagement metrics, with the grant-report paragraph
+ * ready to copy.
+ *
+ * These numbers get asked for by funders on their own schedule, and were
+ * previously assembled by hand from several screens — which is how a figure
+ * ends up in a grant report that no longer matches the tracker. The same
+ * summary is written into the annual XLSX export.
+ */
+function EngagementPanel({ programYear }: { programYear: number }) {
+  const [data, setData] = useState<EngagementResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setData(null);
+    setError(null);
+    api
+      .get<EngagementResponse>(`/reports/engagement?programYear=${programYear}`)
+      .then((d) => !cancelled && setData(d))
+      .catch((err: Error) => !cancelled && setError(err.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [programYear]);
+
+  async function copy() {
+    if (!data) return;
+    await navigator.clipboard.writeText(data.narrative);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  const pctText = (v: number | null) => (v === null ? 'n/a' : `${v}%`);
+
+  return (
+    <section className="mb-6 rounded-2xl bg-white p-5 shadow-card ring-1 ring-cpcqc-purple-dark/5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-rounded text-lg font-extrabold text-cpcqc-purple-dark">
+            Engagement metrics
+          </h2>
+          <p className="mt-1 max-w-2xl text-sm text-cpcqc-purple-dark/70">
+            The five metrics CPCQC reports to funders, as participation rates. Included as a
+            sheet in the annual XLSX export.
+          </p>
+        </div>
+        {data && (
+          <button
+            type="button"
+            onClick={() => void copy()}
+            className="inline-flex items-center gap-1.5 rounded-full bg-cpcqc-purple px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90"
+          >
+            {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
+            {copied ? 'Copied' : 'Copy paragraph'}
+          </button>
+        )}
+      </div>
+
+      {error && <p className="mt-3 text-sm text-cpcqc-pink-dark">{error}</p>}
+      {!data && !error && <p className="mt-3 text-sm text-cpcqc-purple-dark/60">Loading…</p>}
+
+      {data && (
+        <>
+          <p className="mt-4 rounded-xl bg-cpcqc-cream-dark/30 px-4 py-3 text-sm leading-relaxed text-cpcqc-purple-dark">
+            {data.narrative}
+          </p>
+
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/60">
+                <tr>
+                  <th className="py-1.5 pr-4">Metric</th>
+                  <th className="py-1.5 pr-4">Rate</th>
+                  <th className="py-1.5 pr-4">Excluding late</th>
+                  <th className="py-1.5 pr-4">Basis</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.summary.overall.metrics.map((m) => (
+                  <tr key={m.key} className="border-t border-cpcqc-purple-dark/10">
+                    <td className="py-1.5 pr-4 text-cpcqc-purple-dark">{m.label}</td>
+                    <td className="py-1.5 pr-4 font-semibold text-cpcqc-purple-dark">
+                      {pctText(m.rate)}
+                    </td>
+                    <td className="py-1.5 pr-4 text-cpcqc-purple-dark/70">
+                      {pctText(m.strictRate)}
+                    </td>
+                    <td className="py-1.5 pr-4 text-cpcqc-purple-dark/60">
+                      {m.engaged} of {m.expected}
+                      {m.late > 0 ? ` · ${m.late} late` : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/60">
+                <tr>
+                  <th className="py-1.5 pr-4">Program</th>
+                  <th className="py-1.5 pr-4">Hospitals</th>
+                  {data.summary.overall.metrics.map((m) => (
+                    <th key={m.key} className="py-1.5 pr-4">
+                      {m.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.summary.byInitiative.map((scope) => (
+                  <tr key={scope.initiativeCode} className="border-t border-cpcqc-purple-dark/10">
+                    <td className="py-1.5 pr-4 font-semibold text-cpcqc-purple-dark">
+                      {scope.initiativeCode}
+                    </td>
+                    <td className="py-1.5 pr-4 text-cpcqc-purple-dark/70">{scope.hospitals}</td>
+                    {scope.metrics.map((m) => (
+                      <td key={m.key} className="py-1.5 pr-4 text-cpcqc-purple-dark/80">
+                        {pctText(m.rate)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="mt-3 text-xs text-cpcqc-purple-dark/60">
+            As of {data.summary.asOf}. A task counts once its deadline has passed or it is done;
+            it counts as engaged when completed and not recorded as missed or not submitted.
+            &ldquo;Excluding late&rdquo; is the SB24-175 compliance view.
+          </p>
+        </>
+      )}
+    </section>
+  );
 }

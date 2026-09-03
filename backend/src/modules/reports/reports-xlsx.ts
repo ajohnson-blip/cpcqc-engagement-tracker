@@ -3,6 +3,8 @@
  *
  * Produces a multi-sheet workbook:
  *   - Summary: top-line counts + per-initiative breakdown
+ *   - Engagement Metrics: the five funder-facing participation rates, and the
+ *     grant-report paragraph itself
  *   - By Hospital: one row per (hospital × enrollment), all requirements
  *   - By Initiative: per-initiative count tables
  *   - Methodology: definitions of statuses and thresholds
@@ -11,6 +13,12 @@
  * just gets named; the file viewer falls back to a similar sans-serif).
  */
 import ExcelJS from 'exceljs';
+import {
+  ENGAGEMENT_METRICS,
+  engagementNarrative,
+  programLabel,
+  type EngagementSummary,
+} from './engagement-metrics.js';
 import type { AnnualReportData, ReportRequirement } from './reports.service.js';
 
 // Brand colors (Excel uses ARGB)
@@ -65,7 +73,75 @@ function fmtReq(r: ReportRequirement): string {
   return `${r.current} / ${r.required}`;
 }
 
-export async function renderAnnualReportXlsx(data: AnnualReportData): Promise<Buffer> {
+/**
+ * The funder-facing sheet: the five engagement metrics as participation rates,
+ * with the report paragraph itself at the top so a grant writer can copy it
+ * straight out rather than reassembling it from the numbers below.
+ */
+function addEngagementSheet(wb: ExcelJS.Workbook, engagement: EngagementSummary): void {
+  const ws = wb.addWorksheet('Engagement Metrics');
+  ws.views = [{ showGridLines: false }];
+
+  ws.mergeCells('A1:F1');
+  const title = ws.getCell('A1');
+  title.value = `Hospital engagement — Program Year ${engagement.programYear}`;
+  title.font = { name: 'Nunito Sans', bold: true, color: { argb: PURPLE }, size: 16 };
+  ws.getRow(1).height = 28;
+
+  ws.mergeCells('A2:F2');
+  const sub = ws.getCell('A2');
+  sub.value = `As of ${engagement.asOf} · ${engagement.overall.hospitals} hospitals`;
+  sub.font = { name: 'Nunito Sans', italic: true, color: { argb: PURPLE_DARK }, size: 11 };
+
+  ws.addRow([]);
+  ws.mergeCells('A4:F8');
+  const narrative = ws.getCell('A4');
+  narrative.value = engagementNarrative(engagement);
+  narrative.font = { name: 'Nunito Sans', size: 11, color: { argb: PURPLE_DARK } };
+  narrative.alignment = { wrapText: true, vertical: 'top' };
+
+  ws.addRow([]);
+  const headers = ['Metric', 'Expected', 'Engaged', 'Rate', 'Excluding late', 'Late'];
+  const headerRow = ws.addRow(headers);
+  styleHeader(ws, headerRow.number, headers.length);
+
+  const asPct = (v: number | null) => (v === null ? 'n/a' : `${v}%`);
+  for (const m of engagement.overall.metrics) {
+    ws.addRow([m.label, m.expected, m.engaged, asPct(m.rate), asPct(m.strictRate), m.late]);
+  }
+
+  ws.addRow([]);
+  const bi = ws.addRow(['By program']);
+  bi.getCell(1).font = { name: 'Nunito Sans', bold: true, size: 13, color: { argb: PURPLE } };
+  const progHeaders = ['Program', 'Hospitals', ...ENGAGEMENT_METRICS.map((m) => m.label)];
+  const progHeaderRow = ws.addRow(progHeaders);
+  styleHeader(ws, progHeaderRow.number, progHeaders.length);
+
+  for (const scope of engagement.byInitiative) {
+    ws.addRow([
+      programLabel(scope.initiativeCode ?? ''),
+      scope.hospitals,
+      ...ENGAGEMENT_METRICS.map((m) =>
+        asPct(scope.metrics.find((x) => x.key === m.key)?.rate ?? null),
+      ),
+    ]);
+  }
+
+  ws.columns.forEach((c, i) => {
+    c.width = i === 0 ? 26 : 16;
+  });
+
+  ws.addRow([]);
+  const note = ws.addRow([
+    'Expected counts a task once its deadline has passed or it is already done. Engaged counts a completed task that was not recorded as missed or not submitted. "Excluding late" is the SB24-175 compliance view.',
+  ]);
+  note.getCell(1).font = { name: 'Nunito Sans', italic: true, size: 9, color: { argb: PURPLE_DARK } };
+}
+
+export async function renderAnnualReportXlsx(
+  data: AnnualReportData,
+  engagement?: EngagementSummary,
+): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'CPCQC Engagement Tracker';
   wb.created = data.generatedAt;
@@ -124,6 +200,8 @@ export async function renderAnnualReportXlsx(data: AnnualReportData): Promise<Bu
   });
 
   // ---------- By Hospital sheet ----------
+  if (engagement) addEngagementSheet(wb, engagement);
+
   const byHospital = wb.addWorksheet('By Hospital');
   const hospitalHeaders = [
     'Hospital',

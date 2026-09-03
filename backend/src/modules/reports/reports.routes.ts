@@ -8,6 +8,8 @@ import {
   getChampionContacts,
 } from './reports.service.js';
 import { renderAnnualReportXlsx } from './reports-xlsx.js';
+import { computeEngagementMetrics } from './engagement-metrics.service.js';
+import { engagementNarrative } from './engagement-metrics.js';
 import { renderAnnualReportPdf } from './reports-pdf.js';
 
 const router = Router();
@@ -30,12 +32,28 @@ function setDownloadHeaders(
   );
 }
 
+/**
+ * The five funder-facing engagement metrics, plus the paragraph itself.
+ *
+ * `narrative` is returned ready to paste into a grant report — the numbers go
+ * stale every month, and retyping them by hand is how they drift from what the
+ * tracker actually holds.
+ */
+router.get('/engagement', requireAuth, requireStaff, async (req, res) => {
+  const programYear = YearSchema.parse(req.query.programYear ?? new Date().getUTCFullYear());
+  const summary = await computeEngagementMetrics(programYear);
+  res.json({ summary, narrative: engagementNarrative(summary) });
+});
+
 router.get('/annual', requireAuth, requireStaff, async (req, res) => {
   const programYear = YearSchema.parse(req.query.programYear ?? new Date().getUTCFullYear());
   const format = FormatSchema.parse(req.query.format ?? 'xlsx');
   const data = await assembleAnnualReport(programYear);
   if (format === 'xlsx') {
-    const buffer = await renderAnnualReportXlsx(data);
+    // Bundled into the annual export so the grant numbers travel with the
+    // compliance detail they are derived from.
+    const engagement = await computeEngagementMetrics(programYear);
+    const buffer = await renderAnnualReportXlsx(data, engagement);
     setDownloadHeaders(res, 'xlsx', `cpcqc-annual-report-${programYear}`);
     res.send(buffer);
   } else {
