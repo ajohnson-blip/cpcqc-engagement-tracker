@@ -137,6 +137,10 @@ export const api = {
     request<T>(path, { method: 'POST', body, ...options }),
   patch: <T>(path: string, body?: unknown, options: ApiOptions = {}) =>
     request<T>(path, { method: 'PATCH', body, ...options }),
+  // For wholesale replacement, where PATCH's merge semantics would be a lie —
+  // e.g. setting a hospital's cohort tags to exactly this list.
+  put: <T>(path: string, body?: unknown, options: ApiOptions = {}) =>
+    request<T>(path, { method: 'PUT', body, ...options }),
   del: <T>(path: string, options: ApiOptions = {}) => request<T>(path, { method: 'DELETE', ...options }),
 };
 

@@ -41,7 +41,10 @@ function setDownloadHeaders(
  */
 router.get('/engagement', requireAuth, requireStaff, async (req, res) => {
   const programYear = YearSchema.parse(req.query.programYear ?? new Date().getUTCFullYear());
-  const summary = await computeEngagementMetrics(programYear);
+  // Optional cohort tag — scopes every figure, including the statutory
+  // denominator, to that group of hospitals.
+  const cohort = z.string().min(1).max(80).optional().parse(req.query.cohort || undefined);
+  const summary = await computeEngagementMetrics(programYear, cohort ?? null);
   res.json({ summary, narrative: engagementNarrative(summary) });
 });
 

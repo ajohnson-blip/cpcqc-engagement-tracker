@@ -2,7 +2,7 @@
  * Database side of the five funder-facing engagement metrics. The shapes,
  * arithmetic and narrative wording live in engagement-metrics.ts.
  */
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '@/db/index.js';
 import {
   EMPTY_TALLY,
@@ -13,10 +13,12 @@ import {
   type Tally,
 } from './engagement-metrics.js';
 import { assembleAnnualReport } from './reports.service.js';
+import { hospitalIdsForTag } from '@/modules/hospitals/hospital-tags.service.js';
 
 /** Raw counts per (initiative, task type). See Tally for what each means. */
 async function tally(
   programYear: number,
+  hospitalIds: string[] | null,
 ): Promise<Array<{ code: string; name: string; taskType: string } & Tally>> {
   return db
     .select({
@@ -49,6 +51,7 @@ async function tally(
         // Withdrawn enrollments carry tasks nobody was ever going to do;
         // counting them reports a hospital that left as one that failed.
         eq(schema.enrollments.status, 'enrolled'),
+        ...(hospitalIds ? [inArray(schema.enrollments.hospitalId, hospitalIds)] : []),
       ),
     )
     .groupBy(schema.initiatives.code, schema.initiatives.name, schema.taskTemplates.taskType);
@@ -66,10 +69,18 @@ async function tally(
  * a hospital that never enrolled is the clearest possible non-compliance, and
  * counting only enrollees would hide it.
  */
-async function statutoryCompliance(programYear: number): Promise<StatutoryCompliance> {
+async function statutoryCompliance(
+  programYear: number,
+  hospitalIds: string[] | null,
+): Promise<StatutoryCompliance> {
   const [report, roster] = await Promise.all([
     assembleAnnualReport(programYear),
-    db.select({ id: schema.hospitals.id }).from(schema.hospitals),
+    hospitalIds
+      ? db
+          .select({ id: schema.hospitals.id })
+          .from(schema.hospitals)
+          .where(inArray(schema.hospitals.id, hospitalIds))
+      : db.select({ id: schema.hospitals.id }).from(schema.hospitals),
   ]);
 
   const byHospital = new Map<string, string[]>();
@@ -111,9 +122,18 @@ async function statutoryCompliance(programYear: number): Promise<StatutoryCompli
   };
 }
 
-export async function computeEngagementMetrics(programYear: number): Promise<EngagementSummary> {
+/**
+ * @param cohort Optional cohort tag (e.g. "Scholarship recipient"). When given,
+ *   every figure is scoped to that group — including the statutory
+ *   denominator, so "4 of 4 engaged" means the cohort, not the state.
+ */
+export async function computeEngagementMetrics(
+  programYear: number,
+  cohort?: string | null,
+): Promise<EngagementSummary> {
+  const hospitalIds = cohort ? await hospitalIdsForTag(cohort) : null;
   const [rows, hospitalRows, statutory] = await Promise.all([
-    tally(programYear),
+    tally(programYear, hospitalIds),
     db
       .select({ code: schema.initiatives.code, hospitalId: schema.enrollments.hospitalId })
       .from(schema.enrollments)
@@ -121,9 +141,13 @@ export async function computeEngagementMetrics(programYear: number): Promise<Eng
       .innerJoin(schema.cohorts, eq(schema.cohorts.id, schema.enrollments.cohortId))
       .innerJoin(schema.initiatives, eq(schema.initiatives.id, schema.cohorts.initiativeId))
       .where(
-        and(eq(schema.programYears.year, programYear), eq(schema.enrollments.status, 'enrolled')),
+        and(
+          eq(schema.programYears.year, programYear),
+          eq(schema.enrollments.status, 'enrolled'),
+          ...(hospitalIds ? [inArray(schema.enrollments.hospitalId, hospitalIds)] : []),
+        ),
       ),
-    statutoryCompliance(programYear),
+    statutoryCompliance(programYear, hospitalIds),
   ]);
 
   const byCode = new Map<string, { name: string; types: Map<string, Tally> }>();
@@ -171,5 +195,6 @@ export async function computeEngagementMetrics(programYear: number): Promise<Eng
     },
     byInitiative,
     statutory,
+    cohort: cohort ?? null,
   };
 }

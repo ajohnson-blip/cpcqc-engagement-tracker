@@ -40,6 +40,7 @@ function summary(): EngagementSummary {
   return {
     programYear: 2026,
     asOf: '2026-09-03',
+    cohort: null,
     overall: {
       initiativeCode: null,
       initiativeName: null,
@@ -178,6 +179,30 @@ describe('statutorySentence', () => {
   it('does not divide by zero on an empty roster', () => {
     expect(statutorySentence({ ...statutory, hospitals: 0 })).toBe(
       'No hospitals are currently tracked.',
+    );
+  });
+});
+
+describe('cohort-scoped reporting', () => {
+  it('says which cohort the figures cover, so they cannot be read as statewide', () => {
+    const s = summary();
+    s.cohort = 'Scholarship recipient';
+    s.statutory = { ...s.statutory, hospitals: 4, engagedInAtLeastOne: 4, compliantInAtLeastOne: 4 };
+    const text = engagementNarrative(s);
+    expect(text).toContain('for the 4 hospitals in the \u201CScholarship recipient\u201D cohort');
+    expect(text).toContain('All 4 hospitals in this cohort (100%)');
+    expect(text).not.toContain('across all programs');
+  });
+
+  it('still reads as collaborative-wide when no cohort is given', () => {
+    const text = engagementNarrative(summary());
+    expect(text).toContain('across all programs');
+    expect(text).toContain('tracked hospitals');
+  });
+
+  it('says so plainly when a cohort has no members', () => {
+    expect(statutorySentence({ ...statutory, hospitals: 0 }, 'Scholarship recipient')).toBe(
+      'No hospitals are tagged \u201CScholarship recipient\u201D.',
     );
   });
 });

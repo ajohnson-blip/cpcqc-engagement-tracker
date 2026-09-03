@@ -153,6 +153,30 @@ export const hospitals = pgTable(
   }),
 );
 
+/**
+ * Arbitrary groupings of hospitals CPCQC reports on as a set — a grant's
+ * scholarship recipients, say. Generic rather than a column per grant: funders
+ * ask about whichever group they funded, and a boolean per cohort would mean a
+ * migration per cohort.
+ *
+ * `tag` is the display label, stored as typed so it reads correctly in a
+ * report. A unique index on (hospital_id, lower(tag)) stops one cohort
+ * becoming two through capitalisation.
+ */
+export const hospitalTags = pgTable(
+  'hospital_tags',
+  {
+    hospitalId: text('hospital_id')
+      .notNull()
+      .references(() => hospitals.id, { onDelete: 'cascade' }),
+    tag: text('tag').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.hospitalId, t.tag] }),
+  }),
+);
+
 export const initiatives = pgTable('initiatives', {
   id: idCol(),
   code: initiativeCode('code').notNull().unique(),

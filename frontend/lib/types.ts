@@ -1029,9 +1029,16 @@ export interface EngagementScope {
   metrics: EngagementMetric[];
 }
 
+export interface CohortTag {
+  tag: string;
+  hospitals: number;
+}
+
 export interface EngagementSummary {
   programYear: number;
   asOf: string;
+  /** Cohort tag these figures are scoped to; null for the whole collaborative. */
+  cohort: string | null;
   overall: EngagementScope;
   byInitiative: EngagementScope[];
   statutory: StatutoryCompliance;

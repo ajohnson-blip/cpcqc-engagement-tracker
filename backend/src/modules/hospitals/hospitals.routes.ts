@@ -7,6 +7,12 @@ import {
   createHospital,
   updateHospital,
 } from './hospitals.service.js';
+import {
+  getHospitalTags,
+  listHospitalsForTag,
+  listTags,
+  setHospitalTags,
+} from './hospital-tags.service.js';
 
 const router = Router();
 
@@ -20,6 +26,20 @@ router.get('/', requireAuth, async (req, res) => {
     .parse(req.query);
   const result = await listHospitals(query);
   res.json(result);
+});
+
+// ---------- Cohort tags ----------
+//
+// The collection-level routes sit above /:id: Express matches in order, so
+// registering them after would have "tags" parsed as a hospital id.
+
+router.get('/tags', requireAuth, requireStaff, async (req, res) => {
+  res.json({ tags: await listTags(req.auth!) });
+});
+
+router.get('/tags/:tag/hospitals', requireAuth, requireStaff, async (req, res) => {
+  const tag = z.string().min(1).max(80).parse(req.params.tag);
+  res.json({ tag, hospitals: await listHospitalsForTag(tag, req.auth!) });
 });
 
 router.get('/:id', requireAuth, async (req, res) => {
@@ -56,6 +76,17 @@ router.patch('/:id', requireAuth, requireStaff, async (req, res) => {
   const body = updateSchema.parse(req.body);
   const hospital = await updateHospital(id, body);
   res.json({ hospital });
+});
+
+router.get('/:id/tags', requireAuth, requireStaff, async (req, res) => {
+  const id = z.string().uuid().parse(req.params.id);
+  res.json({ tags: await getHospitalTags(id, req.auth!) });
+});
+
+router.put('/:id/tags', requireAuth, requireStaff, async (req, res) => {
+  const id = z.string().uuid().parse(req.params.id);
+  const body = z.object({ tags: z.array(z.string().max(80)).max(20) }).parse(req.body);
+  res.json({ tags: await setHospitalTags(id, body.tags, req.auth!) });
 });
 
 export default router;

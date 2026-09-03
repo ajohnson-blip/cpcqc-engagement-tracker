@@ -104,6 +104,8 @@ export interface EngagementScope {
 export interface EngagementSummary {
   programYear: number;
   asOf: string;
+  /** Cohort tag these figures are scoped to; null for the whole collaborative. */
+  cohort: string | null;
   overall: EngagementScope;
   byInitiative: EngagementScope[];
   statutory: StatutoryCompliance;
@@ -156,15 +158,23 @@ export function engagementNarrative(summary: EngagementSummary): string {
       ? `${programs.slice(0, -1).join(', ')}, and ${programs[programs.length - 1]}`
       : (programs[0] ?? 'all programs');
 
+  // A cohort report has to say so in its first sentence. The same numbers
+  // read as a claim about the whole collaborative otherwise, which is the
+  // easiest way for a scoped figure to end up misquoted in a grant.
+  const scope = summary.cohort
+    ? `for the ${summary.statutory.hospitals} hospitals in the ` +
+      `\u201C${summary.cohort}\u201D cohort`
+    : 'across all programs';
+
   return (
     `CPCQC is tracking five key hospital engagement metrics—enrollment, survey completion, ` +
-    `coaching participation, meeting participation, and data submission—across all programs, ` +
+    `coaching participation, meeting participation, and data submission—${scope}, ` +
     `with specific attention to SB24-175 compliance. Current overall rates: ` +
     `enrollment ${rate('enrollment')}, survey completion ${rate('survey')}, ` +
     `coaching ${rate('coaching')}, meeting participation ${rate('meetings')}, ` +
     `data submission ${rate('dataSubmission')}. ` +
     `Program-specific tracking is in place for ${programList}. ` +
-    statutorySentence(summary.statutory)
+    statutorySentence(summary.statutory, summary.cohort)
   );
 }
 
@@ -172,14 +182,17 @@ export function engagementNarrative(summary: EngagementSummary): string {
  * The statutory duty in one sentence: SB24-175 requires engagement in at least
  * one initiative, so this counts hospitals rather than enrollments.
  */
-export function statutorySentence(s: StatutoryCompliance): string {
-  if (s.hospitals === 0) return 'No hospitals are currently tracked.';
+export function statutorySentence(s: StatutoryCompliance, cohort?: string | null): string {
+  if (s.hospitals === 0) {
+    return cohort ? `No hospitals are tagged \u201C${cohort}\u201D.` : 'No hospitals are currently tracked.';
+  }
+  const noun = cohort ? 'hospitals in this cohort' : 'tracked hospitals';
   const engagedPct = pct(s.engagedInAtLeastOne, s.hospitals);
   const all = s.engagedInAtLeastOne === s.hospitals;
   const lead = all
-    ? `All ${s.hospitals} tracked hospitals (100%) are engaged in at least one initiative, ` +
+    ? `All ${s.hospitals} ${noun} (100%) are engaged in at least one initiative, ` +
       `meeting the SB24-175 requirement of participation in a minimum of one.`
-    : `${s.engagedInAtLeastOne} of ${s.hospitals} tracked hospitals ` +
+    : `${s.engagedInAtLeastOne} of ${s.hospitals} ${noun} ` +
       `(${engagedPct === null ? 'n/a' : `${engagedPct}%`}) are engaged in at least one ` +
       `initiative as SB24-175 requires; ${s.notEngaged} ` +
       `${s.notEngaged === 1 ? 'is' : 'are'} not currently enrolled in any.`;

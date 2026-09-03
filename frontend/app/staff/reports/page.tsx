@@ -7,6 +7,7 @@ import type {
   InitiativeHospitalsResponse,
   ChampionContact,
   ChampionContactsResponse,
+  CohortTag,
   EngagementResponse,
 } from '@/lib/types';
 
@@ -446,19 +447,32 @@ function EngagementPanel({ programYear }: { programYear: number }) {
   const [data, setData] = useState<EngagementResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [cohorts, setCohorts] = useState<CohortTag[]>([]);
+  const [cohort, setCohort] = useState<string>('');
+
+  useEffect(() => {
+    // Cohorts are edited on the hospital page, so refetch alongside the
+    // figures rather than caching a list that may be a grant cycle old.
+    api
+      .get<{ tags: CohortTag[] }>('/hospitals/tags')
+      .then((d) => setCohorts(d.tags))
+      .catch(() => setCohorts([]));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     setData(null);
     setError(null);
+    const qs = new URLSearchParams({ programYear: String(programYear) });
+    if (cohort) qs.set('cohort', cohort);
     api
-      .get<EngagementResponse>(`/reports/engagement?programYear=${programYear}`)
+      .get<EngagementResponse>(`/reports/engagement?${qs.toString()}`)
       .then((d) => !cancelled && setData(d))
       .catch((err: Error) => !cancelled && setError(err.message));
     return () => {
       cancelled = true;
     };
-  }, [programYear]);
+  }, [programYear, cohort]);
 
   async function copy() {
     if (!data) return;
@@ -481,7 +495,23 @@ function EngagementPanel({ programYear }: { programYear: number }) {
             sheet in the annual XLSX export.
           </p>
         </div>
-        {data && (
+        <div className="flex items-center gap-2">
+          {cohorts.length > 0 && (
+            <select
+              value={cohort}
+              onChange={(e) => setCohort(e.target.value)}
+              className="rounded-full border border-cpcqc-purple-dark/15 bg-white px-3 py-1.5 text-xs font-semibold text-cpcqc-purple-dark"
+              aria-label="Cohort"
+            >
+              <option value="">All hospitals</option>
+              {cohorts.map((c) => (
+                <option key={c.tag} value={c.tag}>
+                  {c.tag} ({c.hospitals})
+                </option>
+              ))}
+            </select>
+          )}
+          {data && (
           <button
             type="button"
             onClick={() => void copy()}
@@ -490,7 +520,8 @@ function EngagementPanel({ programYear }: { programYear: number }) {
             {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
             {copied ? 'Copied' : 'Copy paragraph'}
           </button>
-        )}
+          )}
+        </div>
       </div>
 
       {error && <p className="mt-3 text-sm text-cpcqc-pink-dark">{error}</p>}

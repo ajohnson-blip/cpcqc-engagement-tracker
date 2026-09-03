@@ -14,6 +14,8 @@ import {
   Plus,
   Pencil,
   Trash2,
+  Tag,
+  X,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { HospitalDetailResponse, HospitalStaffMember, TaskRow } from '@/lib/types';
@@ -161,6 +163,8 @@ export default function StaffHospitalDetailPage() {
       >
         <ChevronLeft size={16} aria-hidden /> Overview
       </Link>
+
+      <CohortTags hospitalId={params.id} />
 
       {/* Hospital header */}
       <header className="overflow-hidden rounded-2xl bg-white shadow-card ring-1 ring-cpcqc-purple-dark/5">
@@ -549,6 +553,121 @@ export default function StaffHospitalDetailPage() {
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+
+/**
+ * Cohort tags for this hospital — the groupings CPCQC reports on as a set
+ * (a grant's scholarship recipients, say).
+ *
+ * Editable here rather than on the reports page because membership belongs to
+ * the hospital, and because a cohort whose membership only CPCQC's developer
+ * can change is one that quietly goes stale between grant cycles.
+ */
+function CohortTags({ hospitalId }: { hospitalId: string }) {
+  const [tags, setTags] = useState<string[] | null>(null);
+  const [known, setKnown] = useState<string[]>([]);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .get<{ tags: string[] }>(`/hospitals/${hospitalId}/tags`)
+      .then((d) => setTags(d.tags))
+      .catch((e: Error) => setError(e.message));
+    api
+      .get<{ tags: Array<{ tag: string }> }>('/hospitals/tags')
+      .then((d) => setKnown(d.tags.map((t) => t.tag)))
+      .catch(() => setKnown([]));
+  }, [hospitalId]);
+
+  async function save(next: string[]) {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await api.put<{ tags: string[] }>(`/hospitals/${hospitalId}/tags`, {
+        tags: next,
+      });
+      setTags(res.tags);
+      setDraft('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save cohort tags.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (tags === null) return null;
+
+  const suggestions = known.filter((k) => !tags.some((t) => t.toLowerCase() === k.toLowerCase()));
+
+  return (
+    <div className="mb-4 rounded-2xl bg-white p-4 shadow-card ring-1 ring-cpcqc-purple-dark/5">
+      <div className="flex items-center gap-2">
+        <Tag size={14} aria-hidden className="text-cpcqc-purple-dark/60" />
+        <h2 className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
+          Cohort tags
+        </h2>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {tags.length === 0 && (
+          <span className="text-sm italic text-cpcqc-purple-dark/50">None</span>
+        )}
+        {tags.map((t) => (
+          <span
+            key={t}
+            className="inline-flex items-center gap-1 rounded-full bg-cpcqc-purple/15 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-cpcqc-purple"
+          >
+            {t}
+            <button
+              type="button"
+              disabled={saving}
+              aria-label={`Remove ${t}`}
+              onClick={() => void save(tags.filter((x) => x !== t))}
+              className="text-cpcqc-purple/70 hover:text-cpcqc-purple disabled:opacity-50"
+            >
+              <X size={11} aria-hidden />
+            </button>
+          </span>
+        ))}
+      </div>
+
+      <form
+        className="mt-3 flex flex-wrap items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (draft.trim()) void save([...tags, draft]);
+        }}
+      >
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          list={`cohort-suggestions-${hospitalId}`}
+          placeholder="Add a cohort…"
+          disabled={saving}
+          className="rounded-full border border-cpcqc-purple-dark/15 px-3 py-1.5 text-sm text-cpcqc-purple-dark"
+        />
+        {/* Existing cohorts offered as suggestions so the same group does not
+            end up under two slightly different names. */}
+        <datalist id={`cohort-suggestions-${hospitalId}`}>
+          {suggestions.map((k) => (
+            <option key={k} value={k} />
+          ))}
+        </datalist>
+        <button
+          type="submit"
+          disabled={saving || !draft.trim()}
+          className="rounded-full bg-cpcqc-purple px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90 disabled:opacity-50"
+        >
+          Add
+        </button>
+      </form>
+
+      {error && <p className="mt-2 text-sm text-cpcqc-pink-dark">{error}</p>}
     </div>
   );
 }
