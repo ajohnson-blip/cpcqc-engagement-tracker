@@ -9,8 +9,10 @@ import {
   toMetrics,
   type EngagementScope,
   type EngagementSummary,
+  type StatutoryCompliance,
   type Tally,
 } from './engagement-metrics.js';
+import { assembleAnnualReport } from './reports.service.js';
 
 /** Raw counts per (initiative, task type). See Tally for what each means. */
 async function tally(
@@ -52,8 +54,65 @@ async function tally(
     .groupBy(schema.initiatives.code, schema.initiatives.name, schema.taskTemplates.taskType);
 }
 
+/**
+ * The statutory picture, per hospital.
+ *
+ * Built on the annual report rather than a fresh query so that "compliant"
+ * means exactly what it means everywhere else in the tracker — the same
+ * compliance engine, the same thresholds. A second definition living here
+ * would drift from the one CDPHE reports are built on.
+ *
+ * The denominator is every hospital on the roster, not just the enrolled ones:
+ * a hospital that never enrolled is the clearest possible non-compliance, and
+ * counting only enrollees would hide it.
+ */
+async function statutoryCompliance(programYear: number): Promise<StatutoryCompliance> {
+  const [report, roster] = await Promise.all([
+    assembleAnnualReport(programYear),
+    db.select({ id: schema.hospitals.id }).from(schema.hospitals),
+  ]);
+
+  const byHospital = new Map<string, string[]>();
+  for (const h of report.hospitals) {
+    byHospital.set(
+      h.hospitalId,
+      h.enrollments
+        .filter((e) => e.enrollmentStatus === 'enrolled')
+        .map((e) => e.overall),
+    );
+  }
+
+  let engaged = 0;
+  let compliant = 0;
+  let met = 0;
+  let atRiskInAll = 0;
+  const counts = new Map<number, number>();
+  for (const h of roster) {
+    const statuses = byHospital.get(h.id) ?? [];
+    if (statuses.length === 0) continue;
+    engaged += 1;
+    counts.set(statuses.length, (counts.get(statuses.length) ?? 0) + 1);
+    const anyOk = statuses.some((st) => st === 'met' || st === 'on_track');
+    if (anyOk) compliant += 1;
+    else atRiskInAll += 1;
+    if (statuses.some((st) => st === 'met')) met += 1;
+  }
+
+  return {
+    hospitals: roster.length,
+    engagedInAtLeastOne: engaged,
+    notEngaged: roster.length - engaged,
+    compliantInAtLeastOne: compliant,
+    metInAtLeastOne: met,
+    atRiskInAll,
+    byInitiativeCount: [...counts.entries()]
+      .map(([initiatives, hospitals]) => ({ initiatives, hospitals }))
+      .sort((a, b) => a.initiatives - b.initiatives),
+  };
+}
+
 export async function computeEngagementMetrics(programYear: number): Promise<EngagementSummary> {
-  const [rows, hospitalRows] = await Promise.all([
+  const [rows, hospitalRows, statutory] = await Promise.all([
     tally(programYear),
     db
       .select({ code: schema.initiatives.code, hospitalId: schema.enrollments.hospitalId })
@@ -64,6 +123,7 @@ export async function computeEngagementMetrics(programYear: number): Promise<Eng
       .where(
         and(eq(schema.programYears.year, programYear), eq(schema.enrollments.status, 'enrolled')),
       ),
+    statutoryCompliance(programYear),
   ]);
 
   const byCode = new Map<string, { name: string; types: Map<string, Tally> }>();
@@ -110,5 +170,6 @@ export async function computeEngagementMetrics(programYear: number): Promise<Eng
       metrics: toMetrics((tt) => overallTypes.get(tt) ?? EMPTY_TALLY),
     },
     byInitiative,
+    statutory,
   };
 }

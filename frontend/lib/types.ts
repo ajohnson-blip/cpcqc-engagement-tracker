@@ -1003,9 +1003,23 @@ export interface EngagementMetric {
   /** Completed and not recorded as missed / not submitted. */
   engaged: number;
   late: number;
+  /** engaged minus late: timely AND complete. */
+  timely: number;
+  /** The reported rate — excludes late, which fails "timely and complete". */
   rate: number | null;
-  /** Excluding late — the SB24-175 compliance view. */
-  strictRate: number | null;
+  /** Including late arrivals — context only. */
+  rateInclLate: number | null;
+}
+
+/** Hospital-level view of the SB24-175 duty to engage in ≥1 initiative. */
+export interface StatutoryCompliance {
+  hospitals: number;
+  engagedInAtLeastOne: number;
+  notEngaged: number;
+  compliantInAtLeastOne: number;
+  metInAtLeastOne: number;
+  atRiskInAll: number;
+  byInitiativeCount: Array<{ initiatives: number; hospitals: number }>;
 }
 
 export interface EngagementScope {
@@ -1020,6 +1034,7 @@ export interface EngagementSummary {
   asOf: string;
   overall: EngagementScope;
   byInitiative: EngagementScope[];
+  statutory: StatutoryCompliance;
 }
 
 export interface EngagementResponse {

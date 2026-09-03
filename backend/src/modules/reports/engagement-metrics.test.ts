@@ -5,8 +5,10 @@ import {
   engagementNarrative,
   pct,
   programLabel,
+  statutorySentence,
   toMetrics,
   type EngagementSummary,
+  type StatutoryCompliance,
   type Tally,
 } from './engagement-metrics.js';
 
@@ -18,6 +20,21 @@ const tallies: Record<string, Tally> = {
   data_submission: { expected: 390, engaged: 346, late: 17 },
 };
 const get = (tt: string) => tallies[tt] ?? EMPTY_TALLY;
+
+const statutory: StatutoryCompliance = {
+  hospitals: 49,
+  engagedInAtLeastOne: 49,
+  notEngaged: 0,
+  compliantInAtLeastOne: 49,
+  metInAtLeastOne: 3,
+  atRiskInAll: 0,
+  byInitiativeCount: [
+    { initiatives: 1, hospitals: 32 },
+    { initiatives: 2, hospitals: 12 },
+    { initiatives: 3, hospitals: 2 },
+    { initiatives: 4, hospitals: 3 },
+  ],
+};
 
 function summary(): EngagementSummary {
   return {
@@ -35,6 +52,7 @@ function summary(): EngagementSummary {
       { initiativeCode: 'SPARK', initiativeName: 'SPARK', hospitals: 11, metrics: [] },
       { initiativeCode: 'TTT', initiativeName: 'Turning the Tide', hospitals: 24, metrics: [] },
     ],
+    statutory: { ...statutory },
   };
 }
 
@@ -61,12 +79,22 @@ describe('toMetrics', () => {
     expect(ENGAGEMENT_METRICS).toHaveLength(5);
   });
 
-  it('separates the compliance-strict rate from overall participation', () => {
+  it('reports timely-and-complete, excluding late arrivals', () => {
     const data = toMetrics(get).find((m) => m.key === 'dataSubmission')!;
-    // 346 of 390 engaged; 17 of those arrived late and do not count for
-    // SB24-175, so the strict rate is meaningfully lower.
-    expect(data.rate).toBe(88.7);
-    expect(data.strictRate).toBe(84.4);
+    // 346 of 390 completed without being missed or not-submitted, but 17 of
+    // those arrived late. A late submission is not "timely and complete", so
+    // the reported rate counts the other 329.
+    expect(data.engaged).toBe(346);
+    expect(data.late).toBe(17);
+    expect(data.timely).toBe(329);
+    expect(data.rate).toBe(84.4);
+    expect(data.rateInclLate).toBe(88.7);
+  });
+
+  it('leaves a metric with no late arrivals unchanged either way', () => {
+    const m = toMetrics(get).find((x) => x.key === 'meetings')!;
+    expect(m.rate).toBe(87.3);
+    expect(m.rateInclLate).toBe(87.3);
   });
 
   it('treats a missing task type as nothing expected, not as zero engagement', () => {
@@ -88,8 +116,8 @@ describe('engagementNarrative', () => {
     expect(text).toContain('five key hospital engagement metrics');
     expect(text).toContain('SB24-175');
     expect(text).toContain(
-      'enrollment 100%, survey completion 97.3%, coaching 95.4%, ' +
-        'meeting participation 87.3%, data submission 88.7%',
+      'enrollment 100%, survey completion 95.9%, coaching 95.4%, ' +
+        'meeting participation 87.3%, data submission 84.4%',
     );
   });
 
@@ -111,5 +139,45 @@ describe('engagementNarrative', () => {
       { initiativeCode: 'SOAR', initiativeName: 'SOAR', hospitals: 30, metrics: [] },
     ];
     expect(engagementNarrative(s)).toContain('in place for SOAR.');
+  });
+});
+
+describe('statutorySentence', () => {
+  it('states full coverage plainly when every hospital is engaged', () => {
+    const text = statutorySentence(statutory);
+    expect(text).toContain('All 49 tracked hospitals (100%) are engaged in at least one');
+    expect(text).toContain('SB24-175');
+    expect(text).toContain('All are meeting or on track');
+  });
+
+  it('names the gap when hospitals are not enrolled in anything', () => {
+    const text = statutorySentence({
+      ...statutory,
+      engagedInAtLeastOne: 47,
+      notEngaged: 2,
+      compliantInAtLeastOne: 45,
+      atRiskInAll: 2,
+    });
+    expect(text).toContain('47 of 49 tracked hospitals (95.9%)');
+    expect(text).toContain('2 are not currently enrolled in any');
+    expect(text).toContain('2 are at risk across all of their initiatives');
+  });
+
+  it('uses a singular verb for a single hospital', () => {
+    const text = statutorySentence({
+      ...statutory,
+      engagedInAtLeastOne: 48,
+      notEngaged: 1,
+      compliantInAtLeastOne: 47,
+      atRiskInAll: 1,
+    });
+    expect(text).toContain('1 is not currently enrolled');
+    expect(text).toContain('1 is at risk');
+  });
+
+  it('does not divide by zero on an empty roster', () => {
+    expect(statutorySentence({ ...statutory, hospitals: 0 })).toBe(
+      'No hospitals are currently tracked.',
+    );
   });
 });

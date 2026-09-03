@@ -41,18 +41,56 @@ export interface Tally {
    * them.
    */
   engaged: number;
-  /** Of those, the ones that arrived late — engagement that does not count
-   *  toward SB24-175 compliance. */
+  /** Of those, the ones that arrived late. */
   late: number;
 }
 
 export interface EngagementMetric extends Tally {
   key: EngagementMetricKey;
   label: string;
-  /** engaged / expected, to 1dp. Null when nothing is expected yet. */
+  /** engaged minus late: submissions that were timely AND complete. */
+  timely: number;
+  /**
+   * The reported rate — timely / expected, to 1dp. Null when nothing is
+   * expected yet.
+   *
+   * Late is excluded because it fails CPCQC's operational definition of
+   * "timely and complete": a submission that arrived after the deadline did
+   * not meet the requirement, whatever else is true of it.
+   */
   rate: number | null;
-  /** (engaged - late) / expected — the compliance-strict view. */
-  strictRate: number | null;
+  /** Including late arrivals — context only, never the reported figure. */
+  rateInclLate: number | null;
+}
+
+/**
+ * Hospital-level view of the statutory duty.
+ *
+ * SB24-175 obliges each hospital to engage in at least one QI initiative, so
+ * the unit is the hospital, not the enrollment: a hospital in four initiatives
+ * discharges the same single duty as one in one. The metrics above answer
+ * "what share of asked-for activity happened"; this answers "how many
+ * hospitals are meeting the law".
+ */
+export interface StatutoryCompliance {
+  /**
+   * Hospitals known to the tracker. Whether that equals every hospital the
+   * statute covers is a question about the roster, not about this figure —
+   * a hospital absent from the tracker cannot show up as non-compliant here.
+   */
+  hospitals: number;
+  /** Hospitals with at least one active enrollment. */
+  engagedInAtLeastOne: number;
+  /** Hospitals with no enrollment at all — non-compliant on the face of it. */
+  notEngaged: number;
+  /** Meeting, or on track to meet, every requirement of ≥1 initiative. */
+  compliantInAtLeastOne: number;
+  /** Already fully met ≥1 initiative (rare before year end). */
+  metInAtLeastOne: number;
+  /** Enrolled, but at risk or not met in every initiative — the follow-up list. */
+  atRiskInAll: number;
+  /** How many initiatives hospitals have taken on. */
+  byInitiativeCount: Array<{ initiatives: number; hospitals: number }>;
 }
 
 export interface EngagementScope {
@@ -68,6 +106,7 @@ export interface EngagementSummary {
   asOf: string;
   overall: EngagementScope;
   byInitiative: EngagementScope[];
+  statutory: StatutoryCompliance;
 }
 
 export const EMPTY_TALLY: Tally = { expected: 0, engaged: 0, late: 0 };
@@ -86,8 +125,9 @@ export function toMetrics(get: (taskType: string) => Tally): EngagementMetric[] 
       expected: t.expected,
       engaged: t.engaged,
       late: t.late,
-      rate: pct(t.engaged, t.expected),
-      strictRate: pct(t.engaged - t.late, t.expected),
+      timely: t.engaged - t.late,
+      rate: pct(t.engaged - t.late, t.expected),
+      rateInclLate: pct(t.engaged, t.expected),
     };
   });
 }
@@ -123,6 +163,33 @@ export function engagementNarrative(summary: EngagementSummary): string {
     `enrollment ${rate('enrollment')}, survey completion ${rate('survey')}, ` +
     `coaching ${rate('coaching')}, meeting participation ${rate('meetings')}, ` +
     `data submission ${rate('dataSubmission')}. ` +
-    `Program-specific tracking is in place for ${programList}.`
+    `Program-specific tracking is in place for ${programList}. ` +
+    statutorySentence(summary.statutory)
   );
+}
+
+/**
+ * The statutory duty in one sentence: SB24-175 requires engagement in at least
+ * one initiative, so this counts hospitals rather than enrollments.
+ */
+export function statutorySentence(s: StatutoryCompliance): string {
+  if (s.hospitals === 0) return 'No hospitals are currently tracked.';
+  const engagedPct = pct(s.engagedInAtLeastOne, s.hospitals);
+  const all = s.engagedInAtLeastOne === s.hospitals;
+  const lead = all
+    ? `All ${s.hospitals} tracked hospitals (100%) are engaged in at least one initiative, ` +
+      `meeting the SB24-175 requirement of participation in a minimum of one.`
+    : `${s.engagedInAtLeastOne} of ${s.hospitals} tracked hospitals ` +
+      `(${engagedPct === null ? 'n/a' : `${engagedPct}%`}) are engaged in at least one ` +
+      `initiative as SB24-175 requires; ${s.notEngaged} ` +
+      `${s.notEngaged === 1 ? 'is' : 'are'} not currently enrolled in any.`;
+
+  const onTrack =
+    s.compliantInAtLeastOne === s.engagedInAtLeastOne
+      ? ` All are meeting or on track to meet every requirement of at least one initiative.`
+      : ` ${s.compliantInAtLeastOne} are meeting or on track to meet every requirement of at ` +
+        `least one initiative; ${s.atRiskInAll} ${s.atRiskInAll === 1 ? 'is' : 'are'} at risk ` +
+        `across all of their initiatives.`;
+
+  return lead + onTrack;
 }

@@ -101,13 +101,27 @@ function addEngagementSheet(wb: ExcelJS.Workbook, engagement: EngagementSummary)
   narrative.alignment = { wrapText: true, vertical: 'top' };
 
   ws.addRow([]);
-  const headers = ['Metric', 'Expected', 'Engaged', 'Rate', 'Excluding late', 'Late'];
+  const headers = ['Metric', 'Expected', 'Timely & complete', 'Rate', 'Late', 'Incl. late'];
   const headerRow = ws.addRow(headers);
   styleHeader(ws, headerRow.number, headers.length);
 
   const asPct = (v: number | null) => (v === null ? 'n/a' : `${v}%`);
   for (const m of engagement.overall.metrics) {
-    ws.addRow([m.label, m.expected, m.engaged, asPct(m.rate), asPct(m.strictRate), m.late]);
+    ws.addRow([m.label, m.expected, m.timely, asPct(m.rate), m.late, asPct(m.rateInclLate)]);
+  }
+
+  ws.addRow([]);
+  const statRow = ws.addRow(['SB24-175 — engagement in at least one initiative']);
+  statRow.getCell(1).font = { name: 'Nunito Sans', bold: true, size: 13, color: { argb: PURPLE } };
+  const st = engagement.statutory;
+  ws.addRow(['Hospitals tracked', st.hospitals]);
+  ws.addRow(['Engaged in ≥1 initiative', st.engagedInAtLeastOne]);
+  ws.addRow(['Not enrolled in any', st.notEngaged]);
+  ws.addRow(['Meeting or on track in ≥1', st.compliantInAtLeastOne]);
+  ws.addRow(['Already met ≥1', st.metInAtLeastOne]);
+  ws.addRow(['At risk across all their initiatives', st.atRiskInAll]);
+  for (const b of st.byInitiativeCount) {
+    ws.addRow([`Hospitals enrolled in ${b.initiatives} initiative${b.initiatives === 1 ? '' : 's'}`, b.hospitals]);
   }
 
   ws.addRow([]);
@@ -133,7 +147,7 @@ function addEngagementSheet(wb: ExcelJS.Workbook, engagement: EngagementSummary)
 
   ws.addRow([]);
   const note = ws.addRow([
-    'Expected counts a task once its deadline has passed or it is already done. Engaged counts a completed task that was not recorded as missed or not submitted. "Excluding late" is the SB24-175 compliance view.',
+    'Expected counts a task once its deadline has passed or it is already done. The reported rate counts only submissions that were timely AND complete — late arrivals are excluded, as they do not meet the operational definition. Tasks recorded as missed or not submitted never count.',
   ]);
   note.getCell(1).font = { name: 'Nunito Sans', italic: true, size: 9, color: { argb: PURPLE_DARK } };
 }

@@ -508,8 +508,8 @@ function EngagementPanel({ programYear }: { programYear: number }) {
                 <tr>
                   <th className="py-1.5 pr-4">Metric</th>
                   <th className="py-1.5 pr-4">Rate</th>
-                  <th className="py-1.5 pr-4">Excluding late</th>
                   <th className="py-1.5 pr-4">Basis</th>
+                  <th className="py-1.5 pr-4">Incl. late</th>
                 </tr>
               </thead>
               <tbody>
@@ -519,12 +519,12 @@ function EngagementPanel({ programYear }: { programYear: number }) {
                     <td className="py-1.5 pr-4 font-semibold text-cpcqc-purple-dark">
                       {pctText(m.rate)}
                     </td>
-                    <td className="py-1.5 pr-4 text-cpcqc-purple-dark/70">
-                      {pctText(m.strictRate)}
-                    </td>
                     <td className="py-1.5 pr-4 text-cpcqc-purple-dark/60">
-                      {m.engaged} of {m.expected}
-                      {m.late > 0 ? ` · ${m.late} late` : ''}
+                      {m.timely} of {m.expected}
+                      {m.late > 0 ? ` · ${m.late} late, excluded` : ''}
+                    </td>
+                    <td className="py-1.5 pr-4 text-cpcqc-purple-dark/50">
+                      {m.late > 0 ? pctText(m.rateInclLate) : '—'}
                     </td>
                   </tr>
                 ))}
@@ -563,10 +563,48 @@ function EngagementPanel({ programYear }: { programYear: number }) {
             </table>
           </div>
 
+          <div className="mt-5 rounded-xl bg-cpcqc-purple/5 px-4 py-3">
+            <h3 className="font-rounded text-sm font-extrabold uppercase tracking-wide text-cpcqc-purple-dark">
+              SB24-175 — engagement in at least one initiative
+            </h3>
+            <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-cpcqc-purple-dark/80">
+              <span>
+                <strong className="text-cpcqc-purple-dark">
+                  {data.summary.statutory.engagedInAtLeastOne} of {data.summary.statutory.hospitals}
+                </strong>{' '}
+                hospitals engaged in ≥1
+              </span>
+              <span>
+                <strong className="text-cpcqc-purple-dark">
+                  {data.summary.statutory.compliantInAtLeastOne}
+                </strong>{' '}
+                meeting or on track in ≥1
+              </span>
+              {data.summary.statutory.atRiskInAll > 0 && (
+                <span className="text-cpcqc-orange-dark">
+                  <strong>{data.summary.statutory.atRiskInAll}</strong> at risk across all
+                </span>
+              )}
+              {data.summary.statutory.notEngaged > 0 && (
+                <span className="text-cpcqc-pink-dark">
+                  <strong>{data.summary.statutory.notEngaged}</strong> not enrolled in any
+                </span>
+              )}
+            </div>
+            <p className="mt-1.5 text-xs text-cpcqc-purple-dark/60">
+              {data.summary.statutory.byInitiativeCount
+                .map((b) => `${b.hospitals} in ${b.initiatives}`)
+                .join(' · ')}{' '}
+              initiative(s). The statute requires a minimum of one, so a hospital in four
+              discharges the same duty as a hospital in one.
+            </p>
+          </div>
+
           <p className="mt-3 text-xs text-cpcqc-purple-dark/60">
-            As of {data.summary.asOf}. A task counts once its deadline has passed or it is done;
-            it counts as engaged when completed and not recorded as missed or not submitted.
-            &ldquo;Excluding late&rdquo; is the SB24-175 compliance view.
+            As of {data.summary.asOf}. A task counts once its deadline has passed or it is done.
+            The reported rate counts only submissions that were timely <em>and</em> complete —
+            late arrivals are excluded, as they do not meet the operational definition. Tasks
+            recorded as missed or not submitted never count.
           </p>
         </>
       )}
