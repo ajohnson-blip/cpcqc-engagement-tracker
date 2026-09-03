@@ -124,6 +124,8 @@ export interface SparkSyncRow {
   pctComplete: number | null;
   onTime: boolean | null;
   daysFromDeadline: number | null;
+  /** The deadline this submission was judged against. */
+  deadline: string;
   submissionDate: string | null;
   missingTotal: number;
   missingSummary: string | null;
@@ -203,6 +205,8 @@ export interface NestSyncRow {
   chartComplete: number;
   onTime: boolean | null;
   daysFromDeadline: number | null;
+  /** The deadline this submission was judged against. */
+  deadline: string;
   submissionDate: string | null;
   /** Incomplete rows grouped by REDCap record — which record is missing what.
    *  Empty unless the row is incomplete. */
@@ -267,6 +271,8 @@ export interface SoarSyncRow {
   noNtsvRows: number;
   onTime: boolean | null;
   daysFromDeadline: number | null;
+  /** The deadline this submission was judged against. */
+  deadline: string;
   submissionDate: string | null;
   /** Incomplete rows grouped by REDCap record — which record is missing what.
    *  Empty unless the row is incomplete. */

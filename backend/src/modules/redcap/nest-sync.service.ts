@@ -109,6 +109,9 @@ export interface NestSyncRow {
   chartComplete: number;
   onTime: boolean | null;
   daysFromDeadline: number | null;
+  /** The deadline this submission was judged against — shown beside a late
+   *  date so a PM can weigh an exception without recomputing it. */
+  deadline: string;
   submissionDate: string | null;
   /** Incomplete rows grouped by REDCap record — which record is missing what.
    *  Empty unless the cell is incomplete. */
@@ -550,6 +553,7 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
             : [],
         onTime: effCell?.onTime ?? null,
         daysFromDeadline: effCell?.daysFromDeadline ?? null,
+        deadline,
         submissionDate: subDate,
         currentStatus: ti.status,
         currentOutcome: ti.outcome,

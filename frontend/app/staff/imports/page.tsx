@@ -453,6 +453,72 @@ function fmtShort(iso: string | null): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+/**
+ * Date-only ISO ("2026-08-19") → "Aug 19".
+ *
+ * Parsed at UTC noon and rendered in UTC: fmtShort above takes full ISO
+ * timestamps, and feeding it a bare date would roll the day backwards in any
+ * timezone behind UTC — which is every timezone CPCQC works in.
+ */
+function fmtDay(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** Whole days from `from` to `to`, both date-only ISO. */
+function daysBetween(from: string, to: string): number {
+  const a = Date.parse(`${from.slice(0, 10)}T00:00:00Z`);
+  const b = Date.parse(`${to.slice(0, 10)}T00:00:00Z`);
+  return Math.round((b - a) / 86_400_000);
+}
+
+/**
+ * When a submission arrived, and — when it was late — how late, against which
+ * deadline.
+ *
+ * A PM weighing an exception needs all three: "late" alone doesn't separate a
+ * hospital that missed by a day from one that missed by three weeks, and the
+ * deadline moves per period, so it can't be carried in your head. Two of the
+ * four programs showed a bare date and two showed nothing at all.
+ */
+function SubmittedCell({
+  submissionDate,
+  submitted,
+  onTime,
+  deadline,
+  daysFromDeadline,
+}: {
+  submissionDate: string | null;
+  submitted: boolean;
+  onTime: boolean | null;
+  deadline: string;
+  /** Authoritative where the sync supplies it (it accounts for grace periods);
+   *  derived from the dates otherwise. */
+  daysFromDeadline?: number | null;
+}) {
+  if (!submissionDate) {
+    return <td className="px-3 py-2 text-cpcqc-purple-dark/80">{submitted ? '(no date)' : '—'}</td>;
+  }
+  const late = onTime === false;
+  const days = daysFromDeadline ?? daysBetween(deadline, submissionDate);
+  return (
+    <td className="px-3 py-2">
+      <div className={late ? 'font-semibold text-cpcqc-orange-dark' : 'text-cpcqc-purple-dark/80'}>
+        {fmtDay(submissionDate)}
+      </div>
+      {late && (
+        <div className="text-xs text-cpcqc-orange-dark/80">
+          {days}d late · due {fmtDay(deadline)}
+        </div>
+      )}
+    </td>
+  );
+}
+
 /** Read-only status + comment cells for a finalized (locked) row. */
 function LockedCells({
   row,
@@ -906,9 +972,13 @@ function SparkRedcapSync() {
                                   editable={editable}
                                 />
                               )}
-                              <td className="px-3 py-2 text-cpcqc-purple-dark/80">
-                                {r.submissionDate ?? (r.submitted ? '(no date)' : '—')}
-                              </td>
+                              <SubmittedCell
+                                submissionDate={r.submissionDate}
+                                submitted={r.submitted}
+                                onTime={r.onTime}
+                                deadline={r.deadline}
+                                daysFromDeadline={r.daysFromDeadline}
+                              />
                               <td className="px-3 py-2 text-cpcqc-purple-dark/80">
                                 {r.pctComplete === null ? '—' : `${r.pctComplete}%`}
                               </td>
@@ -1181,6 +1251,7 @@ function NestRedcapSync() {
                           <th className="px-3 py-2">Comments</th>
                           <th className="px-3 py-2">SSP</th>
                           <th className="px-3 py-2">Chart</th>
+                          <th className="px-3 py-2">Submitted</th>
                           <th className="px-3 py-2">Detail</th>
                         </tr>
                       </thead>
@@ -1221,6 +1292,13 @@ function NestRedcapSync() {
                               <td className="px-3 py-2 text-cpcqc-purple-dark/80">
                                 {r.chartSubmitted ? `${r.chartComplete}/${r.chartRows}` : '—'}
                               </td>
+                              <SubmittedCell
+                                submissionDate={r.submissionDate}
+                                submitted={r.sspSubmitted || r.chartSubmitted}
+                                onTime={r.onTime}
+                                deadline={r.deadline}
+                                daysFromDeadline={r.daysFromDeadline}
+                              />
                               <DetailCell note={r.note} incompleteRecords={r.incompleteRecords} />
                             </tr>
                           );
@@ -1494,9 +1572,13 @@ function SoarRedcapSync() {
                                     ? '0 (attested)'
                                     : '—'}
                               </td>
-                              <td className="px-3 py-2 text-cpcqc-purple-dark/80">
-                                {r.submissionDate ?? (r.ntsvSubmitted || r.noNtsvSubmitted ? '(no date)' : '—')}
-                              </td>
+                              <SubmittedCell
+                                submissionDate={r.submissionDate}
+                                submitted={r.ntsvSubmitted || r.noNtsvSubmitted}
+                                onTime={r.onTime}
+                                deadline={r.deadline}
+                                daysFromDeadline={r.daysFromDeadline}
+                              />
                               <DetailCell note={r.note} incompleteRecords={r.incompleteRecords} />
                             </tr>
                           );
@@ -1736,6 +1818,7 @@ function TttRedcapSync() {
                           <th className="px-3 py-2">Comments</th>
                           <th className="px-3 py-2">+ Screens</th>
                           <th className="px-3 py-2">Patient forms</th>
+                          <th className="px-3 py-2">Submitted</th>
                           <th className="px-3 py-2">Detail</th>
                         </tr>
                       </thead>
@@ -1787,6 +1870,13 @@ function TttRedcapSync() {
                                   </span>
                                 )}
                               </td>
+                              {/* TTT carries no daysFromDeadline; the cell derives it. */}
+                              <SubmittedCell
+                                submissionDate={r.submissionDate}
+                                submitted={r.submitted}
+                                onTime={r.onTime}
+                                deadline={r.deadline}
+                              />
                               <td className="px-3 py-2 text-xs text-cpcqc-purple-dark/70">{r.note}</td>
                             </tr>
                           );

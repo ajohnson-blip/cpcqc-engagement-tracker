@@ -108,6 +108,9 @@ export interface SparkSyncRow {
   pctComplete: number | null;
   onTime: boolean | null;
   daysFromDeadline: number | null;
+  /** The deadline this submission was judged against — shown beside a late
+   *  date so a PM can weigh an exception without recomputing it. */
+  deadline: string;
   submissionDate: string | null;
   missingTotal: number;
   missingSummary: string | null;
@@ -489,6 +492,7 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
         pctComplete: cell ? cell.pctComplete : null,
         onTime: effCell?.onTime ?? null,
         daysFromDeadline: effCell?.daysFromDeadline ?? null,
+        deadline,
         submissionDate: cell?.submissionDate ?? null,
         missingTotal: cell?.missing.total ?? 0,
         missingSummary: cell ? missingSummary(cell.missing) : null,
