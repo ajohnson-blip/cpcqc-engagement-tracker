@@ -5,7 +5,8 @@
  * and both tracks (active and sustainability) — two per program year. The two
  * HRAs are normally due in Q1 and Q4, but a program year can carry a one-off
  * schedule shift (stored on program_years.hra_schedule). For Program Year 2026
- * only, SPARK's HRAs are due in Q2 and Q4.
+ * only, SPARK's HRAs are due in Q2 and Q4. Time 2 (the Q4 HRA) is due
+ * December 1, not quarter end — see hraDueDate.
  *
  * Kept free of DB/IO imports so the rules can be unit-tested without a database;
  * imports the due-date math from utils/period via a relative path so it resolves
@@ -24,6 +25,29 @@ export const REQUIRED_ASSESSMENTS_PER_YEAR = 2;
 
 /** Standard HRA due quarters when a program year has no schedule override. */
 export const DEFAULT_HRA_QUARTERS: readonly Quarter[] = ['Q1', 'Q4'];
+
+/**
+ * HRA due date for a scheduled quarter.
+ *
+ * Time 2 (the Q4 HRA) is due December 1, per CPCQC (confirmed 2026-09-10);
+ * every other HRA quarter keeps its quarter-end date.
+ *
+ * Deliberately separate from the generic computeDueDate, which dates every
+ * quarterly task — advising, meetings — at quarter end. Before this existed
+ * HRAs inherited that default, so time 2 read December 31, matching the "End of
+ * December" due-date rule in task_templates_starter.xlsx. The 2026-27 deadline
+ * sheet lists data submissions only, so nothing had corrected it.
+ */
+export function hraDueDate(quarter: string, year: number): string {
+  if (quarter === 'Q4') return `${year}-12-01`;
+  return computeDueDate('quarterly', quarter, year);
+}
+
+/** Last instant of an HRA's due day, in UTC ms — the moment it becomes overdue. */
+export function hraDeadlineMs(quarter: string, year: number): number {
+  const [y, m, d] = hraDueDate(quarter, year).split('-').map(Number) as [number, number, number];
+  return Date.UTC(y, m - 1, d + 1) - 1;
+}
 
 /**
  * Source of truth for per-(initiative, year) HRA schedule overrides. Returns the
@@ -83,7 +107,7 @@ export function scheduleHraInstances(
     return {
       templateId: t.id,
       period: computePeriodString('quarterly', q, year),
-      dueOn: computeDueDate('quarterly', q, year),
+      dueOn: hraDueDate(q, year),
     };
   });
 }
@@ -132,13 +156,25 @@ export function evaluateQuarterlyMilestones(
      * early. (Without it, evaluation is count-based — used by the HRA schedule.)
      */
     completedQuarters?: ReadonlySet<string>;
+    /**
+     * When a scheduled quarter's item becomes overdue. Defaults to the
+     * quarter's last day, which is right for advising and meetings. HRAs pass
+     * their own rule so time 2 is overdue after December 1 — matching the date
+     * on the task. Moving only the task's date would have left its status
+     * waiting until December 31.
+     */
+    deadlineMs?: (quarter: string, programYear: number) => number;
   },
 ): RequirementResult {
   const required = quarters.length;
   const nowMs = asOf.getTime();
   const dueQuarters = quarters.filter((q) => {
     const qn = quarterToNum(q);
-    return qn != null && quarterEndMs(programYear, qn) < nowMs;
+    if (qn == null) return false;
+    const deadline = options.deadlineMs
+      ? options.deadlineMs(q, programYear)
+      : quarterEndMs(programYear, qn);
+    return deadline < nowMs;
   });
   const expected = dueQuarters.length;
   const yearEnded = expected === required;
@@ -267,6 +303,6 @@ export function evaluateHraSchedule(
     completed,
     programYear,
     asOf,
-    { itemLabel: 'HRA', itemLabelPlural: 'HRAs' },
+    { itemLabel: 'HRA', itemLabelPlural: 'HRAs', deadlineMs: hraDeadlineMs },
   );
 }

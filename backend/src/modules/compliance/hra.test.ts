@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   REQUIRED_ASSESSMENTS_PER_YEAR,
   evaluateHraSchedule,
+  evaluateQuarterlyMilestones,
+  hraDueDate,
   hraScheduleOverrideFor,
   scheduleHraInstances,
 } from './hra.js';
@@ -67,7 +69,7 @@ describe('SPARK 2026 HRA schedule override', () => {
     expect(quarterOf(new Date(byId.get('hra-early')!.dueOn))).toBe(2);
 
     expect(byId.get('hra-late')!.period).toBe('2026-Q4');
-    expect(byId.get('hra-late')!.dueOn).toBe('2026-12-31');
+    expect(byId.get('hra-late')!.dueOn).toBe('2026-12-01');
     expect(quarterOf(new Date(byId.get('hra-late')!.dueOn))).toBe(4);
   });
 
@@ -143,7 +145,56 @@ describe('SPARK 2026 HRA schedule override', () => {
     expect(hraScheduleOverrideFor('SPARK', 2027)).toBeNull();
     expect(byId.get('hra-early')!.dueOn).toBe('2027-03-31');
     expect(quarterOf(new Date(byId.get('hra-early')!.dueOn))).toBe(1);
-    expect(byId.get('hra-late')!.dueOn).toBe('2027-12-31');
+    expect(byId.get('hra-late')!.dueOn).toBe('2027-12-01');
     expect(quarterOf(new Date(byId.get('hra-late')!.dueOn))).toBe(4);
+  });
+});
+
+describe('HRA time 2 is due December 1', () => {
+  const hraTemplates = [
+    { id: 'hra-early', periodLabel: 'Q1' },
+    { id: 'hra-late', periodLabel: 'Q4' },
+  ];
+
+  it('dates time 2 on December 1 on the default schedule', () => {
+    const byId = new Map(
+      scheduleHraInstances(hraTemplates, 2026, null).map((s) => [s.templateId, s]),
+    );
+    expect(byId.get('hra-early')!.dueOn).toBe('2026-03-31');
+    expect(byId.get('hra-late')!.dueOn).toBe('2026-12-01');
+  });
+
+  it('leaves time 1 at quarter end — only time 2 was decided', () => {
+    expect(hraDueDate('Q1', 2026)).toBe('2026-03-31');
+    expect(hraDueDate('Q2', 2026)).toBe('2026-06-30');
+    expect(hraDueDate('Q4', 2026)).toBe('2026-12-01');
+  });
+
+  it('is still on track during December 1 itself', () => {
+    const r = evaluateHraSchedule(null, 1, 2026, new Date('2026-12-01T18:00:00Z'));
+    expect(r.status).toBe('on_track');
+  });
+
+  it('is overdue from December 2, so the status agrees with the date on the task', () => {
+    // Time 2 is the final HRA, so missing it ends the year's requirement:
+    // not_met, not merely at_risk — the same rule as before, a month earlier.
+    const r = evaluateHraSchedule(null, 1, 2026, new Date('2026-12-02T12:00:00Z'));
+    expect(r.status).toBe('not_met');
+    expect(r.expected).toBe(2);
+  });
+
+  it('does not move the Q4 advising deadline, which shares the quarterly evaluator', () => {
+    // Advising calls the evaluator without the HRA rule. Had the December 1
+    // deadline leaked into it, Q4 would count as due on Dec 15 and this
+    // on-track hospital would read not_met.
+    const r = evaluateQuarterlyMilestones(
+      ['Q1', 'Q2', 'Q3', 'Q4'],
+      3,
+      2026,
+      new Date('2026-12-15T12:00:00Z'),
+      { itemLabel: 'advising session', itemLabelPlural: 'advising sessions' },
+    );
+    expect(r.status).toBe('on_track');
+    expect(r.expected).toBe(3);
   });
 });
