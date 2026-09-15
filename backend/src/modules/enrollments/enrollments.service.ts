@@ -3,7 +3,8 @@
  *
  * Creates an Enrollment for (hospital, cohort) and:
  *  1. Generates a ProgramYear row for every calendar year covered by the cohort
- *     (1 row for 1-year cohorts; 2 rows for TTT's 2-year cohort) — snapshotting
+ *     (1 row for 1-year cohorts; 2 rows for TTT's 2-year cohort), or from
+ *     `fromYear` when a hospital joins partway through — snapshotting
  *     the required-counts from initiative_track_config so historical years are
  *     stable against future config changes.
  *  2. Generates a TaskInstance for every TaskTemplate (initiative × track), once
@@ -19,6 +20,7 @@ import { and, eq } from 'drizzle-orm';
 import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
 import {
+  cohortYears,
   computeDueDate,
   computePeriodString,
   type TemplatePeriod,
@@ -30,6 +32,12 @@ export interface CreateEnrollmentInput {
   cohortId: string;
   enrolledOn?: string; // ISO date; defaults to today
   status?: 'eligible_to_enroll' | 'enrolled';
+  /**
+   * First program year to create. Omit to cover the whole cohort. Set it to
+   * join partway through — a hospital enrolling in year 2 whose year 1 was
+   * already covered under another hospital record.
+   */
+  fromYear?: number;
 }
 
 export interface CreateEnrollmentResult {
@@ -96,11 +104,14 @@ export async function createEnrollment(input: CreateEnrollmentInput): Promise<Cr
     throw new HttpError(500, 'Cohort references missing initiative');
   }
 
-  // Determine the years covered by this cohort
-  const startYear = new Date(cohort.startDate).getUTCFullYear();
-  const endYear = new Date(cohort.endDate).getUTCFullYear();
-  const years: number[] = [];
-  for (let y = startYear; y <= endYear; y++) years.push(y);
+  // Determine the years covered by this cohort — from `fromYear` when joining
+  // partway through.
+  let years: number[];
+  try {
+    years = cohortYears(cohort.startDate, cohort.endDate, input.fromYear);
+  } catch (err) {
+    throw new HttpError(400, err instanceof Error ? err.message : 'Invalid fromYear.');
+  }
 
   // Load task templates for this initiative + track
   const templates = await db

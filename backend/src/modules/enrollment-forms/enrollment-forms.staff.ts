@@ -96,7 +96,12 @@ function shape(
 }
 
 /**
- * Hospitals already in a TtT cohort for the prior year.
+ * Hospitals in a TtT cohort during the program year being enrolled for.
+ *
+ * Asked of programYear itself, not the prior year. UCHealth Memorial North
+ * joined TtT year 2 in 2027 as its own record, with no 2026 year, so a
+ * prior-year check would leave its continuation form off the expected list —
+ * and would count a cohort that had just ended as still continuing.
  *
  * TtT runs two-year cohorts, so its enrollment form is an attestation of
  * continuation rather than a request to join. Those hospitals owe a form
@@ -113,7 +118,7 @@ async function tttContinuingHospitalIds(programYear: number): Promise<string[]> 
       and(
         eq(schema.initiatives.code, 'TTT'),
         eq(schema.enrollments.status, 'enrolled'),
-        eq(schema.programYears.year, programYear - 1),
+        eq(schema.programYears.year, programYear),
       ),
     );
   return rows.map((r) => r.hospitalId);

@@ -54,7 +54,11 @@ export const TTT_HOSPITALS: TttHospital[] = [
   { chaId: 346, trackerName: 'UCHealth Highlands Ranch Hospital', hospitalDag: 'uc_health_highland', patientDags: ['uc_health_highland'] },
   { chaId: 502, trackerName: 'UCHealth Longs Peak Hospital', hospitalDag: 'uchealth_longs_pea', patientDags: ['uchealth_longs_pea'] },
   // CHA 632 aggregates UCHealth Memorial Central + North: two patient DAGs → one hospital.
-  { chaId: 632, trackerName: 'UCHealth Memorial Hospital Central/UCHealth Memorial Hospital North', hospitalDag: 'uchealth_memorial', patientDags: ['uchealth_memorial', 'uchealth_memorialb'] },
+  // From 2027 they are separate tracker records (North carries "632b", a
+  // tracker-only ID; CHA has none for it). Until CHA adds a hospital DAG for
+  // North and confirms which patient DAG is whose, both DAGs still land here —
+  // so any TtT data North submits is credited to Central.
+  { chaId: 632, trackerName: 'UCHealth Memorial Hospital Central', hospitalDag: 'uchealth_memorial', patientDags: ['uchealth_memorial', 'uchealth_memorialb'] },
   { chaId: 644, trackerName: 'UCHealth Parkview Medical Center', hospitalDag: 'parkview_medical_c', patientDags: ['parkview_medical_c'] },
   { chaId: 512, trackerName: 'UCHealth University of Colorado Hospital', hospitalDag: 'university_hospita', patientDags: ['university_hospita'] },
   { chaId: 868, trackerName: 'Valley View Hospital', hospitalDag: 'valley_view_hospit', patientDags: ['valley_view_hospit'] },

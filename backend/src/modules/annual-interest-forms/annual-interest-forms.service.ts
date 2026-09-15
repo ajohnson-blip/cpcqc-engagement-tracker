@@ -515,7 +515,7 @@ export interface CohortPlanningAggregate {
   // them was confusing pre-window: "Currently in TTT: 0" read as
   // "no TTT cohort exists" instead of "no submissions yet".
   cohortContext: {
-    // Hospitals currently enrolled in TTT for (programYear - 1). These all
+    // Hospitals in TTT during programYear. These all
     // auto-continue into TTT (programYear), counts toward each one's
     // 2-initiative cap, and gets a TTT Enrollment Form sent on close date.
     tttContinuationCount: number;
@@ -578,8 +578,12 @@ export async function getCohortPlanningAggregate(
     }
   }
 
-  // Absolute TTT continuation count — every hospital currently enrolled in
-  // TTT for (programYear - 1). This is cohort-planning context: independent
+  // Absolute TTT continuation count — every hospital with a TtT program year
+  // in programYear itself, i.e. in TtT during the year being planned. (This
+  // asked about programYear - 1 until 2027. That missed UCHealth Memorial
+  // North, which joined TtT year 2 as its own record with no 2026 year, and
+  // would count a cohort that ended last year as continuing.) This is
+  // cohort-planning context: independent
   // of whether anyone's submitted an interest form yet. PMs want to see
   // "we have 12 TTT continuations coming" from day one of the window.
   const tttContinuationRows = await db
@@ -598,7 +602,7 @@ export async function getCohortPlanningAggregate(
       and(
         eq(schema.initiatives.code, 'TTT'),
         eq(schema.enrollments.status, 'enrolled'),
-        eq(schema.programYears.year, programYear - 1),
+        eq(schema.programYears.year, programYear),
       ),
     );
   const tttContinuationHospitalSet = new Set(
@@ -696,7 +700,8 @@ async function shapeRow(id: string): Promise<InterestFormShape | null> {
     where: eq(schema.hospitals.id, row.hospitalId),
   });
 
-  // Flag: is this hospital currently enrolled in TTT for (programYear - 1)?
+  // Flag: is this hospital in TtT during the form's program year? (Checked
+  // against programYear, not programYear - 1 — see the continuation count.)
   // Used by the staff triage UI to surface "⚠ currently in TTT — auto-continuation."
   const tttEnrolled = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -715,7 +720,7 @@ async function shapeRow(id: string): Promise<InterestFormShape | null> {
         eq(schema.enrollments.hospitalId, row.hospitalId),
         eq(schema.initiatives.code, 'TTT'),
         eq(schema.enrollments.status, 'enrolled'),
-        eq(schema.programYears.year, row.programYear - 1),
+        eq(schema.programYears.year, row.programYear),
       ),
     );
 

@@ -116,3 +116,23 @@ export function quarterOf(date: Date): 1 | 2 | 3 | 4 {
   if (m <= 9) return 3;
   return 4;
 }
+
+/**
+ * Calendar years a cohort enrollment covers.
+ *
+ * Normally every year from cohort start to end — one for a 1-year cohort, two
+ * for TtT. `fromYear` joins partway through, for a hospital whose earlier year
+ * was already covered under another hospital record: UCHealth Memorial North
+ * enrolled combined with Central in 2026 and became its own record for TtT
+ * year 2. Creating 2026 again would duplicate that year's work.
+ */
+export function cohortYears(startDate: string, endDate: string, fromYear?: number): number[] {
+  const start = new Date(startDate).getUTCFullYear();
+  const end = new Date(endDate).getUTCFullYear();
+  if (fromYear !== undefined && (fromYear < start || fromYear > end)) {
+    throw new Error(`fromYear ${fromYear} is outside the cohort (${start}–${end}).`);
+  }
+  const years: number[] = [];
+  for (let y = fromYear ?? start; y <= end; y++) years.push(y);
+  return years;
+}

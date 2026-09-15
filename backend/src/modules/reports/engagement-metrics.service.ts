@@ -73,14 +73,22 @@ async function statutoryCompliance(
   programYear: number,
   hospitalIds: string[] | null,
 ): Promise<StatutoryCompliance> {
+  // A hospital counts only toward years it existed as a separate entity.
+  // UCHealth Memorial North enrolled combined with Central in 2026 and became
+  // its own record for 2027; counting it in 2026 would report a hospital that
+  // WAS covered as one that never enrolled. metadata.eligibleFromProgramYear
+  // marks that; hospitals without it count in every year.
+  const eligibleThisYear = sql`coalesce((${schema.hospitals.metadata}->>'eligibleFromProgramYear')::int, 0) <= ${programYear}`;
   const [report, roster] = await Promise.all([
     assembleAnnualReport(programYear),
-    hospitalIds
-      ? db
-          .select({ id: schema.hospitals.id })
-          .from(schema.hospitals)
-          .where(inArray(schema.hospitals.id, hospitalIds))
-      : db.select({ id: schema.hospitals.id }).from(schema.hospitals),
+    db
+      .select({ id: schema.hospitals.id })
+      .from(schema.hospitals)
+      .where(
+        hospitalIds
+          ? and(eligibleThisYear, inArray(schema.hospitals.id, hospitalIds))
+          : eligibleThisYear,
+      ),
   ]);
 
   const byHospital = new Map<string, string[]>();
