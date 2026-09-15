@@ -14,7 +14,7 @@
 
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
-import { Download, AlertTriangle, Pencil, CheckCircle2 } from 'lucide-react';
+import { Download, AlertTriangle, Pencil, CheckCircle2, Mail } from 'lucide-react';
 import { api, apiFetch, ApiError } from '@/lib/api';
 import type {
   AnnualInterestForm,
@@ -353,6 +353,12 @@ function AnnualPanel() {
                     >
                       <Pencil size={12} aria-hidden /> Triage
                     </button>
+                    {f.submittedVia === 'public' && !f.verifiedAt && (
+                      <ResendConfirmation
+                        form={f}
+                        onEmailChanged={(email) => handleUpdated({ ...f, submitterEmail: email })}
+                      />
+                    )}
                   </td>
                 </tr>
               ))}
@@ -595,6 +601,114 @@ function AcceptanceToggles({
           {form.decidedBy ? ` · ${form.decidedBy}` : ''}
         </span>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Re-send a public submission's confirmation link.
+ *
+ * Shown only while nobody has confirmed. If that first email never arrived —
+ * SendGrid refused every send for a week in August 2026, addresses get
+ * mistyped, spam folders swallow the rest — the hospital was stuck: its one
+ * slot for the year taken, a second submission refused as a duplicate, and no
+ * link to confirm or edit with.
+ *
+ * The address is editable because a typo is the likeliest reason the email
+ * never arrived, and re-sending to the same wrong address fixes nothing.
+ */
+function ResendConfirmation({
+  form,
+  onEmailChanged,
+}: {
+  form: AnnualInterestForm;
+  onEmailChanged: (email: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState(form.submitterEmail);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+
+  async function send() {
+    setSending(true);
+    setError(null);
+    try {
+      const res = await api.post<{ sentTo: string; emailChanged: boolean }>(
+        `/staff/annual-interest-forms/${form.id}/resend-confirmation`,
+        { toEmail: email.trim() },
+      );
+      setSentTo(res.sentTo);
+      setOpen(false);
+      if (res.emailChanged) onEmailChanged(res.sentTo);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not re-send the confirmation.');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="mt-1 flex flex-col items-end gap-0.5">
+        <button
+          type="button"
+          onClick={() => {
+            setEmail(form.submitterEmail);
+            setError(null);
+            setOpen(true);
+          }}
+          className="inline-flex items-center gap-1 text-xs font-semibold text-cpcqc-orange-dark hover:underline"
+        >
+          <Mail size={11} aria-hidden /> Resend confirmation
+        </button>
+        {sentTo && (
+          <span className="max-w-[16rem] text-xs text-cpcqc-teal-dark">
+            New link sent to {sentTo}. The earlier link no longer works.
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="ml-auto mt-2 w-64 rounded-lg bg-cpcqc-cream-dark/40 p-2 text-left ring-1 ring-cpcqc-purple-dark/10">
+      <label
+        htmlFor={`resend-${form.id}`}
+        className="block text-[11px] font-bold uppercase tracking-wide text-cpcqc-purple-dark/70"
+      >
+        Send a new link to
+      </label>
+      <input
+        id={`resend-${form.id}`}
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        disabled={sending}
+        className="mt-1 w-full rounded-md border border-cpcqc-purple-dark/15 px-2 py-1 text-sm text-cpcqc-purple-dark"
+      />
+      <p className="mt-1 text-[11px] leading-snug text-cpcqc-purple-dark/60">
+        Correct the address if it was mistyped. The earlier link will stop working.
+      </p>
+      {error && <p className="mt-1 text-xs font-semibold text-cpcqc-pink-dark">{error}</p>}
+      <div className="mt-2 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          disabled={sending}
+          className="text-xs font-semibold text-cpcqc-purple-dark/70 hover:underline disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => void send()}
+          disabled={sending || !email.trim()}
+          className="rounded-full bg-cpcqc-purple px-3 py-1 text-xs font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90 disabled:opacity-50"
+        >
+          {sending ? 'Sending…' : 'Send'}
+        </button>
+      </div>
     </div>
   );
 }

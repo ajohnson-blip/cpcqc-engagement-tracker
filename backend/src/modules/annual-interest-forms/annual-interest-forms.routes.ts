@@ -11,6 +11,8 @@
  *   GET    /staff/annual-interest-forms/aggregate     Cohort Planning view
  *   GET    /staff/annual-interest-forms/export        XLSX download
  *   PATCH  /staff/annual-interest-forms/:id           update staff_note / status / decided
+ *   PATCH  /staff/annual-interest-forms/:id/acceptance              per-initiative acceptance
+ *   POST   /staff/annual-interest-forms/:id/resend-confirmation     new confirmation link
  *
  * Window dates and the rankable-initiative pool are read from the database
  * (enrollment_windows config row) rather than env vars so PMs can edit them
@@ -19,7 +21,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import ExcelJS from 'exceljs';
-import { requireAuth } from '@/middleware/auth.js';
+import { requireAuth, requireStaff } from '@/middleware/auth.js';
 import { HttpError } from '@/middleware/errors.js';
 import {
   RANKABLE_INITIATIVE_CODES,
@@ -34,6 +36,7 @@ import {
   windowStateFor,
   setAcceptedInitiatives,
 } from './annual-interest-forms.service.js';
+import { resendInterestConfirmation } from './public-interest.service.js';
 
 // ---------- Portal-side router ----------
 
@@ -124,16 +127,36 @@ staffAnnualInterestRouter.post('/bulk-accept', requireAuth, async (req, res) => 
  * accepts a hospital into, so TtT hospitals get their continuation form from
  * their existing enrollment rather than from this decision.
  */
-staffAnnualInterestRouter.patch('/:id/acceptance', requireAuth, async (req, res) => {
+// Staff-only, enforced here and in the service: this router has no staff guard
+// of its own.
+staffAnnualInterestRouter.patch('/:id/acceptance', requireAuth, requireStaff, async (req, res) => {
   const id = z.string().uuid().parse(req.params.id);
   const body = z
     .object({
       acceptedInitiatives: z.array(z.enum(RANKABLE_INITIATIVE_CODES)).max(3),
     })
     .parse(req.body);
-  const form = await setAcceptedInitiatives(id, body.acceptedInitiatives, req.auth?.userId ?? null);
+  const form = await setAcceptedInitiatives(id, body.acceptedInitiatives, req.auth!);
   res.json({ form });
 });
+
+/**
+ * Re-send the confirmation link for a public submission nobody confirmed — the
+ * email failed, went to spam, or went to a mistyped address. Issues a fresh
+ * link; the old one stops working. Optional `toEmail` corrects the address.
+ */
+staffAnnualInterestRouter.post(
+  '/:id/resend-confirmation',
+  requireAuth,
+  requireStaff,
+  async (req, res) => {
+    const id = z.string().uuid().parse(req.params.id);
+    const body = z
+      .object({ toEmail: z.string().trim().email().max(254).optional() })
+      .parse(req.body ?? {});
+    res.json(await resendInterestConfirmation(id, { toEmail: body.toEmail }, req.auth!));
+  },
+);
 
 staffAnnualInterestRouter.get('/export', requireAuth, async (req, res) => {
   const programYear = z.coerce

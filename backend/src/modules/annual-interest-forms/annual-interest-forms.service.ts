@@ -865,8 +865,14 @@ function formatSubmissionSummary(form: InterestFormShape): string {
 export async function setAcceptedInitiatives(
   formId: string,
   accepted: RankableInitiativeCode[],
-  actorUserId: string | null,
+  ctx: AuthContext,
 ): Promise<InterestFormShape> {
+  // Enforced here as well as on the route. The staff router has no guard of
+  // its own, so a service that trusts its caller is one missing middleware
+  // away from letting a hospital user decide acceptances.
+  if (ctx.role !== 'cpcqc_staff' && ctx.role !== 'cpcqc_admin') {
+    throw new HttpError(403, 'Staff only.');
+  }
   const row = await db.query.annualInterestForms.findFirst({
     where: eq(schema.annualInterestForms.id, formId),
   });
@@ -877,7 +883,7 @@ export async function setAcceptedInitiatives(
     .set({
       decidedInitiatives: accepted,
       decidedAt: new Date(),
-      decidedBy: actorUserId,
+      decidedBy: ctx.userId ?? null,
       // Keep the form-level status coherent with the per-initiative decision.
       status: accepted.length > 0 ? 'accepted' : 'declined',
       updatedAt: new Date(),
@@ -886,8 +892,8 @@ export async function setAcceptedInitiatives(
 
   await db.insert(schema.auditLog).values({
     id: uuid(),
-    actorUserId,
-    actorRole: 'cpcqc_staff',
+    actorUserId: ctx.userId ?? null,
+    actorRole: ctx.role,
     action: 'annual_interest.acceptance_set',
     entityType: 'annual_interest_form',
     entityId: formId,

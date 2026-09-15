@@ -27,10 +27,14 @@ import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
 import { env, frontendBaseUrl } from '@/config/env.js';
 import { sendEmail } from '@/modules/notifications/notifications.service.js';
+import type { AuthContext } from '@/middleware/auth.js';
+import { canResendConfirmation, interestVerificationEmail } from './interest-emails.js';
 
 export type RankableCode = 'SPARK' | 'SOAR' | 'NEST';
 
 const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
+const verifyUrlFor = (token: string) =>
+  `${frontendBaseUrl()}/interest/verify?token=${encodeURIComponent(token)}`;
 
 /**
  * Hospitals offered in the public dropdown.
@@ -191,30 +195,19 @@ export async function submitPublicInterestForm(
     submittedVia: 'public',
   });
 
-  const verifyUrl = `${frontendBaseUrl()}/interest/verify?token=${encodeURIComponent(token)}`;
+  // One template for this and the staff resend, so the two cannot drift apart
+  // in what they promise.
+  const email = interestVerificationEmail({
+    submitterName: input.submitterName,
+    hospitalName: ctx.hospitalName,
+    programYear: input.programYear,
+    verifyUrl: verifyUrlFor(token),
+  });
   await sendEmail({
     toEmail: input.submitterEmail.trim(),
     fromEmail: env.EMAIL_FROM_ENROLLMENT,
     kind: 'annual_interest.public_verify',
-    subject: `Confirm your CPCQC ${input.programYear} interest form`,
-    body: [
-      `Hi ${input.submitterName.trim()},`,
-      '',
-      `We've received an interest form for ${ctx.hospitalName} for ${input.programYear}.`,
-      '',
-      'Please confirm it by opening this link:',
-      verifyUrl,
-      '',
-      'Your form is not final until you confirm by clicking the link.',
-      '',
-      'Keep this email. The same link reopens your submission if you need to change',
-      'it — right up until the window closes. After that it becomes the record CPCQC',
-      'plans cohorts from, so contact qi@cpcqc.org instead.',
-      '',
-      "If you didn't fill in this form, you can ignore this email and nothing will be recorded.",
-      '',
-      'Colorado Perinatal Care Quality Collaborative',
-    ].join('\n'),
+    ...email,
   });
 
   return { formId: id, sentTo: input.submitterEmail.trim() };
@@ -359,4 +352,104 @@ export async function updateInterestFormByToken(
     .where(eq(schema.annualInterestForms.id, row.id));
 
   return { updated: true };
+}
+
+
+export interface ResendConfirmationResult {
+  sentTo: string;
+  emailChanged: boolean;
+}
+
+/**
+ * Staff: re-send the confirmation link for a public submission nobody confirmed.
+ *
+ * The first email can fail to arrive — SendGrid refused every send from
+ * Aug 12–19, 2026 when the account ran out of credits, a mistyped address
+ * reaches no one, and spam folders swallow the rest. That used to strand the
+ * hospital: its submission holds the one slot for the year, a second
+ * submission is refused as a duplicate, and without the link nobody can confirm
+ * or edit it.
+ *
+ * Only a hash of the token is stored, so the original link cannot be re-sent.
+ * This issues a fresh one and retires the old, and the email says so. The hash
+ * is replaced BEFORE sending, so the link that goes out is always the live one.
+ *
+ * `toEmail` corrects a mistyped address. That hands control of the submission
+ * to the new address — which is the point — so the change is audit-logged.
+ */
+export async function resendInterestConfirmation(
+  formId: string,
+  opts: { toEmail?: string },
+  ctx: AuthContext,
+): Promise<ResendConfirmationResult> {
+  if (ctx.role !== 'cpcqc_staff' && ctx.role !== 'cpcqc_admin') {
+    throw new HttpError(403, 'Staff only.');
+  }
+  const row = await db.query.annualInterestForms.findFirst({
+    where: eq(schema.annualInterestForms.id, formId),
+  });
+  if (!row) throw new HttpError(404, 'Interest form not found.');
+
+  const eligibility = canResendConfirmation(row);
+  if (!eligibility.ok) throw new HttpError(409, eligibility.reason);
+
+  const hospital = await db.query.hospitals.findFirst({
+    where: eq(schema.hospitals.id, row.hospitalId),
+  });
+  const hospitalName = hospital?.name ?? 'your hospital';
+  const previousEmail = row.submitterEmail.trim();
+  const toEmail = (opts.toEmail ?? previousEmail).trim();
+  const emailChanged = toEmail.toLowerCase() !== previousEmail.toLowerCase();
+
+  const token = randomBytes(32).toString('base64url');
+  await db
+    .update(schema.annualInterestForms)
+    .set({
+      verificationTokenHash: hashToken(token),
+      ...(emailChanged ? { submitterEmail: toEmail } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.annualInterestForms.id, row.id));
+
+  const result = await sendEmail({
+    toEmail,
+    fromEmail: env.EMAIL_FROM_ENROLLMENT,
+    kind: 'annual_interest.public_verify_resend',
+    ...interestVerificationEmail({
+      submitterName: row.submitterName,
+      hospitalName,
+      programYear: row.programYear,
+      verifyUrl: verifyUrlFor(token),
+      resend: true,
+    }),
+  });
+
+  await db.insert(schema.auditLog).values({
+    id: uuid(),
+    actorUserId: ctx.userId ?? null,
+    actorRole: ctx.role,
+    action: 'annual_interest.confirmation_resent',
+    entityType: 'annual_interest_form',
+    entityId: row.id,
+    diff: {
+      emailChanged,
+      ...(emailChanged ? { from: previousEmail, to: toEmail } : {}),
+      sent: result.sent,
+    },
+    note:
+      `Confirmation re-sent for ${hospitalName} ${row.programYear}` +
+      (emailChanged ? ' to a corrected address' : '') +
+      (result.sent ? '.' : ` — the email did not send: ${result.error ?? 'sending not configured'}.`),
+  });
+
+  // Report a refused send as a failure, not a success: the old link is already
+  // retired, so staff need to know nothing went out and try again.
+  if (!result.sent) {
+    throw new HttpError(
+      502,
+      `A new link was created, but the email did not send (${result.error ?? 'email sending is not configured'}). ` +
+        'Try again shortly; if it keeps failing, check the SendGrid account.',
+    );
+  }
+  return { sentTo: toEmail, emailChanged };
 }
