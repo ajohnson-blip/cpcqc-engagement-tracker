@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { and, eq } from 'drizzle-orm';
 import { db, schema, pool } from '../src/db/index.js';
 import { createEnrollment } from '../src/modules/enrollments/enrollments.service.js';
+import { normalizeChaId } from '../src/utils/identifiers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HOSPITAL_DATA_PATH = path.resolve(__dirname, '../../data/hospitals_master_2026.json');
@@ -94,14 +95,19 @@ async function main() {
   };
 
   const hospitals = await db.select().from(schema.hospitals);
+  // Keyed on the normalized ID, so a source file still carrying Excel's float
+  // artifacts ("632.0") matches the repaired stored value ("632").
   const hospitalByCha = new Map(
-    hospitals.filter((h) => h.chaHospitalId).map((h) => [h.chaHospitalId!, h]),
+    hospitals
+      .filter((h) => h.chaHospitalId)
+      .map((h) => [normalizeChaId(h.chaHospitalId)!.toLowerCase(), h]),
   );
   const hospitalByName = new Map(hospitals.map((h) => [h.name.toLowerCase(), h]));
 
   function resolveHospital(rec: HospitalRecord) {
-    if (rec.chaHospitalId && hospitalByCha.has(rec.chaHospitalId)) {
-      return hospitalByCha.get(rec.chaHospitalId)!;
+    const cha = normalizeChaId(rec.chaHospitalId)?.toLowerCase();
+    if (cha && hospitalByCha.has(cha)) {
+      return hospitalByCha.get(cha)!;
     }
     return hospitalByName.get(rec.name.toLowerCase()) ?? null;
   }

@@ -21,6 +21,7 @@ import { v4 as uuid } from 'uuid';
 import { db, schema, pool } from '../src/db/index.js';
 import { REQUIRED_ASSESSMENTS_PER_YEAR } from '../src/modules/compliance/hra.js';
 import { eq, and } from 'drizzle-orm';
+import { normalizeAimId, normalizeCdpheId, normalizeChaId } from '../src/utils/identifiers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HOSPITAL_DATA_PATH = path.resolve(__dirname, '../../data/hospitals_master_2026.json');
@@ -161,11 +162,15 @@ async function upsertHospital(rec: HospitalRecord) {
     hsr: rec.hsr,
     cdpheName: rec.cdpheName,
   };
+  // Normalized on write: the source spreadsheet still carries Excel's float
+  // artifacts ("632.0", "10542.0"), so re-running seed would otherwise undo
+  // scripts/normalize-hospital-identifiers.ts.
+  const chaHospitalId = normalizeChaId(rec.chaHospitalId);
   const values = {
     name: rec.name,
-    chaHospitalId: rec.chaHospitalId,
-    cdpheId: rec.cdpheId,
-    aimId: rec.aimId,
+    chaHospitalId,
+    cdpheId: normalizeCdpheId(rec.cdpheId),
+    aimId: normalizeAimId(rec.aimId),
     system: rec.system,
     tableauNickname: rec.tableauNickname,
     addressLine1: rec.address,
@@ -176,9 +181,11 @@ async function upsertHospital(rec: HospitalRecord) {
     region: rec.rae != null ? `RAE ${rec.rae}` : null,
     metadata,
   };
-  let existing = rec.chaHospitalId
+  // Matched on the normalized ID. A database not yet repaired simply misses
+  // here and falls through to the name lookup below.
+  let existing = chaHospitalId
     ? await db.query.hospitals.findFirst({
-        where: eq(schema.hospitals.chaHospitalId, rec.chaHospitalId),
+        where: eq(schema.hospitals.chaHospitalId, chaHospitalId),
       })
     : null;
   if (!existing) {
