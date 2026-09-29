@@ -15,19 +15,21 @@
  * Idempotent: existing users are detected by email and updated rather than
  * duplicated; existing assignments are detected by (user, initiative, role).
  *
- * Each new account starts with the same temporary password — they should
- * change it on first login (account-settings page coming next).
+ * Each new account gets its OWN random password that nobody ever sees, and is
+ * then sent a password-reset link so they choose their own. It used to set one
+ * shared password hardcoded here; as of 2026-09-29 seven of thirteen accounts
+ * were still using it, including an admin, so anyone with repo access could
+ * sign in as them.
  *
  * Usage:
  *   npm run create-cpcqc-staff
  */
 import 'dotenv/config';
+import { randomBytes } from 'node:crypto';
 import { v4 as uuid } from 'uuid';
 import { and, eq, sql } from 'drizzle-orm';
 import { db, schema, pool } from '../src/db/index.js';
 import { hashPassword } from '../src/modules/auth/auth.service.js';
-
-const TEMP_PASSWORD = 'Welcome2026!cpcqc';
 
 type AppRole = 'cpcqc_staff' | 'cpcqc_admin';
 
@@ -94,9 +96,14 @@ const STAFF: StaffSeed[] = [
   { email: 'luis.montes@cha.com', firstName: 'Luis', lastName: 'Montes',
     title: 'Data Analyst',
     assignments: [] },
+  // Added 2026-09-29. QI Advisor; initiative assignment still to be confirmed,
+  // so she has full staff access but is not yet the named advisor anywhere.
+  { email: 'okowalsky@cpcqc.org', firstName: 'Olivia', lastName: 'Kowalsky',
+    title: 'QI Advisor',
+    assignments: [] },
 ];
 
-async function findOrCreateUser(rec: StaffSeed, passwordHash: string) {
+async function findOrCreateUser(rec: StaffSeed) {
   const appRole: AppRole = rec.role ?? 'cpcqc_staff';
   const existing = await db.query.users.findFirst({
     where: sql`lower(${schema.users.email}) = lower(${rec.email})`,
@@ -114,6 +121,9 @@ async function findOrCreateUser(rec: StaffSeed, passwordHash: string) {
       .where(eq(schema.users.id, existing.id));
     return { id: existing.id, created: false, appRole };
   }
+  // A password nobody knows, including whoever runs this. The account is
+  // reachable only via the password-reset link sent afterwards.
+  const passwordHash = await hashPassword(randomBytes(18).toString('base64url'));
   const id = uuid();
   await db.insert(schema.users).values({
     id,
@@ -146,7 +156,7 @@ async function upsertAssignment(userId: string, initiativeId: string, role: 'pro
 
 async function main() {
   // eslint-disable-next-line no-console
-  console.log(`Creating CPCQC staff accounts (temp password = "${TEMP_PASSWORD}")…`);
+  console.log('Creating CPCQC staff accounts (each new one gets its own random password)…');
 
   const initiatives = await db.select().from(schema.initiatives);
   const byCode = new Map(initiatives.map((i) => [i.code, i.id]));
@@ -156,7 +166,6 @@ async function main() {
     process.exit(1);
   }
 
-  const passwordHash = await hashPassword(TEMP_PASSWORD);
   const summary: Array<{
     name: string;
     email: string;
@@ -166,7 +175,7 @@ async function main() {
   }> = [];
 
   for (const rec of STAFF) {
-    const user = await findOrCreateUser(rec, passwordHash);
+    const user = await findOrCreateUser(rec);
     const labels: string[] = [];
     for (const a of rec.assignments) {
       const initiativeId = byCode.get(a.initiativeCode);
@@ -198,8 +207,9 @@ async function main() {
 
   // eslint-disable-next-line no-console
   console.log(
-    `\nAll accounts use the temp password: ${TEMP_PASSWORD}\n` +
-      'Have each staff member sign in and change it on first use (account settings page coming next).',
+    '\nNewly created accounts have a random password nobody knows.\n' +
+      'Send each new person a password-reset link so they set their own:\n' +
+      "  POST /auth/forgot-password  { \"email\": \"<their address>\" }",
   );
 }
 
