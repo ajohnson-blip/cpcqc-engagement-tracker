@@ -96,11 +96,12 @@ const STAFF: StaffSeed[] = [
   { email: 'luis.montes@cha.com', firstName: 'Luis', lastName: 'Montes',
     title: 'Data Analyst',
     assignments: [] },
-  // Added 2026-09-29. QI Advisor; initiative assignment still to be confirmed,
-  // so she has full staff access but is not yet the named advisor anywhere.
+  // Added 2026-09-29 as primary QI Advisor for Turning the Tide. Note Abby
+  // Alyesh also holds a TTT qi_advisor assignment; the model has no notion of
+  // primary, so both show as QI Advisor for TtT until CPCQC decides otherwise.
   { email: 'okowalsky@cpcqc.org', firstName: 'Olivia', lastName: 'Kowalsky',
-    title: 'QI Advisor',
-    assignments: [] },
+    title: 'QI Advisor, Turning the Tide',
+    assignments: [{ initiativeCode: 'TTT', role: 'qi_advisor' }] },
 ];
 
 async function findOrCreateUser(rec: StaffSeed) {
