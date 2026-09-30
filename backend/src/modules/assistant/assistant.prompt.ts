@@ -40,7 +40,7 @@ export const TOOLS = [
       'unit="hospital" answers "what percent of HOSPITALS did X" — a hospital counts once, ' +
       'however many tasks it had. unit="task" answers "what share of expected activity happened" ' +
       'and is what the grant report uses. Pick "hospital" when the question says "hospitals".\n\n' +
-      'groupBy="period" gives a time series, for ranking months or quarters.',
+      'groupBy="period" gives a time series plus a `ranked` field with the highest and lowest periods already ordered; use `ranked` rather than sorting the rows yourself, because it excludes periods that have no rate yet instead of treating them as zero.',
     input_schema: {
       type: 'object' as const,
       properties: {

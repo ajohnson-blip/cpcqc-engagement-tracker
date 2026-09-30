@@ -13,6 +13,7 @@ import { db, schema } from '@/db/index.js';
 import { hospitalIdsForTag } from '@/modules/hospitals/hospital-tags.service.js';
 import {
   expandPeriod,
+  rank,
   scopeCaveats,
   toGroup,
   taskTypeFor,
@@ -200,6 +201,7 @@ export async function queryEngagement(q: MetricsQuery): Promise<MetricsAnswer> {
     caveats: scopeCaveats(cohorts, withData, groups),
     periodsMatched: matched.size > 0 ? [...matched].sort() : periods,
     cohortsInScope: cohorts,
+    ...((q.groupBy ?? 'none') === 'period' ? { ranked: rank(groups) } : {}),
   };
 }
 

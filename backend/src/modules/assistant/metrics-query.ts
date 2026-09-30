@@ -103,6 +103,14 @@ export interface MetricsAnswer {
   periodsMatched: string[];
   /** Cohorts in scope and their cadence, for the mixed-cadence caveat. */
   cohortsInScope: Array<{ label: string; cadence: string; initiativeCode: string }>;
+  /**
+   * Present only when grouping by period: the rows already ordered by rate.
+   *
+   * Ranking is done here rather than left to the caller so that periods with
+   * no rate are excluded rather than sorted as zero — the difference between
+   * "September was our worst month" and "September has not happened yet".
+   */
+  ranked?: { highest: MetricsGroup[]; lowest: MetricsGroup[] };
 }
 
 const pad2 = (n: number): string => String(n).padStart(2, '0');
