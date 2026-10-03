@@ -5,6 +5,7 @@
  */
 import { env } from '@/config/env.js';
 import { logger } from '@/config/logger.js';
+import { describeBody, redcapErrorOrShape } from './redcap-errors.js';
 import type { RedcapRow } from './spark-engagement.js';
 
 export interface ExportRecordsOptions {
@@ -88,21 +89,14 @@ export async function exportRecords(opts: ExportRecordsOptions): Promise<RedcapR
   const text = await res.text();
   if (!res.ok) {
     // REDCap returns errors as JSON {error: "..."} even with non-2xx in some cases.
-    let detail = text.slice(0, 300);
-    try {
-      const j = JSON.parse(text) as { error?: string };
-      if (j.error) detail = j.error;
-    } catch {
-      /* keep raw text */
-    }
-    throw new Error(`REDCap export failed (HTTP ${res.status}): ${detail}`);
+    throw new Error(`REDCap export failed (HTTP ${res.status}): ${redcapErrorOrShape(text)}`);
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new Error(`REDCap returned non-JSON: ${text.slice(0, 200)}`);
+    throw new Error(`REDCap returned non-JSON: ${describeBody(text)}`);
   }
   if (parsed && typeof parsed === 'object' && 'error' in parsed) {
     throw new Error(`REDCap error: ${(parsed as { error: string }).error}`);
@@ -133,12 +127,13 @@ async function postJsonArray(
     );
   }
   const text = await res.text();
-  if (!res.ok) throw new Error(`REDCap ${what} failed (HTTP ${res.status}): ${text.slice(0, 300)}`);
+  if (!res.ok)
+    throw new Error(`REDCap ${what} failed (HTTP ${res.status}): ${redcapErrorOrShape(text)}`);
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new Error(`REDCap ${what} returned non-JSON: ${text.slice(0, 200)}`);
+    throw new Error(`REDCap ${what} returned non-JSON: ${describeBody(text)}`);
   }
   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'error' in parsed) {
     throw new Error(`REDCap ${what} error: ${(parsed as { error: string }).error}`);
