@@ -29,6 +29,27 @@ export const MONTH_REPORTING_FIELD = 'month_reporting';
 export const PATIENT_DELIVERY_FIELD = 'delivery_date_1';
 export const ELIGIBILITY_FIELD = 'sample_check_patient';
 
+/**
+ * The ONLY fields the patient sync needs — HIPAA minimum necessary.
+ *
+ * The instrument carries 54 fields, including delivery date, birth-parent age,
+ * race, ethnicity, language and MOUD/naloxone treatment detail. The sync
+ * computes a count and reads three things: the delivery date (reduced to
+ * YYYY-MM), the eligibility checkbox and the substance checkboxes. The data
+ * access group arrives separately via exportDataAccessGroups.
+ *
+ * Pass this as `fields` WITHOUT `form`: REDCap unions named fields with every
+ * field on a named form, so sending both would restrict nothing.
+ *
+ * `substances_used_2` is a checkbox base name; REDCap expands it to its
+ * `___<code>` columns, which is what patientEligible reads.
+ */
+export const PATIENT_MINIMUM_FIELDS = [
+  PATIENT_DELIVERY_FIELD,
+  ELIGIBILITY_FIELD,
+  'substances_used_2',
+] as const;
+
 const ELIGIBLE_VALUE = 1;
 const INELIGIBLE_VALUE = 2;
 /** Qualifying SUD substances — excludes 7 (cannabis-only) and 10 (nicotine-only). */

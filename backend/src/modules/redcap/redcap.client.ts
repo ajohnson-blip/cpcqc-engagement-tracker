@@ -13,6 +13,22 @@ export interface ExportRecordsOptions {
   form?: string;
   /** Restrict to several instruments (e.g. NEST's two repeating forms). */
   forms?: string[];
+  /**
+   * Restrict to named fields — HIPAA minimum necessary.
+   *
+   * Prefer this over `form` for any instrument holding patient-level data: a
+   * forms-only export returns every field on the instrument, so a sync that
+   * needs three values pulls the whole record into memory, where it can be
+   * logged or printed by accident.
+   *
+   * REDCap returns the UNION of named fields and every field on any named
+   * form, so passing `fields` together with `form`/`forms` does NOT narrow
+   * anything. Pass fields ALONE when narrowing is the point.
+   *
+   * For a checkbox field, name the base field (`substances_used_2`); REDCap
+   * expands it to its `___<code>` columns.
+   */
+  fields?: string[];
   /** Defaults to env.REDCAP_API_URL. */
   apiUrl?: string;
   /** Force-request the `record_id` field so longitudinal form-only exports keep
@@ -43,8 +59,14 @@ export async function exportRecords(opts: ExportRecordsOptions): Promise<RedcapR
   // both record_id and redcap_event_name. Asking for record_id by name brings
   // the structural columns (record_id, redcap_event_name, DAG) back; REDCap then
   // returns the UNION of the named field and every field on the named form.
+  let fieldIndex = 0;
   if (opts.includeRecordId !== false) {
-    body.append('fields[0]', 'record_id');
+    body.append(`fields[${fieldIndex}]`, 'record_id');
+    fieldIndex += 1;
+  }
+  for (const f of opts.fields ?? []) {
+    body.append(`fields[${fieldIndex}]`, f);
+    fieldIndex += 1;
   }
   const formList = [...(opts.form ? [opts.form] : []), ...(opts.forms ?? [])];
   formList.forEach((f, i) => body.append(`forms[${i}]`, f));

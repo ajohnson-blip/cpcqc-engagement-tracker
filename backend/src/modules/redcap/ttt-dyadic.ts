@@ -30,6 +30,17 @@ export const DYADIC_MATERNAL_FORM = 'chosen_sud_maternal';
 
 /** Dyadic's eligibility checkbox. The TtT patient form uses `sample_check_patient`. */
 export const DYADIC_ELIGIBILITY_FIELD = 'sample_check_mat';
+/**
+ * Minimum necessary for the Dyadic maternal count — same rationale as
+ * PATIENT_MINIMUM_FIELDS. Dyadic uses its own eligibility field but the same
+ * delivery-date and substance-checkbox names.
+ */
+export const DYADIC_MINIMUM_FIELDS = [
+  'delivery_date_1',
+  DYADIC_ELIGIBILITY_FIELD,
+  'substances_used_2',
+] as const;
+
 const DYADIC_ELIGIBLE_VALUE = 1;
 const DYADIC_INELIGIBLE_VALUE = 2;
 

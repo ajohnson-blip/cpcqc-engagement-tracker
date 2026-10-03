@@ -29,7 +29,7 @@ import { logger } from '@/config/logger.js';
 import { exportRecords, exportMetadata, exportLog } from './redcap.client.js';
 import {
   MONTHLY_HOSPITAL_FORM,
-  PATIENT_FORM,
+  PATIENT_MINIMUM_FIELDS,
   MONTH_REPORTING_FIELD,
   POSITIVE_SCREEN_FIELD,
   F_DAG,
@@ -56,7 +56,7 @@ import {
 } from './ttt-crosswalk.js';
 import {
   DENVER_HEALTH_CHA_ID,
-  DYADIC_MATERNAL_FORM,
+  DYADIC_MINIMUM_FIELDS,
   countDenverHealthDyadicForms,
 } from './ttt-dyadic.js';
 import {
@@ -239,9 +239,11 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
     token: env.REDCAP_TTT_HOSPITAL_TOKEN,
     form: MONTHLY_HOSPITAL_FORM,
   });
+  // PHI project: request only the fields the count needs, never the whole
+  // instrument. `fields` without `form` — see PATIENT_MINIMUM_FIELDS.
   const patientRows = await exportRecords({
     token: env.REDCAP_TTT_PATIENT_TOKEN,
-    form: PATIENT_FORM,
+    fields: [...PATIENT_MINIMUM_FIELDS],
   });
 
   // Required fields come from the live data dictionary: required_field='y' on the
@@ -349,7 +351,7 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
     try {
       const dyadicRows = await exportRecords({
         token: env.REDCAP_TTT_DYADIC_TOKEN,
-        form: DYADIC_MATERNAL_FORM,
+        fields: [...DYADIC_MINIMUM_FIELDS], // PHI project — minimum necessary, not the whole form
         includeRecordId: false, // Dyadic's record-ID field name may differ; we only count rows
         // Dyadic may be hosted on a different REDCap instance; falls back to the
         // shared CPCQC API URL when the override isn't set.
