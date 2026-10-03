@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Upload,
   FileSpreadsheet,
@@ -39,6 +39,37 @@ interface PmImportResult {
   stagesChanged: number;
   touchedEnrollmentIds: string[];
   missingSheets: string[];
+}
+
+/**
+ * Pause notice for REDCap syncing.
+ *
+ * Shown at the top of the page so a PM learns about the pause before clicking
+ * Run, rather than from an error after. The backend enforces the pause; this
+ * only explains it.
+ */
+function RedcapPauseBanner() {
+  const [paused, setPaused] = useState<{ message: string } | null>(null);
+  useEffect(() => {
+    apiFetch('/api/staff/imports/redcap/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && d.enabled === false) setPaused({ message: d.message });
+      })
+      .catch(() => {
+        /* status is advisory; the server still refuses a paused sync */
+      });
+  }, []);
+  if (!paused) return null;
+  return (
+    <div
+      role="status"
+      className="mb-6 rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+    >
+      <p className="font-rounded font-extrabold uppercase tracking-wide">REDCap sync paused</p>
+      <p className="mt-1">{paused.message}</p>
+    </div>
+  );
 }
 
 export default function StaffImportsPage() {
@@ -83,6 +114,7 @@ export default function StaffImportsPage() {
 
   return (
     <div>
+      <RedcapPauseBanner />
       <header className="mb-8">
         <h1 className="font-rounded text-3xl font-extrabold text-cpcqc-purple-dark">
           PM workbook import

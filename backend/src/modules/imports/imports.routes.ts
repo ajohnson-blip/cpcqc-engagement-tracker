@@ -20,6 +20,11 @@ import { runSparkRedcapSync } from '@/modules/redcap/spark-sync.service.js';
 import { runNestRedcapSync } from '@/modules/redcap/nest-sync.service.js';
 import { runSoarRedcapSync } from '@/modules/redcap/soar-sync.service.js';
 import { runTttRedcapSync } from '@/modules/redcap/ttt-sync.service.js';
+import {
+  assertSyncEnabled,
+  syncEnabled,
+  SYNC_PAUSED_MESSAGE,
+} from '@/modules/redcap/sync-gate.js';
 import { type SyncOverride } from '@/modules/redcap/sync-overrides.js';
 import { setPeriodFinalized } from '@/modules/redcap/finalize.service.js';
 
@@ -95,6 +100,16 @@ router.post(
 );
 
 /**
+ * GET /staff/imports/redcap/status
+ *
+ * Whether syncing is currently available. Lets the UI explain the pause before
+ * a PM clicks Run rather than after.
+ */
+router.get('/redcap/status', requireAuth, requireStaff, (_req, res) => {
+  res.json({ enabled: syncEnabled(), message: syncEnabled() ? null : SYNC_PAUSED_MESSAGE });
+});
+
+/**
  * POST /staff/imports/redcap/spark?dryRun=true|false
  *
  * Pulls the SPARK quarterly_measures form from REDCap and maps it onto each
@@ -102,6 +117,7 @@ router.post(
  * preview without writing. No request body.
  */
 router.post('/redcap/spark', requireAuth, requireStaff, express.json(), async (req, res) => {
+  assertSyncEnabled();
   // Default to a dry-run unless the caller explicitly passes dryRun=false. These
   // are official compliance records, so "apply" must be a deliberate choice.
   const dryRun = req.query.dryRun !== 'false';
@@ -121,6 +137,7 @@ router.post('/redcap/spark', requireAuth, requireStaff, express.json(), async (r
  * Dry-run by default. No request body.
  */
 router.post('/redcap/nest', requireAuth, requireStaff, express.json(), async (req, res) => {
+  assertSyncEnabled();
   const dryRun = req.query.dryRun !== 'false';
   const result = await runNestRedcapSync({
     dryRun,
@@ -139,6 +156,7 @@ router.post('/redcap/nest', requireAuth, requireStaff, express.json(), async (re
  * default. No request body.
  */
 router.post('/redcap/soar', requireAuth, requireStaff, express.json(), async (req, res) => {
+  assertSyncEnabled();
   const dryRun = req.query.dryRun !== 'false';
   const result = await runSoarRedcapSync({
     dryRun,
@@ -158,6 +176,7 @@ router.post('/redcap/soar', requireAuth, requireStaff, express.json(), async (re
  * Dry-run by default.
  */
 router.post('/redcap/ttt', requireAuth, requireStaff, express.json(), async (req, res) => {
+  assertSyncEnabled();
   const dryRun = req.query.dryRun !== 'false';
   const result = await runTttRedcapSync({
     dryRun,

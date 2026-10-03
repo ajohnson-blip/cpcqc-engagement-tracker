@@ -50,6 +50,23 @@ const EnvSchema = z.object({
    */
   PUBLIC_APP_URL: z.string().url().optional(),
 
+  /**
+   * Master switch for REDCap synchronisation.
+   *
+   * Defaults to DISABLED on purpose. CPCQC paused all syncs in October 2026
+   * while the data-protection arrangements for the hosting environment are
+   * settled: every sync pulls patient-level records through the application's
+   * memory, and that disclosure needs a subprocessor agreement in place first.
+   *
+   * Because the default is off, a fresh or reset environment stays paused, and
+   * resuming is a deliberate act rather than something that happens by
+   * accident. Set REDCAP_SYNC_ENABLED=true to resume.
+   */
+  REDCAP_SYNC_ENABLED: z
+    .string()
+    .transform((v) => v === 'true' || v === '1')
+    .default('false'),
+
   // REDCap (Vanderbilt) integration. The API URL is shared across all CPCQC
   // REDCap projects; each project has its own per-project token. Tokens are
   // SECRETS — set them as Render environment variables, never in code.

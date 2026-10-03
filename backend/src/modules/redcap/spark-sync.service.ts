@@ -42,6 +42,7 @@ import {
   type SyncOverride,
   type SyncDisposition,
 } from './sync-overrides.js';
+import { assertSyncEnabled } from './sync-gate.js';
 
 /** A prior PM override recorded in a task's payload, if any. */
 function readPriorOverride(
@@ -285,6 +286,9 @@ export interface RunSparkSyncOptions {
 }
 
 export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<SparkSyncResult> {
+  // Paused by CPCQC — see sync-gate.ts. Checked here too, not only
+  // at the route, so no other caller can reach REDCap while paused.
+  assertSyncEnabled();
   if (!env.REDCAP_SPARK_TOKEN) {
     throw new HttpError(
       400,
