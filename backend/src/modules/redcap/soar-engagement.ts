@@ -87,6 +87,37 @@ const NTSV_COND_ARREST_DESCENT = ['push_3hours', 'op_vag_delivery']; // primary 
 const NO_NTSV_MONTH_FIELD = 'month_year_nontsv';
 const NO_NTSV_CHECKBOX = 'self_report_nontsv';
 
+/**
+ * The only fields the SOAR sync needs — HIPAA minimum necessary.
+ *
+ * Derived from the required-field lists above rather than written out again:
+ * a field added to the completeness check must also be retrieved, and a
+ * hand-maintained second list would eventually miss one and silently mark
+ * every row incomplete.
+ *
+ * Note this DOES include `age`, `delivery_date` and `gest_age`. The sync never
+ * reads their values, but completeness means "non-empty", and REDCap has no
+ * way to ask whether a field is filled without returning it. What it drops is
+ * the surplus: free-text fields like `admit_other` and `op_vag_birth_exp`,
+ * where identifying narrative is most likely to be typed.
+ *
+ * Pass as `fields` WITHOUT `forms` — REDCap unions named fields with every
+ * field on a named form, so sending both restricts nothing. Checkbox base
+ * names expand to their `___<code>` columns.
+ */
+export const SOAR_MINIMUM_FIELDS: string[] = [
+  F_SUBMIT_DATE,
+  ...NTSV_ALWAYS,
+  NTSV_ADMIT_CHECKBOX,
+  NTSV_INDUCTION_REASON,
+  NTSV_INDUCTION_METHOD,
+  ...NTSV_COND_FAILED_INDUCTION,
+  ...NTSV_COND_ARREST_DILATION,
+  ...NTSV_COND_ARREST_DESCENT,
+  NO_NTSV_MONTH_FIELD,
+  NO_NTSV_CHECKBOX,
+];
+
 // =====================================================================
 // Helpers
 // =====================================================================

@@ -27,6 +27,7 @@ import {
   buildNestGrid,
   monthDeadline,
   eventToPeriod,
+  NEST_MINIMUM_FIELDS,
   SSP_FORM,
   CHART_FORM,
   F_EVENT,
@@ -330,7 +331,8 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
 
   const records = await exportRecords({
     token: env.REDCAP_NEST_TOKEN,
-    forms: [SSP_FORM, CHART_FORM],
+    // Patient-level chart reviews: minimum necessary, not the whole form.
+    fields: NEST_MINIMUM_FIELDS,
   });
   const grid = buildNestGrid(records);
 

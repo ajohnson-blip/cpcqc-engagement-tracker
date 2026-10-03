@@ -29,7 +29,7 @@ import { env } from '@/config/env.js';
 import { HttpError } from '@/middleware/errors.js';
 import { logger } from '@/config/logger.js';
 import { exportRecords, exportMetadata } from './redcap.client.js';
-import { buildSoarGrid, monthDeadline, NTSV_FORM, NO_NTSV_FORM, type SoarCell } from './soar-engagement.js';
+import { buildSoarGrid, monthDeadline, SOAR_MINIMUM_FIELDS, type SoarCell } from './soar-engagement.js';
 import {
   dispositionToTask,
   isHumanEdit,
@@ -389,7 +389,8 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
 
   const records = await exportRecords({
     token: env.REDCAP_SOAR_TOKEN,
-    forms: [NTSV_FORM, NO_NTSV_FORM],
+    // Patient-level instruments: minimum necessary, not the whole form.
+    fields: SOAR_MINIMUM_FIELDS,
   });
   const grid = buildSoarGrid(records, { year: programYear, todayIso: today });
 

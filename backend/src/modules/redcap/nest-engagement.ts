@@ -100,6 +100,27 @@ const CHART_ALWAYS = [
 const CHART_IF_SCREENING = ['homeneeds_doc']; // required when ss_screening_doc = 1
 const CHART_IF_HOMENEEDS = ['referral_resource_doc']; // required when homeneeds_doc = 1
 
+/**
+ * The only fields the NEST sync needs — HIPAA minimum necessary. Composed from
+ * the lists above for the same reason as SOAR_MINIMUM_FIELDS.
+ *
+ * `race`, `ethnicity` and `language` are required fields on the chart review,
+ * so completeness depends on them being non-empty and they must be retrieved.
+ * Their free-text companions `other_race_text` and `other_language2` are NOT
+ * required, are never read, and are dropped.
+ */
+export const NEST_MINIMUM_FIELDS: string[] = [
+  F_SSP_DATE,
+  F_CHART_DATE,
+  ...SSP_ALWAYS,
+  ...SSP_NONCOMPLIANT_FIELDS,
+  SSP_NONCOMPLIANT_CHECKBOX,
+  CHART_CHECKBOX,
+  ...CHART_ALWAYS,
+  ...CHART_IF_SCREENING,
+  ...CHART_IF_HOMENEEDS,
+];
+
 // =====================================================================
 // Helpers
 // =====================================================================
