@@ -117,9 +117,11 @@ export interface NestSyncRow {
   submissionDate: string | null;
   /** Incomplete rows grouped by REDCap record — which record is missing what.
    *  Empty unless the cell is incomplete. */
-  incompleteRecords: Array<{
-    recordId: string;
+  /** Distinct patterns of missing fields, with how many records share each.
+   *  No record identifiers: those stay in REDCap. */
+  incompleteGroups: Array<{
     form: string;
+    records: number;
     fields: Array<{ field: string; label: string }>;
   }>;
   currentStatus: TaskStatus;
@@ -239,27 +241,43 @@ function decide(cell: NestCell | undefined, deadline: string, today: string): De
 
 
 /**
- * Group a cell's incomplete rows by REDCap record, so staff can see whether one
- * record is missing several things or several records are each missing one.
- * The PMs asked for exactly that distinction: the first is an abandoned entry,
- * the second a scattered gap, and they warrant different conversations.
+ * Missing required fields, grouped by WHAT is missing rather than by record.
+ *
+ * PMs need to tell an abandoned entry (one record missing many fields) from a
+ * scattered gap (many records each missing one) — those are different
+ * conversations with the hospital. Grouping by form plus field-set keeps that
+ * distinction while the record identifier stays in REDCap, which is where a PM
+ * resolves it anyway. CPCQC's decision is that per-record detail does not leave
+ * REDCap.
  */
 function collectMissing(
   forms: Array<{ form: string; rollup: { incompleteRows: Array<{ recordId: string; missing: string[] }> } | undefined }>,
   labels: Map<string, string>,
-): Array<{ recordId: string; form: string; fields: Array<{ field: string; label: string }> }> {
-  const out: Array<{ recordId: string; form: string; fields: Array<{ field: string; label: string }> }> = [];
+): Array<{ form: string; records: number; fields: Array<{ field: string; label: string }> }> {
+  const buckets = new Map<
+    string,
+    { form: string; records: number; fields: Array<{ field: string; label: string }> }
+  >();
   for (const { form, rollup } of forms) {
     for (const r of rollup?.incompleteRows ?? []) {
-      out.push({
-        recordId: r.recordId,
+      const sorted = [...r.missing].sort();
+      const key = `${form}::${sorted.join(',')}`;
+      const existing = buckets.get(key);
+      if (existing) {
+        existing.records += 1;
+        continue;
+      }
+      buckets.set(key, {
         form,
-        fields: r.missing.map((f) => ({ field: f, label: labels.get(f) ?? f })),
+        records: 1,
+        fields: sorted.map((f) => ({ field: f, label: labels.get(f) ?? f })),
       });
     }
   }
-  // Most-incomplete first: the records needing the most attention read first.
-  return out.sort((a, b) => b.fields.length - a.fields.length || a.recordId.localeCompare(b.recordId));
+  // Most-incomplete pattern first, then the most widespread.
+  return [...buckets.values()].sort(
+    (a, b) => b.fields.length - a.fields.length || b.records - a.records,
+  );
 }
 
 async function updateTaskInstance(
@@ -547,7 +565,7 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
         sspComplete: cell?.ssp.nComplete ?? 0,
         chartRows: cell?.chart.nRows ?? 0,
         chartComplete: cell?.chart.nComplete ?? 0,
-        incompleteRecords:
+        incompleteGroups:
           decision.category === 'incomplete'
             ? collectMissing(
                 [

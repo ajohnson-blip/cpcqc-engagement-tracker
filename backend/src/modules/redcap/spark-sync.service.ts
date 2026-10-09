@@ -116,7 +116,8 @@ export interface SparkSyncRow {
   missingTotal: number;
   missingSummary: string | null;
   duplicateRecords: boolean;
-  primaryRecordId: string | null;
+  /** How many competing records existed; which one won stays in REDCap. */
+  competingRecordCount: number;
   currentStatus: TaskStatus;
   currentOutcome: TaskOutcome;
   newStatus: TaskStatus;
@@ -504,7 +505,7 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
         missingTotal: cell?.missing.total ?? 0,
         missingSummary: cell ? missingSummary(cell.missing) : null,
         duplicateRecords: cell?.duplicateRecords ?? false,
-        primaryRecordId: cell?.primaryRecordId ?? null,
+        competingRecordCount: cell?.dataRecordIds.length ?? 0,
         currentStatus: ti.status,
         currentOutcome: ti.outcome,
         newStatus: finalStatus,
