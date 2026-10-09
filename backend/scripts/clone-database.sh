@@ -117,7 +117,7 @@ else
   printf '%s\n' "$TGT_COUNTS" | sed 's/^/    /'
 fi
 TGT_SCHEMAS="$(psql_q "$TARGET_URL" "$SCHEMA_SQL" || true)"
-echo "schemas to be dropped: $(printf '%s' "$TGT_SCHEMAS" | tr '\n' ' ')"'"'
+echo "schemas to be dropped: $(printf '%s' "$TGT_SCHEMAS" | tr '\n' ' ')"
 
 if [[ $APPLY -eq 0 ]]; then
   echo
