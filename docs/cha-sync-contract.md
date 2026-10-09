@@ -174,7 +174,7 @@ today. The rule itself stays at CHA because it needs the patient-form count.
 
 ## Hard constraints on the response
 
-These are not style preferences. They are the reason the service exists.
+These are requirements, not preferences.
 
 1. **No patient-level data.** No record identifiers, no dates of birth or
    delivery, no ages, no race, ethnicity, language or payor, no free text
