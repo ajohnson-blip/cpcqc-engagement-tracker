@@ -130,7 +130,7 @@ export interface SparkSyncRow {
   missingTotal: number;
   missingSummary: string | null;
   duplicateRecords: boolean;
-  primaryRecordId: string | null;
+  competingRecordCount: number;
   currentStatus: SyncTaskStatus;
   currentOutcome: SyncTaskOutcome;
   newStatus: SyncTaskStatus;
@@ -210,9 +210,9 @@ export interface NestSyncRow {
   submissionDate: string | null;
   /** Incomplete rows grouped by REDCap record — which record is missing what.
    *  Empty unless the row is incomplete. */
-  incompleteRecords: Array<{
-    recordId: string;
+  incompleteGroups: Array<{
     form: string;
+    records: number;
     fields: Array<{ field: string; label: string }>;
   }>;
   currentStatus: SyncTaskStatus;
@@ -276,9 +276,9 @@ export interface SoarSyncRow {
   submissionDate: string | null;
   /** Incomplete rows grouped by REDCap record — which record is missing what.
    *  Empty unless the row is incomplete. */
-  incompleteRecords: Array<{
-    recordId: string;
+  incompleteGroups: Array<{
     form: string;
+    records: number;
     fields: Array<{ field: string; label: string }>;
   }>;
   currentStatus: SyncTaskStatus;

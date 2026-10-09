@@ -1051,42 +1051,43 @@ const NEST_CATEGORY_META: Record<NestSyncCategory, { label: string; className: s
 };
 
 /**
- * Details cell for the NEST and SOAR previews.
+ * The "why incomplete" cell.
  *
- * Grouped by REDCap record, not by field. PMs pointed out that one record
- * missing two things and two records each missing one are different problems —
- * an abandoned entry versus a scattered gap — and a field tally can't tell them
- * apart. The record id is shown so the row can be opened in REDCap directly.
+ * Grouped by WHAT is missing, not by record: a PM needs to tell an abandoned
+ * entry (one record missing many fields) from a scattered gap (many records
+ * each missing one), and the record count per pattern carries that. Record
+ * identifiers stay in REDCap, where the fix is made.
  */
 function DetailCell({
   note,
-  incompleteRecords,
+  incompleteGroups,
 }: {
   note: string;
-  incompleteRecords?: Array<{
-    recordId: string;
+  incompleteGroups?: Array<{
     form: string;
+    records: number;
     fields: Array<{ field: string; label: string }>;
   }>;
 }) {
-  const records = incompleteRecords ?? [];
+  const groups = incompleteGroups ?? [];
+  const affected = groups.reduce((n, g) => n + g.records, 0);
   return (
     <td className="px-3 py-2 text-xs text-cpcqc-purple-dark/70">
       <span>{note}</span>
-      {records.length > 0 && (
+      {groups.length > 0 && (
         <details className="mt-1">
           <summary className="cursor-pointer font-semibold text-cpcqc-purple hover:underline">
-            Why incomplete — {records.length} record{records.length === 1 ? '' : 's'}
+            Why incomplete — {affected} record{affected === 1 ? '' : 's'}
           </summary>
           <ul className="mt-1 space-y-1.5 border-l-2 border-cpcqc-purple/20 pl-2">
-            {records.map((r, i) => (
-              <li key={`${r.form}-${r.recordId}-${i}`}>
+            {groups.map((g, i) => (
+              <li key={`${g.form}-${i}`}>
                 <span className="font-semibold text-cpcqc-purple-dark/80">
-                  Record {r.recordId}
+                  {g.records} record{g.records === 1 ? '' : 's'}
                 </span>
-                <span className="text-cpcqc-purple-dark/50"> · {r.form}</span>
+                <span className="text-cpcqc-purple-dark/50"> · {g.form}</span>
                 <ul className="mt-0.5 list-disc pl-4 text-cpcqc-purple-dark/60">
-                  {r.fields.map((f) => (
+                  {g.fields.map((f) => (
                     <li key={f.field}>
                       {f.label} <code className="text-cpcqc-purple-dark/40">{f.field}</code>
                     </li>
@@ -1095,6 +1096,7 @@ function DetailCell({
               </li>
             ))}
           </ul>
+          <p className="mt-1 text-cpcqc-purple-dark/50">Open REDCap to see which records.</p>
         </details>
       )}
     </td>
@@ -1331,7 +1333,7 @@ function NestRedcapSync() {
                                 deadline={r.deadline}
                                 daysFromDeadline={r.daysFromDeadline}
                               />
-                              <DetailCell note={r.note} incompleteRecords={r.incompleteRecords} />
+                              <DetailCell note={r.note} incompleteGroups={r.incompleteGroups} />
                             </tr>
                           );
                         })}
@@ -1611,7 +1613,7 @@ function SoarRedcapSync() {
                                 deadline={r.deadline}
                                 daysFromDeadline={r.daysFromDeadline}
                               />
-                              <DetailCell note={r.note} incompleteRecords={r.incompleteRecords} />
+                              <DetailCell note={r.note} incompleteGroups={r.incompleteGroups} />
                             </tr>
                           );
                         })}
