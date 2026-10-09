@@ -6,15 +6,8 @@
 
 ## Why this exists
 
-The Engagement Tracker checks whether hospitals submitted their QI data on
-time and completely. To do that today it pulls patient-level records out of
-REDCap and evaluates them on servers operated by Render, which is a disclosure
-of protected health information to a vendor.
-
-This contract moves the REDCap queries and the per-record evaluation onto a
-service operated by CHA, which already holds this data. The tracker receives
-only an assessment per hospital per period. No patient-level data reaches
-Render.
+This contract partitions REDCap queries onto a service operated by CHA. The
+tracker receives only an assessment per hospital per period.
 
 The service is referred to below as **the assessment service**. It is expected
 to be implemented in Python, reusing the logic already written for
