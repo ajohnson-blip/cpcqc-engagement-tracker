@@ -99,8 +99,14 @@ Authorization: Bearer <token>
       "earliest_submission_date": "2026-08-14",
       "records": { "total": 12, "complete": 1, "attestation": 0 },
       "attestation_only": false,
-      "missing_fields": [
-        { "field": "checklist_comms_tool", "label": "Checklist/communication tool used", "records_affected": 11 }
+      "missing_field_groups": [
+        {
+          "form": "ntsv_cesarean_section",
+          "records": 11,
+          "fields": [
+            { "field": "checklist_comms_tool", "label": "Checklist/communication tool used" }
+          ]
+        }
       ],
       "notes": []
     }
@@ -124,8 +130,35 @@ Authorization: Bearer <token>
 | `records.complete` | int | How many passed row-level completeness. |
 | `records.attestation` | int | Zero-case attestations (SOAR No-NTSV). |
 | `attestation_only` | bool | The only submission is a valid zero-case attestation. |
-| `missing_fields` | array | Field **names and labels only**, with how many records were affected. Never values. |
+| `missing_field_groups` | array | Distinct patterns of missing required fields — see below. Field **names and labels only**, never values. |
 | `notes` | string[] | Per-hospital diagnostics, e.g. a future-dated record count. |
+
+### Why `missing_field_groups` is grouped, not a flat list
+
+Group by instrument plus the exact set of fields missing, and report how many
+records share each pattern. Do not return one entry per field, and do not
+return one entry per record.
+
+The reason is a distinction program managers rely on. One record missing eight
+fields is an abandoned entry — somebody started a form and walked away. Eight
+records each missing the same one field is a systematic gap — the hospital
+does not know that field is required, or their workflow never captures it.
+Those are different conversations, and a flat per-field tally cannot tell them
+apart, because both produce the same totals.
+
+Grouping preserves it without identifying any record:
+
+```
+1 group · 1 record  · 8 fields   → an abandoned entry
+1 group · 8 records · 1 field    → a systematic gap
+```
+
+Order groups by field count descending, then by record count descending, so
+the most incomplete pattern reads first.
+
+**Labels come from REDCap's own data dictionary** (`field_label`, with any HTML
+stripped), not from anything generated. If the dictionary cannot be read, send
+the variable name as the label rather than failing the call.
 
 ### TtT additions
 
@@ -222,13 +255,11 @@ The tracker's test suite cannot call this service, so:
   UCHealth Memorial campus split needs identifiers that CHA's master list does
   not currently contain, and the chosen scheme may not be numeric. The tracker's
   TtT crosswalk currently types it as an integer and will be changed.
-- **Per-record detail.** The tracker today shows program managers which REDCap
-  record is missing which field, so they can tell the hospital where to look.
-  That requires record identifiers, which this contract excludes. Options:
-  keep that view at CHA and link to it, have CHA notify hospitals directly, or
-  decide that pseudonymous record identifiers may cross. **This should be
-  settled before implementation**, because it is the one place where the
-  no-PHI boundary and program-manager workflow genuinely conflict.
+- ~~**Per-record detail.**~~ **Settled.** Per-record detail stays in REDCap.
+  The tracker no longer stores or displays record identifiers for any program,
+  and the previously stored ones have been removed from both databases. The
+  program-manager workflow is served by `missing_field_groups` plus a pointer
+  to REDCap, where the correction is made anyway.
 - **Authentication.** Bearer token is proposed for simplicity. If CHA can
   support mutual TLS or IP allowlisting, either would be stronger.
 - **HRA / readiness assessment.** Not covered here. It is annual rather than
