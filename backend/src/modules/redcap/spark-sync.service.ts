@@ -189,8 +189,11 @@ function decide(cell: SparkCell | undefined, deadline: string | null, today: str
     };
   }
 
+  // Deliberately a count, not the record ID. Per-record detail stays in REDCap:
+  // a PM resolving duplicates works in REDCap, and naming the record here would
+  // put a REDCap identifier in the tracker's database for no added benefit.
   const dupSuffix = cell.duplicateRecords
-    ? ` ⚠ ${cell.dataRecordIds.length} competing records — used ${cell.primaryRecordId}.`
+    ? ` ⚠ ${cell.dataRecordIds.length} competing records for this period; the most complete was used. Resolve in REDCap.`
     : '';
   const ms = missingSummary(cell.missing);
 
@@ -529,9 +532,8 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
               daysFromDeadline: effCell?.daysFromDeadline ?? null,
               submissionDate: cell?.submissionDate ?? null,
               missing: cell?.missing ?? null,
-              primaryRecordId: cell?.primaryRecordId ?? null,
               duplicateRecords: cell?.duplicateRecords ?? false,
-              dataRecordIds: cell?.dataRecordIds ?? [],
+              competingRecordCount: cell?.dataRecordIds.length ?? 0,
               syncedAt: fetchedAt,
               ...(override
                 ? {
