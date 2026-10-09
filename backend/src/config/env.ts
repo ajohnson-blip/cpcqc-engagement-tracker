@@ -86,15 +86,6 @@ const EnvSchema = z.object({
   // from the TtT projects); defaults to 'denver_health'.
   REDCAP_TTT_DYADIC_TOKEN: z.string().optional(),
   REDCAP_TTT_DYADIC_DH_DAG: z.string().default('denver_health'),
-  // Anthropic API, for the staff engagement assistant. Optional: without it the
-  // assistant endpoint returns 503 and the rest of the tracker is unaffected.
-  // A SECRET — set it as a Render environment variable, never in code.
-  ANTHROPIC_API_KEY: z.string().optional(),
-  ASSISTANT_MODEL: z.string().default('claude-sonnet-5-5'),
-  // Ceiling on tool round-trips per question. A question needing more than this
-  // is one the assistant has misunderstood; looping burns tokens without
-  // converging.
-  ASSISTANT_MAX_STEPS: z.coerce.number().int().positive().max(12).default(6),
 
   // CHoSEN Dyadic is a different collaborative and may live on a different
   // REDCap instance than the CPCQC projects. Leave unset to reuse

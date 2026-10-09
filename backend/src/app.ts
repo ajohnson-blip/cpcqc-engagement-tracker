@@ -19,7 +19,6 @@ import publicInterestRouter from '@/modules/annual-interest-forms/public-interes
 import publicEnrollmentRouter from '@/modules/enrollment-forms/enrollment-forms.routes.js';
 import staffEnrollmentRouter from '@/modules/enrollment-forms/enrollment-forms.staff.routes.js';
 import reportsRoutes from '@/modules/reports/reports.routes.js';
-import assistantRoutes from '@/modules/assistant/assistant.routes.js';
 import issueReportsRoutes from '@/modules/issue-reports/issue-reports.routes.js';
 import {
   portalAnnualInterestRouter,
@@ -67,7 +66,6 @@ export function createApp() {
   app.use('/staff/ce', ceRoutes);
   app.use('/issue-reports', issueReportsRoutes);
   app.use('/reports', reportsRoutes);
-  app.use('/staff/assistant', assistantRoutes);
   // 2-step annual enrollment, step 1: hospital portal submission + staff triage.
   // Public, UNAUTHENTICATED interest submission — people without a portal
   // account must be able to complete an interest form.
