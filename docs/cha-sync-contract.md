@@ -248,11 +248,6 @@ The tracker's test suite cannot call this service, so:
   UCHealth Memorial campus split needs identifiers that CHA's master list does
   not currently contain, and the chosen scheme may not be numeric. The tracker's
   TtT crosswalk currently types it as an integer and will be changed.
-- ~~**Per-record detail.**~~ **Settled.** Per-record detail stays in REDCap.
-  The tracker no longer stores or displays record identifiers for any program,
-  and the previously stored ones have been removed from both databases. The
-  program-manager workflow is served by `missing_field_groups` plus a pointer
-  to REDCap, where the correction is made anyway.
 - **Authentication.** Bearer token is proposed for simplicity. If CHA can
   support mutual TLS or IP allowlisting, either would be stronger.
 - **HRA / readiness assessment.** Not covered here. It is annual rather than
