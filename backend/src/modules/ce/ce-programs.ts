@@ -42,18 +42,41 @@ export const CE_PROGRAMS: CeProgram[] = [
 /** CPCQC's own mark appears on every certificate regardless of host program. */
 export const CPCQC_LOGO_CODE = 'CPCQC';
 
+/**
+ * Organisations that co-sponsor individual trainings.
+ *
+ * Deliberately not CE_PROGRAMS entries: they do not host trainings and must
+ * never appear in the host-program picker. They supply a logo that a specific
+ * training can carry in addition to its host's — Connecting the Dots, for
+ * instance, is co-sponsored with CU Anschutz.
+ */
+export const CE_CO_SPONSORS: CeProgram[] = [
+  { code: 'CU_PSYCH', label: 'CU Anschutz Department of Psychiatry' },
+];
+
+export const CE_CO_SPONSOR_CODES = CE_CO_SPONSORS.map((c) => c.code);
+
+export function isCoSponsorCode(code: string): boolean {
+  return CE_CO_SPONSOR_CODES.includes(code);
+}
+
 export const CE_PROGRAM_CODES = CE_PROGRAMS.map((p) => p.code);
 
 /** Codes that accept a logo upload — every non-generic program, plus CPCQC's
  *  own mark. Generic programs have no host logo by design. */
 export const LOGO_CODES = [
   ...CE_PROGRAMS.filter((p) => !p.generic).map((p) => p.code),
+  ...CE_CO_SPONSOR_CODES,
   CPCQC_LOGO_CODE,
 ];
 
 export function ceProgramLabel(code: string): string {
   if (code === CPCQC_LOGO_CODE) return 'CPCQC';
-  return CE_PROGRAMS.find((p) => p.code === code)?.label ?? code;
+  return (
+    CE_PROGRAMS.find((p) => p.code === code)?.label ??
+    CE_CO_SPONSORS.find((c) => c.code === code)?.label ??
+    code
+  );
 }
 
 /** True for CPCQC-hosted trainings that aren't tied to an initiative. */
@@ -170,4 +193,29 @@ export async function logoAvailability(): Promise<Record<string, boolean>> {
     out[code] = uploaded.has(code) || readLogoFile(code.toLowerCase()) !== null;
   }
   return out;
+}
+
+/**
+ * Every logo a certificate needs, in one call: the host program's, CPCQC's,
+ * and any co-sponsors the training carries.
+ *
+ * Co-sponsor codes are filtered against the registry rather than trusted from
+ * the row, so a code removed from the registry stops printing instead of
+ * resolving to a stale committed file.
+ */
+export async function loadCertificateLogos(training: {
+  programCode: string;
+  coSponsorLogoCodes?: unknown;
+}): Promise<{ program: Buffer | null; cpcqc: Buffer | null; coSponsors: Array<Buffer | null> }> {
+  const codes = Array.isArray(training.coSponsorLogoCodes)
+    ? training.coSponsorLogoCodes.filter(
+        (c): c is string => typeof c === 'string' && isCoSponsorCode(c),
+      )
+    : [];
+  const [program, cpcqc, ...coSponsors] = await Promise.all([
+    loadLogo(training.programCode),
+    loadLogo(CPCQC_LOGO_CODE),
+    ...codes.map((c) => loadLogo(c)),
+  ]);
+  return { program: program ?? null, cpcqc: cpcqc ?? null, coSponsors };
 }
