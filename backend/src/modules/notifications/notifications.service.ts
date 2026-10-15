@@ -83,6 +83,15 @@ export async function sendEmail(
         from: { email: input.fromEmail ?? env.EMAIL_FROM, name: 'CPCQC Engagement Tracker' },
         subject: input.subject,
         content: [{ type: 'text/plain', value: input.body }],
+        // Click tracking OFF. SendGrid otherwise rewrites every link through a
+        // shared tracking host (u*.ct.sendgrid.net), which breaks these emails
+        // in three ways: hospital mail security blocks that domain as a phishing
+        // pattern (Longmont United's confirmation link failed exactly this way),
+        // the rewritten URL is unreadable so a recipient cannot retype it, and a
+        // link that does not match the sender's domain looks like phishing to the
+        // reader. Nothing here is marketing — these are confirmation and
+        // password-reset links — so the click data has no use to set against that.
+        tracking_settings: { click_tracking: { enable: false, enable_text: false } },
         ...(input.attachments?.length
           ? {
               attachments: input.attachments.map((a) => ({
