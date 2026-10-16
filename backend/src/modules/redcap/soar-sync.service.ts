@@ -30,6 +30,8 @@ import { HttpError } from '@/middleware/errors.js';
 import { logger } from '@/config/logger.js';
 import { exportRecords, exportMetadata } from './redcap.client.js';
 import { buildSoarGrid, monthDeadline, SOAR_MINIMUM_FIELDS, type SoarCell } from './soar-engagement.js';
+import { soarCellsFromAssessments } from './cha-assessment.js';
+import { fetchAssessment } from './cha-assessment.client.js';
 import {
   dispositionToTask,
   isHumanEdit,
@@ -377,6 +379,16 @@ export interface RunSoarSyncOptions {
   actorUserId?: string | null;
   /** PM overrides keyed by task instance id (apply only). */
   overrides?: Map<string, SyncOverride>;
+  /**
+   * Where the grid comes from.
+   *
+   * 'redcap' (default) queries REDCap here, as the tracker always has.
+   * 'cha' asks the CHA assessment service instead, which is the partitioned
+   * path. Both produce the same cells, so everything downstream — dispositions,
+   * overrides, finalization, the preview — is identical either way. Having
+   * both is what makes the parity comparison possible before cutover.
+   */
+  source?: 'redcap' | 'cha';
 }
 
 export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarSyncResult> {
@@ -409,12 +421,47 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
     /* labels are a convenience; variable names still identify the field */
   }
 
-  const records = await exportRecords({
-    token: env.REDCAP_SOAR_TOKEN,
-    // Patient-level instruments: minimum necessary, not the whole form.
-    fields: SOAR_MINIMUM_FIELDS,
-  });
-  const grid = buildSoarGrid(records, { year: programYear, todayIso: today });
+  const warnings: string[] = [];
+  const notes: string[] = [];
+  let grid: Map<string, SoarCell>;
+  let recordsRead = 0;
+  // Only the REDCap path has raw records; the DAG scan below is skipped on the
+  // CHA path, where the service reports unknown DAGs in its own warnings.
+  let soarRecords: Array<Record<string, string | null | undefined>> = [];
+  if (opts.source === 'cha') {
+    // The service keys by CHA id; the grid and the sync key by DAG, so build
+    // the translation from the hospitals the tracker already knows.
+    const chaIdToDag = new Map<string, string>();
+    const allHospitals = await db.select().from(schema.hospitals);
+    const byNameLower = new Map(allHospitals.map((h) => [h.name.toLowerCase(), h]));
+    for (const [dag, name] of Object.entries(SOAR_DAG_TO_HOSPITAL_NAME)) {
+      const cha = byNameLower.get(name.toLowerCase())?.chaHospitalId;
+      if (cha) chaIdToDag.set(String(cha), dag);
+    }
+    const response = await fetchAssessment({ program: 'SOAR', programYear });
+    const adapted = soarCellsFromAssessments(response.assessments, chaIdToDag);
+    grid = adapted.cells;
+    recordsRead = response.source.records_read;
+    warnings.push(...response.warnings);
+    for (const chaId of adapted.unmappedChaIds) {
+      warnings.push(
+        `Assessment service returned CHA id ${chaId}, which no tracker hospital claims — its rows were skipped.`,
+      );
+    }
+    notes.push(
+      `Grid from the CHA assessment service (methodology ${response.methodology_version}, ` +
+        `${recordsRead} records read, computed ${response.computed_at}).`,
+    );
+  } else {
+    const records = await exportRecords({
+      token: env.REDCAP_SOAR_TOKEN,
+      // Patient-level instruments: minimum necessary, not the whole form.
+      fields: SOAR_MINIMUM_FIELDS,
+    });
+    soarRecords = records;
+    recordsRead = records.length;
+    grid = buildSoarGrid(records, { year: programYear, todayIso: today });
+  }
 
   const hospitals = await db.select().from(schema.hospitals);
   const hospitalsByName = new Map(hospitals.map((h) => [h.name.toLowerCase(), h]));
@@ -463,14 +510,12 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
   });
 
   const rows: SoarSyncRow[] = [];
-  const warnings: string[] = [];
-  const notes: string[] = [];
 
   // DAGs with data that we DON'T sync. Known sustainability/not-enrolled DAGs are
   // expected → summarized as a note; a DAG that's neither active nor known is a
   // real "needs attention" item (possible new hospital / mis-labeled DAG).
   const seenDags = new Set(
-    records.map((r) => String(r['redcap_data_access_group'] ?? '').trim()).filter(Boolean),
+    soarRecords.map((r) => String(r['redcap_data_access_group'] ?? '').trim()).filter(Boolean),
   );
   let sustainSkipped = 0;
   let notEnrolledSkipped = 0;
@@ -629,15 +674,18 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
         ntsvComplete: cell?.ntsv.nComplete ?? 0,
         noNtsvRows: cell?.noNtsv.nRows ?? 0,
         incompleteGroups:
-          decision.category === 'incomplete'
-            ? collectMissing(
+          decision.category !== 'incomplete'
+            ? []
+            : // The assessment service sends them already grouped; the REDCap
+              // path derives them from the records it read.
+              (cell?.missingFieldGroups ??
+              collectMissing(
                 [
                   { form: 'NTSV', rollup: cell?.ntsv },
                   { form: 'No-NTSV attestation', rollup: cell?.noNtsv },
                 ],
                 fieldLabels,
-              )
-            : [],
+              )),
         onTime: effCell?.onTime ?? null,
         daysFromDeadline: effCell?.daysFromDeadline ?? null,
         deadline,
@@ -701,7 +749,7 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
   };
 
   logger.info(
-    { dryRun: opts.dryRun, programYear, recordsFetched: records.length, ...counts },
+    { dryRun: opts.dryRun, programYear, source: opts.source ?? 'redcap', recordsFetched: recordsRead, ...counts },
     'SOAR REDCap sync complete',
   );
 
@@ -710,7 +758,7 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
     fetchedAt,
     programYear,
     periodsInScope,
-    recordsFetched: records.length,
+    recordsFetched: recordsRead,
     rows,
     warnings,
     notes,

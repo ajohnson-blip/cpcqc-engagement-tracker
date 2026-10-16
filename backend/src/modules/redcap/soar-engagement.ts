@@ -310,9 +310,19 @@ export interface SoarCell {
   onTime: boolean | null;
   daysFromDeadline: number | null;
   deadline: string;
+  /**
+   * Set only when the cell came from the CHA assessment service, which sends
+   * missing fields already grouped. The REDCap path leaves it undefined and
+   * the sync derives groups from `incompleteRows` instead.
+   */
+  missingFieldGroups?: Array<{
+    form: string;
+    records: number;
+    fields: Array<{ field: string; label: string }>;
+  }>;
 }
 
-function dayDiff(aIso: string, bIso: string): number {
+export function dayDiff(aIso: string, bIso: string): number {
   return Math.round((Date.parse(`${aIso}T00:00:00Z`) - Date.parse(`${bIso}T00:00:00Z`)) / 86400000);
 }
 

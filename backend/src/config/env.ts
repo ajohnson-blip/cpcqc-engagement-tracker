@@ -67,6 +67,20 @@ const EnvSchema = z.object({
     .transform((v) => v === 'true' || v === '1')
     .default('false'),
 
+  /**
+   * CHA assessment service — the partitioned REDCap path. When both URL and
+   * token are set the sync can be asked to source its grid from CHA instead of
+   * querying REDCap directly. Unset means the tracker keeps doing it itself,
+   * which is the behaviour until parity is proven.
+   *
+   * The token is a SECRET shared with CHA; rotate it on both sides, no deploy.
+   */
+  CHA_ASSESSMENT_URL: z.string().url().optional(),
+  CHA_ASSESSMENT_TOKEN: z.string().optional(),
+  // A full program year reads a whole REDCap project; the contract sets 120s
+  // as the ceiling before we would move to a job-and-poll pattern instead.
+  CHA_ASSESSMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+
   // REDCap (Vanderbilt) integration. The API URL is shared across all CPCQC
   // REDCap projects; each project has its own per-project token. Tokens are
   // SECRETS — set them as Render environment variables, never in code.
