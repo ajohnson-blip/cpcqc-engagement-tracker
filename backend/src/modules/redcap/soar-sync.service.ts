@@ -380,13 +380,9 @@ export interface RunSoarSyncOptions {
   /** PM overrides keyed by task instance id (apply only). */
   overrides?: Map<string, SyncOverride>;
   /**
-   * Where the grid comes from.
-   *
-   * 'redcap' (default) queries REDCap here, as the tracker always has.
-   * 'cha' asks the CHA assessment service instead, which is the partitioned
-   * path. Both produce the same cells, so everything downstream — dispositions,
-   * overrides, finalization, the preview — is identical either way. Having
-   * both is what makes the parity comparison possible before cutover.
+   * Override the deployment's configured source. Only parity tooling should
+   * pass this — normal runs take SYNC_SOURCE, because the source reflects what
+   * the environment is equipped to do rather than a per-run preference.
    */
   source?: 'redcap' | 'cha';
 }
@@ -395,7 +391,7 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
   // Paused by CPCQC — see sync-gate.ts. Checked here too, not only
   // at the route, so no other caller can reach REDCap while paused.
   assertSyncEnabled();
-  if (!env.REDCAP_SOAR_TOKEN) {
+  if ((opts.source ?? env.SYNC_SOURCE) === 'redcap' && !env.REDCAP_SOAR_TOKEN) {
     throw new HttpError(
       400,
       'REDCAP_SOAR_TOKEN is not configured on the server. Add it as a Render environment variable.',
@@ -410,8 +406,9 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
   // delivery" rather than delivery_date_1. Best-effort: a failure here must not
   // stop a sync, it just falls back to the variable names.
   const fieldLabels = new Map<string, string>();
+  const redcapToken = env.REDCAP_SOAR_TOKEN;
   try {
-    const meta = await exportMetadata({ token: env.REDCAP_SOAR_TOKEN });
+    const meta = redcapToken ? await exportMetadata({ token: redcapToken }) : [];
     for (const m of meta) {
       const name = String(m['field_name'] ?? '').trim();
       const label = String(m['field_label'] ?? '').replace(/<[^>]*>/g, '').trim();
@@ -428,7 +425,8 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
   // Only the REDCap path has raw records; the DAG scan below is skipped on the
   // CHA path, where the service reports unknown DAGs in its own warnings.
   let soarRecords: Array<Record<string, string | null | undefined>> = [];
-  if (opts.source === 'cha') {
+  const source = opts.source ?? env.SYNC_SOURCE;
+  if (source === 'cha') {
     // The service keys by CHA id; the grid and the sync key by DAG, so build
     // the translation from the hospitals the tracker already knows.
     const chaIdToDag = new Map<string, string>();
@@ -453,8 +451,11 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
         `${recordsRead} records read, computed ${response.computed_at}).`,
     );
   } else {
+    // Guarded above, but narrow it here too: this deployment's whole reason for
+    // holding a REDCap token is this call.
+    if (!redcapToken) throw new HttpError(400, 'REDCAP_SOAR_TOKEN must be configured.');
     const records = await exportRecords({
-      token: env.REDCAP_SOAR_TOKEN,
+      token: redcapToken,
       // Patient-level instruments: minimum necessary, not the whole form.
       fields: SOAR_MINIMUM_FIELDS,
     });
@@ -749,7 +750,7 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
   };
 
   logger.info(
-    { dryRun: opts.dryRun, programYear, source: opts.source ?? 'redcap', recordsFetched: recordsRead, ...counts },
+    { dryRun: opts.dryRun, programYear, source, recordsFetched: recordsRead, ...counts },
     'SOAR REDCap sync complete',
   );
 

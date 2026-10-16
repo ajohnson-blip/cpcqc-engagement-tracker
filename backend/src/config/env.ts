@@ -68,6 +68,20 @@ const EnvSchema = z.object({
     .default('false'),
 
   /**
+   * Where syncs get their data in THIS deployment.
+   *
+   * 'redcap' queries REDCap directly and needs the REDCap tokens and a hosting
+   * tier cleared for patient-level data. 'cha' asks the CHA assessment service
+   * and needs neither — that deployment never contacts REDCap at all.
+   *
+   * It is per-environment rather than per-request because the capability is:
+   * the Engagement Tracker Workspace holds no REDCap tokens by design, so
+   * 'redcap' is not something it could do, and offering it as a runtime choice
+   * would only produce a confusing failure.
+   */
+  SYNC_SOURCE: z.enum(['redcap', 'cha']).default('redcap'),
+
+  /**
    * CHA assessment service — the partitioned REDCap path. When both URL and
    * token are set the sync can be asked to source its grid from CHA instead of
    * querying REDCap directly. Unset means the tracker keeps doing it itself,
