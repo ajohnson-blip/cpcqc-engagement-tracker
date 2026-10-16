@@ -51,18 +51,21 @@ const EnvSchema = z.object({
   PUBLIC_APP_URL: z.string().url().optional(),
 
   /**
-   * Master switch for REDCap synchronisation.
+   * Master switch for data synchronisation, whatever its source.
    *
    * Defaults to DISABLED on purpose. CPCQC paused all syncs in October 2026
-   * while the data-protection arrangements for the hosting environment are
-   * settled: every sync pulls patient-level records through the application's
-   * memory, and that disclosure needs a subprocessor agreement in place first.
+   * while the data-protection arrangements for the hosting environment were
+   * settled, and the default has been left off since: a fresh or reset
+   * environment should not start syncing on its own.
+   *
+   * Named for syncing rather than for REDCap because a deployment using the
+   * CHA assessment service never contacts REDCap, and this still gates it.
    *
    * Because the default is off, a fresh or reset environment stays paused, and
    * resuming is a deliberate act rather than something that happens by
-   * accident. Set REDCAP_SYNC_ENABLED=true to resume.
+   * accident. Set SYNC_ENABLED=true to resume.
    */
-  REDCAP_SYNC_ENABLED: z
+  SYNC_ENABLED: z
     .string()
     .transform((v) => v === 'true' || v === '1')
     .default('false'),

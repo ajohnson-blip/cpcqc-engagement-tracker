@@ -18,10 +18,10 @@ export const SYNC_PAUSED_MESSAGE =
   'updating before syncing resumes.';
 
 export function syncEnabled(): boolean {
-  return env.REDCAP_SYNC_ENABLED;
+  return env.SYNC_ENABLED;
 }
 
 /** Throws 503 when syncing is paused. Called by both the routes and the runners. */
 export function assertSyncEnabled(): void {
-  if (!env.REDCAP_SYNC_ENABLED) throw new HttpError(503, SYNC_PAUSED_MESSAGE);
+  if (!env.SYNC_ENABLED) throw new HttpError(503, SYNC_PAUSED_MESSAGE);
 }
