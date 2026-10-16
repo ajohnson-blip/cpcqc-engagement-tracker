@@ -828,6 +828,8 @@ export interface CeProgram {
 
 export interface CeProgramsResponse {
   programs: CeProgram[];
+  /** Organisations that can co-sponsor a training, printed alongside the host. */
+  coSponsors: CeProgram[];
   /** Program codes with no logo yet — their certificates fall back to text. */
   missingLogos: string[];
   /** code -> whether a logo exists (uploaded or committed). Includes CPCQC. */

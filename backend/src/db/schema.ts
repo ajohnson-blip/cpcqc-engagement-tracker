@@ -599,6 +599,9 @@ export const ceTrainings = pgTable(
     contactHours: numeric('contact_hours', { precision: 5, scale: 2 }).notNull(),
     /** Assigned by the accreditor (Colorado Nurses Association). */
     activityId: text('activity_id').notNull(),
+    /** Co-sponsor logo codes printed in addition to the host program's, e.g.
+     *  ['CU_PSYCH']. Always read and written whole. */
+    coSponsorLogoCodes: jsonb('co_sponsor_logo_codes').$type<string[]>().default([]).notNull(),
     createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
     ...timestamps,
   },

@@ -33,6 +33,8 @@ import {
   CE_PROGRAMS,
   CPCQC_LOGO_CODE,
   isLogoCode,
+  loadCertificateLogos,
+  CE_CO_SPONSORS,
   detectImageType,
   logoAvailability,
   loadLogo,
@@ -57,6 +59,9 @@ const trainingSchema = z.object({
   trainingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD'),
   contactHours: z.coerce.number().positive().max(999),
   activityId: z.string().min(1).max(100),
+  /** Logo codes of co-sponsoring organisations. Validated against the registry
+   *  in the service, not here, so the error names the bad code. */
+  coSponsorLogoCodes: z.array(z.string().min(1)).max(4).optional(),
 });
 
 /** Turn an uploaded file into rows of cells. XLSX files begin with the ZIP magic
@@ -101,6 +106,7 @@ router.get('/programs', async (_req, res) => {
   const availability = await logoAvailability();
   res.json({
     programs: CE_PROGRAMS,
+    coSponsors: CE_CO_SPONSORS,
     logoAvailability: availability,
     // Generic programs have no host logo by design — never report them missing.
     missingLogos: CE_PROGRAMS.filter((p) => !p.generic && !availability[p.code]).map((p) => p.code),
@@ -279,7 +285,7 @@ router.get('/trainings/:id/preview.pdf', async (req, res) => {
   const t = await db.query.ceTrainings.findFirst({ where: eq(schema.ceTrainings.id, req.params.id) });
   if (!t) throw new HttpError(404, 'Training not found.');
   const name = String(req.query.name ?? '').trim() || 'Sample Participant';
-  const [program, cpcqc] = await Promise.all([loadLogo(t.programCode), loadLogo(CPCQC_LOGO_CODE)]);
+  const { program, cpcqc, coSponsors } = await loadCertificateLogos(t);
   const pdf = await renderCertificatePdf({
     programCode: t.programCode,
     programLabel: hostLogoFallbackLabel(t.programCode),
@@ -289,7 +295,7 @@ router.get('/trainings/:id/preview.pdf', async (req, res) => {
     activityId: t.activityId,
     recipientName: name,
     certificateCode: 'PREVIEW',
-    logos: { program, cpcqc },
+    logos: { program, cpcqc, coSponsors },
   });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'inline; filename="certificate-preview.pdf"');
@@ -329,7 +335,7 @@ router.post('/trainings/:id/test-send', async (req, res) => {
   const t = await db.query.ceTrainings.findFirst({ where: eq(schema.ceTrainings.id, req.params.id) });
   if (!t) throw new HttpError(404, 'Training not found.');
 
-  const [program, cpcqc] = await Promise.all([loadLogo(t.programCode), loadLogo(CPCQC_LOGO_CODE)]);
+  const { program, cpcqc, coSponsors } = await loadCertificateLogos(t);
   const pdf = await renderCertificatePdf({
     programCode: t.programCode,
     programLabel: hostLogoFallbackLabel(t.programCode),
@@ -339,7 +345,7 @@ router.post('/trainings/:id/test-send', async (req, res) => {
     activityId: t.activityId,
     recipientName: 'Sample Participant',
     certificateCode: 'TEST-SEND',
-    logos: { program, cpcqc },
+    logos: { program, cpcqc, coSponsors },
   });
   const outcome = await sendEmail({
     toEmail: to,

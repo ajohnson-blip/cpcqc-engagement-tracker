@@ -81,6 +81,7 @@ const emptyForm = {
   trainingDate: '',
   contactHours: '',
   activityId: '',
+  coSponsorLogoCodes: [] as string[],
 };
 
 export default function CeCertificatesPage() {
@@ -640,6 +641,41 @@ function NewTrainingForm({
             ))}
           </select>
         </Field>
+        {(programs?.coSponsors?.length ?? 0) > 0 && (
+          <Field label="Co-sponsored by (optional)">
+            <div className="space-y-1.5">
+              {programs?.coSponsors.map((c) => {
+                const checked = form.coSponsorLogoCodes.includes(c.code);
+                return (
+                  <label key={c.code} className="flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          coSponsorLogoCodes: e.target.checked
+                            ? [...f.coSponsorLogoCodes, c.code]
+                            : f.coSponsorLogoCodes.filter((x) => x !== c.code),
+                        }))
+                      }
+                      className="mt-0.5 h-4 w-4 shrink-0"
+                    />
+                    <span>
+                      {c.label}
+                      {programs?.logoAvailability?.[c.code] === false && (
+                        <span className="ml-1 text-amber-700">· no logo uploaded</span>
+                      )}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              Printed beneath the certificate body, under &ldquo;In partnership with&rdquo;.
+            </p>
+          </Field>
+        )}
         <Field label="Training name">
           <input
             required

@@ -32,6 +32,8 @@ import {
   isCeProgramCode,
   loadLogo,
   CPCQC_LOGO_CODE,
+  isCoSponsorCode,
+  loadCertificateLogos,
 } from './ce-programs.js';
 import { tidyName, isPlausibleEmail, type RosterRow } from './ce-roster.js';
 
@@ -44,6 +46,7 @@ export interface TrainingInput {
   trainingDate: string;
   contactHours: number;
   activityId: string;
+  coSponsorLogoCodes?: string[];
 }
 
 function assertValidTraining(input: TrainingInput) {
@@ -56,6 +59,14 @@ function assertValidTraining(input: TrainingInput) {
   }
   if (!(input.contactHours > 0)) throw new HttpError(400, 'Contact hours must be greater than zero.');
   if (!input.activityId.trim()) throw new HttpError(400, 'Activity ID is required.');
+  for (const code of input.coSponsorLogoCodes ?? []) {
+    if (!isCoSponsorCode(code)) throw new HttpError(400, `Unknown co-sponsor "${code}".`);
+  }
+}
+
+/** Deduplicated, registry-valid co-sponsor codes, in the order given. */
+function normalizeCoSponsors(codes: string[] | undefined): string[] {
+  return [...new Set(codes ?? [])].filter((c) => isCoSponsorCode(c));
 }
 
 export async function createTraining(input: TrainingInput, actorUserId: string | null) {
@@ -68,6 +79,7 @@ export async function createTraining(input: TrainingInput, actorUserId: string |
     trainingDate: input.trainingDate,
     contactHours: String(input.contactHours),
     activityId: input.activityId.trim(),
+    coSponsorLogoCodes: normalizeCoSponsors(input.coSponsorLogoCodes),
     createdBy: actorUserId,
   });
   return getTraining(id);
@@ -95,6 +107,7 @@ export async function updateTraining(
       trainingDate: input.trainingDate,
       contactHours: String(input.contactHours),
       activityId: input.activityId.trim(),
+      coSponsorLogoCodes: normalizeCoSponsors(input.coSponsorLogoCodes),
       updatedAt: new Date(),
     })
     .where(eq(schema.ceTrainings.id, trainingId));
@@ -334,10 +347,7 @@ export async function buildCertificatePdf(
   training: typeof schema.ceTrainings.$inferSelect,
   cert: { recipientName: string; certificateCode: string; completionDate?: string | null },
 ): Promise<Buffer> {
-  const [program, cpcqc] = await Promise.all([
-    loadLogo(training.programCode),
-    loadLogo(CPCQC_LOGO_CODE),
-  ]);
+  const { program, cpcqc, coSponsors } = await loadCertificateLogos(training);
   return renderCertificatePdf({
     programCode: training.programCode,
     programLabel: hostLogoFallbackLabel(training.programCode),
@@ -349,7 +359,7 @@ export async function buildCertificatePdf(
     activityId: training.activityId,
     recipientName: cert.recipientName,
     certificateCode: cert.certificateCode,
-    logos: { program, cpcqc },
+    logos: { program, cpcqc, coSponsors },
   });
 }
 

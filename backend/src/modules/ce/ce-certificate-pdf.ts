@@ -48,8 +48,20 @@ export interface CertificateData {
   recipientName: string;
   /** Printed small in the footer so a reissued certificate is traceable. */
   certificateCode?: string;
-  /** PNG/JPEG bytes. Either may be null — the certificate still renders. */
-  logos?: { program?: Buffer | null; cpcqc?: Buffer | null };
+  /**
+   * PNG/JPEG bytes. Any may be null — the certificate still renders.
+   *
+   * `coSponsors` are organisations that co-sponsor a specific training, as
+   * distinct from the host initiative. They sit in their own row beneath the
+   * body rather than in the header: the header's left slot is sized for one
+   * wordmark, and a co-sponsor lockup squeezed in beside it collides with the
+   * centred title.
+   */
+  logos?: {
+    program?: Buffer | null;
+    cpcqc?: Buffer | null;
+    coSponsors?: Array<Buffer | null | undefined>;
+  };
 }
 
 /** '2026-09-09' → '9/9/2026'. Parsed as plain date parts — no timezone shifting. */
@@ -204,6 +216,32 @@ function draw(doc: PDFKit.PDFDocument, data: CertificateData) {
   );
   centerText('offered by CPCQC www.cpcqc.org', afterTitle + 62, 11, '#2A2536', 'Helvetica-Bold');
 
+  // ---- Co-sponsor row ----
+  // Centred beneath the body. Sized to the space actually left between the
+  // body and the footer, so adding a co-sponsor can never push the
+  // accreditation line off the page — the row shrinks instead.
+  const coSponsors = (data.logos?.coSponsors ?? []).filter((b): b is Buffer => !!b);
+  if (coSponsors.length > 0) {
+    const footerTop = doc.page.height - doc.page.margins.bottom - 34;
+    const bodyBottom = afterTitle + 78;
+    const available = footerTop - bodyBottom - 8;
+    if (available > 26) {
+      const labelY = bodyBottom;
+      centerText('In partnership with', labelY, 8.5, SLATE);
+      // Tall multi-line lockups (a university department mark is four lines of
+       // type) are height-constrained, so the cap governs legibility. 46pt left
+       // the smallest line unreadable at print size.
+      const rowH = Math.min(84, available - 14);
+      const rowY = labelY + 13;
+      const boxW = Math.min(190, (width - 24 * (coSponsors.length - 1)) / coSponsors.length);
+      const totalW = coSponsors.length * boxW + 24 * (coSponsors.length - 1);
+      const startX = left + (width - totalW) / 2;
+      coSponsors.forEach((buf, i) => {
+        fitImage(doc, buf, startX + i * (boxW + 24), rowY, boxW, rowH, 'center');
+      });
+    }
+  }
+
   // ---- Footer: disclaimer (left) · activity ID (right) ----
   const footerY = doc.page.height - doc.page.margins.bottom - 34;
   doc
@@ -245,7 +283,7 @@ function fitImage(
   y: number,
   maxW: number,
   maxH: number,
-  anchor: 'left' | 'right',
+  anchor: 'left' | 'right' | 'center',
 ) {
   try {
     // pdfkit takes only 'right'/'center' here — left-alignment is the default,
@@ -253,7 +291,7 @@ function fitImage(
     doc.image(buf, x, y, {
       fit: [maxW, maxH],
       valign: 'center',
-      ...(anchor === 'right' ? { align: 'right' as const } : {}),
+      ...(anchor === 'left' ? {} : { align: anchor as 'right' | 'center' }),
     });
   } catch {
     /* unsupported or corrupt image — leave the slot empty */
