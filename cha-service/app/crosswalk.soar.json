@@ -1,0 +1,66 @@
+{
+  "advent_health_avis": {
+    "cha_id": "300",
+    "hospital": "AdventHealth Avista"
+  },
+  "advent_health_cast": {
+    "cha_id": "342",
+    "hospital": "AdventHealth Castle Rock"
+  },
+  "advent_health_park": {
+    "cha_id": "306",
+    "hospital": "AdventHealth Parker"
+  },
+  "aspen_valley_hospi": {
+    "cha_id": "708",
+    "hospital": "Aspen Valley Hospital"
+  },
+  "longmont_united": {
+    "cha_id": "540",
+    "hospital": "CommonSpirit - Longmont United Hospital"
+  },
+  "st_anthony_north_h": {
+    "cha_id": "496",
+    "hospital": "CommonSpirit - St. Anthony North Hospital"
+  },
+  "st_elizabeth_hospi": {
+    "cha_id": "572",
+    "hospital": "CommonSpirit - St. Elizabeth Hospital"
+  },
+  "gunnison_valley_he": {
+    "cha_id": "724",
+    "hospital": "Gunnison Valley Health"
+  },
+  "mountain_ridge": {
+    "cha_id": "436",
+    "hospital": "HCA HealthONE Mountain Ridge"
+  },
+  "heart_of_the_rocki": {
+    "cha_id": "680",
+    "hospital": "Heart of The Rockies Regional Medical Center"
+  },
+  "good_samaritan_med": {
+    "cha_id": "308",
+    "hospital": "Intermountain Health Good Samaritan Hospital"
+  },
+  "saint_joseph_hospi": {
+    "cha_id": "500",
+    "hospital": "Intermountain Health Saint Joseph Hospital"
+  },
+  "prowers_medical_ce": {
+    "cha_id": "656",
+    "hospital": "Prowers Medical Center"
+  },
+  "southwest_health": {
+    "cha_id": "776",
+    "hospital": "Southwest Health System, Inc."
+  },
+  "sterling_regional": {
+    "cha_id": "588",
+    "hospital": "Sterling Regional MedCenter"
+  },
+  "wray_community_dis": {
+    "cha_id": "604",
+    "hospital": "Wray Community District Hospital"
+  }
+}
