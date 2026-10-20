@@ -1,17 +1,31 @@
-# Engagement assessment service — interface contract
+# Engagement assessment — file contract
 
 **Status:** draft for review by Luis Montes (CHA) and CPCQC
-**Version:** `v1` (draft)
-**Date:** 9 October 2026
+**Version:** `v2` (draft)
+**Date:** 20 October 2026
 
-## Why this exists
+See `docs/partition-plan.md` for the overall plan, decisions and open questions.
 
-This contract partitions REDCap queries onto a service operated by CHA. The
+## Changes from v1
+
+v1 described an on-demand service the tracker called when a program manager
+ran a sync. v2 replaces it with a script CHA runs nightly, which writes one
+file containing assessments for every program.
+
+- **Transport:** a file, written to a location CHA chooses, optionally POSTed
+  to the tracker — no longer a request and response.
+- **Scope per run:** every program and every program year in scope, in one
+  file — no longer one program per request.
+- **Failure:** each program carries its own status, so one program failing
+  does not withhold the others.
+- **Unchanged:** the division of responsibility, the assessment fields, the
+  grouping of missing fields, and every constraint on what the output may
+  contain.
+
+## Purpose
+
+This contract partitions REDCap queries onto a script operated by CHA. The
 tracker receives only an assessment per hospital per period.
-
-The service is referred to below as **the assessment service**. It is expected
-to be implemented in Python, reusing the logic already written for
-`soar_engagement_logic.py` and the SOAR/SPARK/NEST pipelines.
 
 ## Where the boundary sits
 
@@ -19,112 +33,126 @@ A sync row in the tracker has three layers. Only the first moves.
 
 | Layer | Example | Lives where |
 |---|---|---|
-| **Facts from REDCap** | did they submit, are required fields filled, how many rows, earliest submission date | **Assessment service** |
+| **Facts from REDCap** | did they submit, are required fields filled, how many rows, earliest submission date | **CHA's script** |
 | **CPCQC policy** | the deadline for this period, on-time vs late, which disposition that implies | **Tracker** |
 | **Task state** | the task being updated, prior overrides, finalization, what will change | **Tracker** |
 
 ### Why deadlines stay in the tracker
 
-Deadlines are CPCQC policy, not REDCap facts. They live on `task_instances.due_on`,
-they vary by program and have been changed by CPCQC decision (the HRA time-2
-deadline moved from 31 December to 1 December in 2026), and the comparison is
-covered by the tracker's automated test suite.
-
-The assessment service therefore returns **when** data was submitted and never
-judges whether that was on time. The tracker owns that comparison. This keeps
-the timeliness rules in one place, under test, and means CHA does not have to
+Deadlines are CPCQC policy, not REDCap facts. They live on the tracker's task
+records, they vary by program, and they have been changed by CPCQC decision
+during a program year. The script therefore reports **when** data was
+submitted and never judges whether that was on time. CHA does not need to
 track CPCQC's deadline calendar.
 
-## Transport
+## Schedule
 
-```
-POST https://<cha-host>/v1/engagement/assess
-Content-Type: application/json
-Authorization: Bearer <token>
-```
+- **Nightly, after midnight Mountain time.** A file produced the day after a
+  deadline must include everything submitted on the deadline day; the tracker
+  relies on this when a month is finalized.
+- **Program years in scope:** the current program year, plus the previous one
+  for part of the new year, since December's data arrives in January. The
+  window is configurable.
+- A run may also be started by hand. A hand-started run produces the same file
+  as a scheduled one.
 
-- **HTTPS only.** The token is a shared secret held in the tracker's
-  environment, rotatable without a deploy on either side.
-- **Idempotent.** The call computes and returns; it writes nothing. Safe to
-  retry, and the tracker will, with backoff.
-- **Synchronous**, with a generous timeout. A full-year TtT assessment reads
-  two REDCap projects; 120 seconds is a reasonable ceiling. If a program grows
-  past that, we move to a job-and-poll pattern rather than raising the timeout.
-- The tracker calls this only when a program manager runs a sync. There is no
-  schedule.
+## The file
 
-## Request
+One JSON file per run, UTF-8.
 
 ```json
 {
-  "contract_version": "v1",
-  "program": "SOAR",
-  "program_year": 2026,
-  "periods": ["2026-07", "2026-08"],
-  "options": { "eligibility_mode": "derived" }
-}
-```
-
-| Field | Required | Notes |
-|---|---|---|
-| `contract_version` | yes | `"v1"`. The service rejects versions it does not implement. |
-| `program` | yes | `SPARK` \| `NEST` \| `SOAR` \| `TTT` |
-| `program_year` | yes | e.g. `2026` |
-| `periods` | no | `YYYY-MM` or `YYYY-Qn`. Omit for every period in the program year. |
-| `options.eligibility_mode` | TtT only | `derived` (CPCQC's default) \| `explicit` \| `either` |
-
-## Response
-
-```json
-{
-  "contract_version": "v1",
-  "program": "SOAR",
-  "program_year": 2026,
-  "methodology_version": "soar-2026.07",
-  "computed_at": "2026-10-09T16:40:12Z",
-  "source": { "records_read": 5028, "redcap_project": "CPCQC SOAR NTSV" },
-  "assessments": [
+  "format_version": "v2",
+  "snapshot_id": "8f2c1e4a-6b3d-4c9e-a1f7-2d5b8e0c9a31",
+  "generated_at": "2026-10-20T08:05:12Z",
+  "generator": { "name": "cpcqc-engagement-assessment", "version": "0.2.0" },
+  "runs": [
     {
-      "cha_id": "428",
-      "period": "2026-07",
-      "submitted": true,
-      "complete": false,
-      "earliest_submission_date": "2026-08-14",
-      "records": { "total": 12, "complete": 1, "attestation": 0 },
-      "attestation_only": false,
-      "missing_field_groups": [
+      "program": "SOAR",
+      "program_year": 2026,
+      "status": "ok",
+      "methodology_version": "soar-2026.10",
+      "source": { "records_read": 5028, "redcap_project": "CPCQC SOAR NTSV" },
+      "assessments": [
         {
-          "form": "ntsv_cesarean_section",
-          "records": 11,
-          "fields": [
-            { "field": "checklist_comms_tool", "label": "Checklist/communication tool used" }
-          ]
+          "cha_id": "428",
+          "period": "2026-07",
+          "submitted": true,
+          "complete": false,
+          "earliest_submission_date": "2026-08-14",
+          "records": { "total": 12, "complete": 1, "attestation": 0 },
+          "attestation_only": false,
+          "missing_field_groups": [
+            {
+              "form": "ntsv_cesarean_section",
+              "records": 11,
+              "fields": [
+                { "field": "checklist_comms_tool", "label": "Checklist/communication tool used" }
+              ]
+            }
+          ],
+          "notes": []
         }
       ],
-      "notes": []
+      "warnings": [
+        "REDCap DAG \"new_hospital_x\" has data but is not in the crosswalk; its rows were skipped."
+      ]
+    },
+    {
+      "program": "TTT",
+      "program_year": 2026,
+      "status": "error",
+      "error": { "code": "redcap_unavailable", "message": "REDCap timed out after 90s" }
     }
-  ],
-  "warnings": [
-    "REDCap DAG \"new_hospital_x\" has data but is not in the crosswalk; its rows were skipped."
   ]
 }
 ```
+
+### Envelope
+
+| Field | Type | Meaning |
+|---|---|---|
+| `format_version` | string | `"v2"`. The tracker refuses a version it does not implement. |
+| `snapshot_id` | string | A UUID the script generates per run. Makes delivery idempotent — the same snapshot delivered twice is stored once. |
+| `generated_at` | string | UTC, ISO 8601. When the run finished reading REDCap. Shown on every tracker preview built from this file. |
+| `generator` | object | Script name and version, so a file can be traced to the code that produced it. |
+| `runs` | array | One entry per program per program year. |
+
+### Runs
+
+| Field | Type | Present when | Meaning |
+|---|---|---|---|
+| `program` | string | always | `SPARK` \| `NEST` \| `SOAR` \| `TTT` |
+| `program_year` | integer | always | e.g. `2026` |
+| `status` | string | always | `ok` or `error` |
+| `methodology_version` | string | `ok` | Identifies the ruleset. Changes whenever required fields, eligibility criteria or thresholds change. |
+| `source` | object | `ok` | `records_read` and `redcap_project`, so a figure can be reconciled with REDCap. |
+| `assessments` | array | `ok` | One per hospital per period. |
+| `warnings` | string[] | `ok` | Problems that did not stop the run, such as an unrecognised data access group. |
+| `error` | object | `error` | `code` and `message`. No partial assessments accompany an error. |
+
+**A run either succeeds completely or reports an error.** Partial assessments
+are never sent: a program that silently omitted hospitals would read as those
+hospitals not having submitted.
+
+Error codes: `redcap_unavailable`, `configuration`, `internal`.
 
 ### Assessment fields
 
 | Field | Type | Meaning |
 |---|---|---|
-| `cha_id` | string | Hospital identifier. **String, not integer** — see "Open questions". |
+| `cha_id` | string | Hospital identifier. A string, not an integer — see the plan's open questions. |
 | `period` | string | `YYYY-MM` or `YYYY-Qn`, matching the program's cadence. |
 | `submitted` | bool | Any qualifying submission exists for this hospital-period. |
-| `complete` | bool | Every submitted record passes that program's required-field rules. |
-| `earliest_submission_date` | date \| null | Earliest entry timestamp across the period's records. `null` when no timestamp was captured — the tracker reports timeliness as N/A. **Never a clinical date.** |
+| `complete` | bool | Every submitted record passes the program's required-field rules. |
+| `earliest_submission_date` | string \| null | Earliest data-entry date for the period, `YYYY-MM-DD`. Null when REDCap captured none; the tracker then reports timeliness as unknown. **Never a clinical date.** |
 | `records.total` | int | Records in scope for this hospital-period. |
-| `records.complete` | int | How many passed row-level completeness. |
-| `records.attestation` | int | Zero-case attestations (SOAR No-NTSV). |
+| `records.complete` | int | Records passing row-level completeness. |
+| `records.attestation` | int | Zero-case attestations (SOAR). |
 | `attestation_only` | bool | The only submission is a valid zero-case attestation. |
 | `missing_field_groups` | array | Distinct patterns of missing required fields — see below. Field **names and labels only**, never values. |
-| `notes` | string[] | Per-hospital diagnostics, e.g. a future-dated record count. |
+| `linkage` | object | TtT only — see below. |
+| `notes` | string[] | Per-hospital diagnostics. |
 
 ### Why `missing_field_groups` is grouped, not a flat list
 
@@ -146,18 +174,19 @@ Grouping preserves it without identifying any record:
 1 group · 8 records · 1 field    → a systematic gap
 ```
 
-Order groups by field count descending, then by record count descending, so
-the most incomplete pattern reads first.
+Order groups by field count descending, then by record count descending.
 
 **Labels come from REDCap's own data dictionary** (`field_label`, with any HTML
-stripped), not from anything generated. If the dictionary cannot be read, send
-the variable name as the label rather than failing the call.
+stripped). If the dictionary cannot be read, use the variable name as the label
+rather than failing the run.
 
 ### TtT additions
 
-TtT spans a hospital-level project and a patient-level one, joined on CHA ID.
-The linkage check compares positive SUD screens against eligible patient forms.
-Those counts are derived from patient-level records and must be computed at CHA.
+TtT spans **three** REDCap projects: the hospital-level project, the
+patient-level project, and the CHoSEN Dyadic project, which holds Denver
+Health's patient-level forms. The linkage check compares positive SUD screens
+reported on the hospital form against eligible patient forms from the patient
+project — or, for Denver Health, from the Dyadic project.
 
 ```json
 "linkage": {
@@ -169,10 +198,11 @@ Those counts are derived from patient-level records and must be computed at CHA.
 }
 ```
 
-The tracker treats `floor_met: false` as a hard failure, exactly as it does
-today. The rule itself stays at CHA because it needs the patient-form count.
+The tracker treats `floor_met: false` as making the month incomplete. The
+counts are derived from patient-level records, which is why they are computed
+by CHA. The plan sets out how the three projects differ.
 
-## Hard constraints on the response
+## Hard constraints on the output
 
 These are requirements, not preferences.
 
@@ -180,75 +210,71 @@ These are requirements, not preferences.
    delivery, no ages, no race, ethnicity, language or payor, no free text
    entered into any record, no identifiers of any kind from the patient or
    chart instruments.
-2. **`missing_fields` carries field names and labels, never values.** Knowing
-   that `age` was blank is a completeness fact; the age itself is not ours to
-   receive.
-3. **`earliest_submission_date` is a data-entry timestamp**, not a date of
-   service. Delivery dates must not appear anywhere in the response, including
-   in `notes`.
-4. **Counts are aggregates per hospital-period.** Where a count is small enough
-   to be revealing on its own, it is still a count of records and not an
-   attribute of a person — but the service should not add granularity beyond
+2. **`missing_field_groups` carries field names and labels, never values.**
+3. **`earliest_submission_date` is a data-entry date**, not a date of service.
+   Delivery dates must not appear anywhere in the file, including in `notes`
+   and `warnings`.
+4. **Counts are aggregates per hospital-period.** Do not add granularity beyond
    what is specified here.
-5. **Warnings must not quote record content.** Describe the shape of a problem,
-   not the data that caused it.
+5. **Warnings and error messages must not quote record content.** Describe the
+   shape of a problem, not the data that caused it.
+6. **No intermediate files.** Records read from REDCap stay in memory. The only
+   file the script writes is this output.
 
-If the tracker receives a field it does not expect, it logs and ignores it. It
-will never persist an unrecognised field.
+## Delivery
+
+Delivery to the tracker is optional and entirely under CHA's control: the
+script delivers only when CHA has configured a destination.
+
+```
+POST <DELIVERY_URL>
+Content-Type: application/json
+Authorization: Bearer <token>
+```
+
+The body is the file, unchanged.
+
+| Response | Meaning |
+|---|---|
+| `200` | Stored, or already stored under this `snapshot_id`. Safe to retry. |
+| `400` | Refused. The body says why — usually a field the contract does not define. Nothing from the file was stored. |
+| `401` | Missing or wrong token. |
+| `5xx` | Try again later. The script retries a small number of times. |
+
+A failed delivery does not affect the file already written at CHA.
+
+## How the tracker validates
+
+- **Strictly.** A field the contract does not define, anywhere in the file,
+  causes the whole file to be refused. This is a deliberate second line of
+  defence against something being included by mistake.
+- **Per-run status is respected.** A run with `status: "error"` is recorded and
+  shown on that program's sync page; the other runs in the file are used.
+- **The newest successful run wins** for each program and program year.
+- **Age is always visible.** Every preview shows `generated_at`, and warns when
+  the file is older than expected.
+
+The distinction between the two kinds of failure matters. A REDCap outage is
+expected and is reported as `status: "error"` for the affected program. A
+schema violation means the script produced something it should not have; the
+whole file is refused, because output from a script in that state should not
+be trusted for any program.
 
 ## Versioning and auditability
 
-These figures are reported to funders and to the state under SB24-175, so a
-number must be traceable to the rules that produced it.
-
-- `methodology_version` identifies the ruleset — required-field lists,
-  eligibility criteria, linkage thresholds. It changes whenever those change.
-- `computed_at` and `source.records_read` let a figure be reconciled against
-  REDCap at a point in time.
-- The tracker stores all three alongside the sync it produced.
-- Breaking changes to the response shape require a new `contract_version`. The
-  service supports the previous version for at least one program year.
-
-## Errors
-
-```json
-{ "error": { "code": "redcap_unavailable", "message": "REDCap API timed out after 60s" } }
-```
-
-| HTTP | `code` | Meaning |
-|---|---|---|
-| 400 | `bad_request` | Unknown program, malformed period, unsupported `contract_version` |
-| 401 | `unauthorized` | Missing or invalid token |
-| 502 | `redcap_unavailable` | REDCap unreachable or returned an error |
-| 500 | `internal` | Anything else |
-
-**Partial results are never returned.** A sync that silently omitted hospitals
-would read as non-participation. If any part of the assessment cannot be
-computed, the call fails and the tracker shows the error rather than a preview.
+These figures are reported to funders and to the state, so a number must be
+traceable to the rules that produced it. The tracker stores `snapshot_id`,
+`generated_at`, `generator.version` and each run's `methodology_version` with
+every file it receives, and records which file each sync preview was built
+from. Breaking changes to the file require a new `format_version`.
 
 ## Testing and parity
 
-The tracker's test suite cannot call this service, so:
-
-1. **The service provides recorded fixtures** — real response shapes with
-   synthetic content — which the tracker tests against. No PHI in fixtures.
-2. **The service carries its own tests** for the rules that move to it. The
-   tracker currently has automated coverage of completeness, eligibility and
-   linkage; that coverage must not be lost in the move.
-3. **Parity before cutover.** The tracker's existing implementation is the
-   reference. For at least one full program year of historical data, both
-   implementations run and their assessments are compared hospital by
-   hospital, period by period. Cutover happens when they agree, and any
-   disagreement is resolved explicitly — one of them is wrong, and we need to
-   know which before these numbers go anywhere.
-
-## Open questions
-
-- **Hospital identifier.** `cha_id` is typed as a string here deliberately. The
-  UCHealth Memorial campus split needs identifiers that CHA's master list does
-  not currently contain, and the chosen scheme may not be numeric. The tracker's
-  TtT crosswalk currently types it as an integer and will be changed.
-- **Authentication.** Bearer token is proposed for simplicity. If CHA can
-  support mutual TLS or IP allowlisting, either would be stronger.
-- **HRA / readiness assessment.** Not covered here. It is annual rather than
-  monthly and is currently handled separately; confirm whether it moves too.
+1. **The script carries its own tests** for every rule it implements, runnable
+   with the standard library alone.
+2. **Fixtures contain no patient-level data.** Test records are synthetic.
+3. **Parity before cutover.** For each program, previews built from CHA's file
+   are compared with previews from the tracker's current direct-REDCap
+   implementation, for the same program year, hospital by hospital and period
+   by period. Where they disagree, one is wrong, and that is resolved before
+   the program moves over.

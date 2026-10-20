@@ -1,95 +1,155 @@
-# CPCQC Engagement Assessment Service
+# CPCQC Engagement Assessment
 
-A small service that reads REDCap and returns, per hospital per period, whether
-data was submitted, whether it was complete, and when it arrived. The CPCQC
-Engagement Tracker calls it instead of querying REDCap itself.
+A nightly script that reads REDCap and produces one file containing, for every
+program, hospital and period: whether data was submitted, whether it was
+complete, and when it arrived. The CPCQC Engagement Tracker builds its sync
+previews from that file.
 
-Interface: `docs/cha-sync-contract.md` in the tracker repository. This service
-implements **contract v1**.
+- **Plan, decisions and open questions:** `docs/partition-plan.md`
+- **File format:** `docs/cha-sync-contract.md` — this script implements **v2**
 
-**Status: SOAR only.** SPARK, NEST and TtT return a 400 saying so, rather than
-an empty result — an empty list would render in the tracker as every hospital
-having submitted nothing.
+> **Status: planned.** This directory currently holds an earlier prototype
+> written as a web service. It is being reworked into the nightly script
+> described here. The SOAR rules (`app/programs/soar.py`), the REDCap client's
+> logic, the crosswalk and the test cases carry over; the web service itself
+> (`app/main.py`, `app/auth.py`) does not. `.env.example` also still reflects
+> the prototype and will be replaced. Sections below describe the script as it
+> will be once reworked.
+
+---
+
+## Requirements
+
+Only packages already approved on CHA systems:
+
+| Package | Version |
+|---|---|
+| Python | 3.13.5 |
+| pandas | 2.2.3 |
+| requests | 2.32.3 |
+| python-dotenv | 1.1.0 |
+
+Nothing else. Tests use the standard library's `unittest`, so running them
+needs no further installation.
+
+pandas is available but not required by the rules. The reference
+implementation keeps the rules in plain Python so they read one-for-one against
+the tracker's own implementation, which makes the parity comparison easier to
+reason about.
 
 ---
 
 ## What it does and does not do
 
-**Does:** read REDCap, apply the program's required-field rules, aggregate per
-hospital-month, return counts and which fields were left blank.
+**Does:** read REDCap for each configured program, apply that program's
+required-field rules, aggregate per hospital per period, and write a file of
+counts, completeness verdicts and the fields left blank. Optionally deliver the
+file to the tracker.
 
 **Does not:** decide whether a submission was on time. Deadlines are CPCQC
-policy, they live on the tracker's task records, and they have changed by CPCQC
-decision mid-year. This service returns **when** data arrived and never judges
-it. You do not need to track CPCQC's deadline calendar.
+policy and stay in the tracker. The script reports **when** data arrived and
+never judges it, so it needs no knowledge of CPCQC's deadline calendar.
 
-**Never returns:** record identifiers, dates of birth or delivery, ages, race,
-ethnicity, language, payor, or free text from any record. The response carries
-counts, field names and field labels. A test asserts this
-(`test_response_never_carries_a_record_identifier`); please keep it passing.
-
----
-
-## Running it
-
-Requires Python 3.10+.
-
-```bash
-python3 -m venv .venv
-./.venv/bin/pip install -e ".[dev]"
-cp .env.example .env     # then fill in AUTH_TOKEN and REDCAP_SOAR_TOKEN
-./.venv/bin/uvicorn app.main:app --reload --port 8000
-```
-
-Check it:
-
-```bash
-curl localhost:8000/health
-```
-
-Ask it for an assessment:
-
-```bash
-curl -X POST localhost:8000/v1/engagement/assess \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"contract_version":"v1","program":"SOAR","program_year":2026}'
-```
-
-Tests:
-
-```bash
-./.venv/bin/python -m pytest tests/ -q
-```
+**Never writes:** record identifiers, dates of birth or delivery, ages, race,
+ethnicity, language, payor, or free text from any record. Records read from
+REDCap stay in memory; the output file is the only file the script writes.
 
 ---
 
 ## Configuration
 
-| Variable | Needed | Notes |
-|---|---|---|
-| `AUTH_TOKEN` | yes | Shared secret. The service refuses to start serving without it rather than running open. Give the same value to CPCQC for the tracker's environment. |
-| `REDCAP_SOAR_TOKEN` | yes | The SOAR project's API token. |
-| `REDCAP_API_URL` | no | Defaults to `https://redcap.vumc.org/api/`. |
+All settings come from the environment, or from a `.env` file beside the
+script. REDCap tokens are secrets and must never be committed.
 
-Rotating `AUTH_TOKEN` needs no deploy on either side — set the new value here
-and tell CPCQC to set it there.
+### Output and delivery — CHA's choice
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `OUTPUT_DIR` | **yes** | Where each night's file is written. Local disk or a mounted network share. CHA's retained copy. |
+| `DELIVERY_URL` | no | If set, the file is also POSTed here. If unset, nothing leaves CHA. |
+| `DELIVERY_TOKEN` | if `DELIVERY_URL` is set | Shared secret presented as `Authorization: Bearer <token>`. Agreed with CPCQC. |
+
+### REDCap
+
+| Variable | Program | Notes |
+|---|---|---|
+| `REDCAP_API_URL` | all | Defaults to `https://redcap.vumc.org/api/` |
+| `REDCAP_SPARK_TOKEN` | SPARK | |
+| `REDCAP_NEST_TOKEN` | NEST | |
+| `REDCAP_SOAR_TOKEN` | SOAR | |
+| `REDCAP_TTT_HOSPITAL_TOKEN` | TtT | Needs the **Logging** user right as well as export — see below |
+| `REDCAP_TTT_PATIENT_TOKEN` | TtT | |
+| `REDCAP_TTT_DYADIC_TOKEN` | TtT | CHoSEN Dyadic project, Denver Health only |
+| `REDCAP_TTT_DYADIC_API_URL` | TtT | Only if the Dyadic project is on a different REDCap instance |
+| `REDCAP_TTT_DYADIC_DH_DAG` | TtT | Denver Health's data access group in the Dyadic project. Defaults to `denver_health` |
+| `REDCAP_TIMEOUT` | all | Seconds per REDCap call. Defaults to 90 |
+
+### Scope
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PROGRAMS` | all implemented | Comma-separated subset, e.g. `SOAR,NEST` |
+| `PROGRAM_YEARS` | current, plus previous in Jan–Feb | Comma-separated override, e.g. `2026,2027` |
+
+A program whose token is not configured is skipped with a warning rather than
+failing the run.
 
 ---
 
-## The crosswalk — please check this first
+## Running it
 
-`app/crosswalk.soar.json` maps REDCap DAG → CHA ID. It was generated from the
-tracker's hospital records and **all 16 entries resolved to a CHA ID**.
+```bash
+python3.13 -m venv .venv
+./.venv/bin/pip install pandas==2.2.3 requests==2.32.3 python-dotenv==1.1.0
+cp .env.example .env        # then fill in OUTPUT_DIR and the tokens
+./.venv/bin/python run_assessment.py
+```
 
-**It almost certainly needs extending.** Your methodology document describes 37
-hospitals in the SOAR REDCap project; the tracker's map covers the 16 in the
-2026 active cohort. Any DAG with data but no crosswalk entry is reported in
-`warnings` and its rows are skipped — deliberately loud, because silently
-dropping a hospital would read as that hospital not submitting.
+Tests:
 
-Run an assessment against the live project and check `warnings`. Each one is a
-DAG that needs adding:
+```bash
+./.venv/bin/python -m unittest discover tests
+```
+
+### Scheduling
+
+Run once a night **after midnight Mountain time**. The tracker relies on a file
+produced the day after a deadline including everything submitted on the
+deadline day — it matters because finalizing a month in the tracker locks it.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Every program succeeded, and delivery succeeded if configured |
+| `1` | At least one program failed, or delivery failed. The file was still written. |
+| `2` | Configuration error — nothing was run |
+
+A scheduler configured to alert on a non-zero exit will catch REDCap failures,
+delivery failures and configuration mistakes. It cannot catch the script not
+running at all; the tracker checks for that separately.
+
+---
+
+## Output
+
+One file per run in `OUTPUT_DIR`:
+
+```
+engagement-assessment-20261020T080512Z.json
+```
+
+Each program and program year is a separate entry with its own status, so one
+program failing does not withhold the others. Format: `docs/cha-sync-contract.md`.
+
+Retention of these files is CHA's decision.
+
+---
+
+## Crosswalks
+
+Each program has a `crosswalk.<program>.json` mapping REDCap data access group
+to CHA ID:
 
 ```json
 {
@@ -99,74 +159,74 @@ DAG that needs adding:
 
 `hospital` is for human readability only; `cha_id` is the join key.
 
+A data access group with data but no crosswalk entry is reported in that run's
+`warnings` and its rows are skipped — deliberately loud, because silently
+dropping a hospital would read as that hospital not submitting.
+
+`crosswalk.soar.json` was generated from the tracker's hospital records and all
+16 entries resolved to a CHA ID. **It needs extending:** CHA's SOAR methodology
+describes 37 hospitals in that project, while the tracker's map covers the 2026
+active cohort. The first run against live REDCap will list every missing data
+access group in its warnings.
+
+---
+
+## Programs
+
+| Program | Status | Projects |
+|---|---|---|
+| SOAR | rules written; rework to script pending | SOAR |
+| NEST | to port | NEST |
+| SPARK | to port | SPARK |
+| TtT | to port, last | Hospital, Patient, CHoSEN Dyadic |
+
+### TtT spans three REDCap projects
+
+| | Hospital project | Patient project | CHoSEN Dyadic |
+|---|---|---|---|
+| Form | `co_aim_sud_learning_collaborative_monthly_hospital` | `co_aim_sud_quantitative_patientlevel_data` | `chosen_sud_maternal` |
+| Hospitals | all TtT | all except Denver Health | Denver Health only |
+| Eligibility field | — | `sample_check_patient` | `sample_check_mat` |
+| Qualifying substance codes | — | 1, 2, 4, 5, 6, 8, 9 | 1–6 |
+
+- **Do not unify the substance-code lists.** The checkbox is named
+  `substances_used_2___N` in both projects but the codes mean different things;
+  in Dyadic, 7 is alcohol, 8 nicotine and 9 cannabis, all excluded.
+- **Dyadic is shared with other collaboratives** — only Denver Health's data
+  access group is used.
+- **Dyadic's record-ID field may not be named `record_id`**, so it is not
+  requested by name.
+- **Submission dates come from REDCap's logging API** — the earliest
+  "Create Record" entry per record on the hospital project. The hospital-project
+  token needs the *Logging* user right. If the log is unavailable, timeliness
+  for that run is reported as unknown rather than failing TtT.
+- **Required fields come from the live data dictionary** — fields marked
+  required on the monthly hospital form, excluding `@HIDDEN` fields and
+  `tot_anx_scrnd`.
+
 ---
 
 ## How the rules are implemented
 
-`app/programs/soar.py` is a port of the tracker's `soar-engagement.ts`, which in
-turn follows your SOAR methodology document. It implements:
-
-- required fields per the methodology, `@HIDDEN` already excluded
-- `admit_reason` including option 4 ("For induction") requiring the induction
-  detail checkboxes
-- the `c_sect_indication_primary` branches 1/2/3 and their conditional fields
-- the No-NTSV zero-case attestation counting as a complete submission
-- reporting month from `delivery_date` for NTSV, `month_year_nontsv` for No-NTSV
-- the attestation-first fallback for rows with no repeat instrument — your note
-  about Prowers' February attestation being dropped
-
-If any of that disagrees with your pipeline, **your pipeline is the reference**
-for the rules and the tracker is the reference for the output shape. Tell us
-which and we will fix whichever is wrong.
+Each program's rules are ported from the tracker's implementation, which in
+turn follows CHA's methodology documents. Where a port disagrees with CHA's
+own pipeline, **CHA's pipeline is the reference for the rules** and the tracker
+is the reference for the output shape. Disagreements are resolved explicitly
+rather than worked around.
 
 ### Minimum necessary
 
-`MINIMUM_FIELDS` in `app/programs/soar.py` lists exactly the fields the rules
-read. `export_records` sends a field list and **no `forms` parameter** —
-REDCap returns the union of named fields and every field on a named form, so
-sending both restricts nothing. If you add a required field to the rules, add
-it to `MINIMUM_FIELDS` too or it will read as permanently blank.
+Each program lists exactly the fields its rules read. REDCap exports name those
+fields and send **no `forms` parameter** — REDCap returns the union of named
+fields and every field on a named form, so sending both restricts nothing. If a
+required field is added to a program's rules, add it to that program's field
+list too, or it will read as permanently blank.
 
 ---
 
-## Deployment
+## Before a program moves over: parity
 
-The tracker calls this over HTTPS, so it needs a reachable TLS endpoint. It
-holds a REDCap token that reaches patient-level data, so:
-
-- terminate TLS properly; no plain HTTP
-- restrict inbound access if you can — an IP allowlist for the tracker's egress
-  is stronger than the bearer token alone, and CPCQC can supply those addresses
-- keep `AUTH_TOKEN` and the REDCap token in the environment, never in the repo
-- the service writes nothing and stores nothing; there is no database
-
-Any Python host works — a container, a VM, or a managed platform. It is a
-single process with no background jobs, called only when a CPCQC program
-manager runs a sync.
-
----
-
-## Before cutover: parity
-
-The tracker currently computes these assessments itself. Both implementations
-should run against the same program year and be compared hospital by hospital,
-period by period, until they agree. Where they disagree, one is wrong and we
-need to know which before these numbers reach a funder or the state.
-
-CPCQC will run that comparison; what we need from you is a reachable instance
-and the `AUTH_TOKEN`.
-
----
-
-## Open questions for you
-
-1. **Hospital identifier.** `cha_id` is a string here, not an integer. The
-   UCHealth Memorial campus split needs identifiers CHA's master list does not
-   currently contain, and the chosen scheme may not be numeric.
-2. **Authentication.** Bearer token is proposed. If you can support mutual TLS
-   or an IP allowlist, either is stronger.
-3. **HRA / readiness assessment.** Not covered. It is annual rather than
-   monthly and is handled separately today; confirm whether it moves here too.
-4. **The remaining programs.** SPARK, NEST and TtT still need porting. TtT is
-   the awkward one: it spans two REDCap projects and its linkage rule needs
-   patient-level counts, which is exactly why that calculation belongs here.
+For each program, the tracker compares previews built from this script's file
+with previews from its own direct-REDCap implementation, for the same program
+year, hospital by hospital and period by period. A program moves over only
+once they agree.
