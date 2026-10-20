@@ -8,13 +8,8 @@ previews from that file.
 - **Plan, decisions and open questions:** `docs/partition-plan.md`
 - **File format:** `docs/cha-sync-contract.md` — this script implements **v2**
 
-> **Status: planned.** This directory currently holds an earlier prototype
-> written as a web service. It is being reworked into the nightly script
-> described here. The SOAR rules (`app/programs/soar.py`), the REDCap client's
-> logic, the crosswalk and the test cases carry over; the web service itself
-> (`app/main.py`, `app/auth.py`) does not. `.env.example` also still reflects
-> the prototype and will be replaced. Sections below describe the script as it
-> will be once reworked.
+**Status:** SOAR is implemented. NEST, SPARK and TtT follow, each after SOAR
+has been shown to agree with the tracker's current results.
 
 ---
 
@@ -25,17 +20,17 @@ Only packages already approved on CHA systems:
 | Package | Version |
 |---|---|
 | Python | 3.13.5 |
-| pandas | 2.2.3 |
 | requests | 2.32.3 |
 | python-dotenv | 1.1.0 |
 
-Nothing else. Tests use the standard library's `unittest`, so running them
-needs no further installation.
+`requests` brings its usual dependencies (`certifi`, `charset-normalizer`,
+`idna`, `urllib3`). Nothing else is installed. pandas 2.2.3 is also approved
+but is not used: the rules are kept in plain Python so they read one-for-one
+against the tracker's own implementation, which keeps the parity comparison
+easy to reason about.
 
-pandas is available but not required by the rules. The reference
-implementation keeps the rules in plain Python so they read one-for-one against
-the tracker's own implementation, which makes the parity comparison easier to
-reason about.
+Tests use the standard library's `unittest`, so running them needs nothing
+further.
 
 ---
 
@@ -56,51 +51,11 @@ REDCap stay in memory; the output file is the only file the script writes.
 
 ---
 
-## Configuration
-
-All settings come from the environment, or from a `.env` file beside the
-script. REDCap tokens are secrets and must never be committed.
-
-### Output and delivery — CHA's choice
-
-| Variable | Required | Meaning |
-|---|---|---|
-| `OUTPUT_DIR` | **yes** | Where each night's file is written. Local disk or a mounted network share. CHA's retained copy. |
-| `DELIVERY_URL` | no | If set, the file is also POSTed here. If unset, nothing leaves CHA. |
-| `DELIVERY_TOKEN` | if `DELIVERY_URL` is set | Shared secret presented as `Authorization: Bearer <token>`. Agreed with CPCQC. |
-
-### REDCap
-
-| Variable | Program | Notes |
-|---|---|---|
-| `REDCAP_API_URL` | all | Defaults to `https://redcap.vumc.org/api/` |
-| `REDCAP_SPARK_TOKEN` | SPARK | |
-| `REDCAP_NEST_TOKEN` | NEST | |
-| `REDCAP_SOAR_TOKEN` | SOAR | |
-| `REDCAP_TTT_HOSPITAL_TOKEN` | TtT | Needs the **Logging** user right as well as export — see below |
-| `REDCAP_TTT_PATIENT_TOKEN` | TtT | |
-| `REDCAP_TTT_DYADIC_TOKEN` | TtT | CHoSEN Dyadic project, Denver Health only |
-| `REDCAP_TTT_DYADIC_API_URL` | TtT | Only if the Dyadic project is on a different REDCap instance |
-| `REDCAP_TTT_DYADIC_DH_DAG` | TtT | Denver Health's data access group in the Dyadic project. Defaults to `denver_health` |
-| `REDCAP_TIMEOUT` | all | Seconds per REDCap call. Defaults to 90 |
-
-### Scope
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `PROGRAMS` | all implemented | Comma-separated subset, e.g. `SOAR,NEST` |
-| `PROGRAM_YEARS` | current, plus previous in Jan–Feb | Comma-separated override, e.g. `2026,2027` |
-
-A program whose token is not configured is skipped with a warning rather than
-failing the run.
-
----
-
 ## Running it
 
 ```bash
 python3.13 -m venv .venv
-./.venv/bin/pip install pandas==2.2.3 requests==2.32.3 python-dotenv==1.1.0
+./.venv/bin/pip install -r requirements.txt
 cp .env.example .env        # then fill in OUTPUT_DIR and the tokens
 ./.venv/bin/python run_assessment.py
 ```
@@ -122,12 +77,69 @@ deadline day — it matters because finalizing a month in the tracker locks it.
 | Code | Meaning |
 |---|---|
 | `0` | Every program succeeded, and delivery succeeded if configured |
-| `1` | At least one program failed, or delivery failed. The file was still written. |
+| `1` | At least one program failed, or delivery failed — the file was still written. Or the file could not be written, in which case nothing was delivered. |
 | `2` | Configuration error — nothing was run |
 
 A scheduler configured to alert on a non-zero exit will catch REDCap failures,
 delivery failures and configuration mistakes. It cannot catch the script not
-running at all; the tracker checks for that separately.
+running at all; the tracker shows every file's age for that reason.
+
+### What it logs
+
+To standard error: the programs and years in scope, each program's outcome
+with counts, its warnings, where the file was written, and the delivery
+outcome. Never a token, never record content. Unexpected errors are logged by
+type and code location only, because a Python error message can quote the
+value that caused it.
+
+---
+
+## Configuration
+
+All settings come from the environment, or from a `.env` file beside
+`run_assessment.py`. A value already set in the environment takes precedence
+over the file. REDCap tokens are secrets and must never be committed.
+
+Every problem is reported at once, and the script exits with code `2` without
+contacting REDCap.
+
+### Output and delivery — CHA's choice
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `OUTPUT_DIR` | **yes** | Where each night's file is written. Local disk or a mounted network share. CHA's retained copy. **Must already exist** — the script does not create it, so an unmounted share is an error rather than an empty local folder. |
+| `DELIVERY_URL` | no | If set, the file is also POSTed here. If unset, nothing leaves CHA. Must be `https://` (`http://localhost` is accepted, for testing). |
+| `DELIVERY_TOKEN` | if `DELIVERY_URL` is set | Shared secret presented as `Authorization: Bearer <token>`. Agreed with CPCQC. |
+
+Both delivery values are supplied by CPCQC.
+
+### REDCap
+
+| Variable | Program | Notes |
+|---|---|---|
+| `REDCAP_API_URL` | all | Defaults to `https://redcap.vumc.org/api/`. Must be `https://`. |
+| `REDCAP_SOAR_TOKEN` | SOAR | |
+| `REDCAP_NEST_TOKEN` | NEST | Not yet used |
+| `REDCAP_SPARK_TOKEN` | SPARK | Not yet used |
+| `REDCAP_TTT_HOSPITAL_TOKEN` | TtT | Not yet used. Will need the **Logging** user right as well as export — see below |
+| `REDCAP_TTT_PATIENT_TOKEN` | TtT | Not yet used |
+| `REDCAP_TTT_DYADIC_TOKEN` | TtT | Not yet used. CHoSEN Dyadic project, Denver Health only |
+| `REDCAP_TTT_DYADIC_API_URL` | TtT | Only if the Dyadic project is on a different REDCap instance |
+| `REDCAP_TTT_DYADIC_DH_DAG` | TtT | Denver Health's data access group in the Dyadic project. Defaults to `denver_health` |
+| `REDCAP_TIMEOUT` | all | Seconds per REDCap call, 1–3600. Defaults to 90 |
+
+A token is checked for shape — 32 hexadecimal characters — but never echoed,
+not even in an error message.
+
+### Scope
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PROGRAMS` | every implemented program whose token is set | Comma-separated, e.g. `SOAR`. Naming a program that is not implemented yet, or whose token is not set, is a configuration error. |
+| `PROGRAM_YEARS` | the current year, plus the previous one in January and February | Comma-separated, e.g. `2025,2026`. A year that has not started is refused. |
+
+With `PROGRAMS` unset, a program whose token is missing is skipped with a
+warning in the log rather than failing the run.
 
 ---
 
@@ -136,28 +148,45 @@ running at all; the tracker checks for that separately.
 One file per run in `OUTPUT_DIR`:
 
 ```
-engagement-assessment-20261020T080512Z.json
+engagement-assessment-20261020T070512Z.json
 ```
+
+The timestamp is the file's `generated_at`: the moment **before** the script's
+first REDCap read, so everything submitted before it is in the file.
+
+The file is written as `.engagement-assessment-….json.partial` and renamed
+once complete, so anything watching the directory never sees a half-written
+file. An existing file is never overwritten.
 
 Each program and program year is a separate entry with its own status, so one
 program failing does not withhold the others. Format: `docs/cha-sync-contract.md`.
 
 Retention of these files is CHA's decision.
 
+### Delivery
+
+When `DELIVERY_URL` is set, the file's exact bytes are POSTed there. A server
+error or no response is retried twice, after 30 seconds and then 2 minutes. A
+refusal (`400`), a rejected token (`401`/`403`) or a redirect is not retried —
+the log says why. Redirects are never followed. The tracker stores a file once
+however many times it arrives, so a retry or a hand-started run is always safe.
+
 ---
 
 ## Crosswalks
 
-Each program has a `crosswalk.<program>.json` mapping REDCap data access group
-to CHA ID:
+Each program has an `app/crosswalk.<program>.json` mapping REDCap data access
+group to CHA ID:
 
 ```json
 {
-  "some_dag": { "cha_id": "428", "hospital": "Some Hospital" }
+  "some_dag": { "cha_id": "EX-001", "hospital": "Some Hospital" }
 }
 ```
 
-`hospital` is for human readability only; `cha_id` is the join key.
+`hospital` is for human readability only; `cha_id` is the join key. Two data
+access groups mapping to one CHA ID is refused, since it would merge their
+data.
 
 A data access group with data but no crosswalk entry is reported in that run's
 `warnings` and its rows are skipped — deliberately loud, because silently
@@ -165,9 +194,10 @@ dropping a hospital would read as that hospital not submitting.
 
 `crosswalk.soar.json` was generated from the tracker's hospital records and all
 16 entries resolved to a CHA ID. **It needs extending:** CHA's SOAR methodology
-describes 37 hospitals in that project, while the tracker's map covers the 2026
-active cohort. The first run against live REDCap will list every missing data
-access group in its warnings.
+describes 37 hospitals in that project, while this map covers the 2026 active
+cohort. The first run against live REDCap will list every missing data access
+group in its warnings. Assessing every hospital in the project is intended —
+the tracker decides which are in an active cohort.
 
 ---
 
@@ -175,10 +205,23 @@ access group in its warnings.
 
 | Program | Status | Projects |
 |---|---|---|
-| SOAR | rules written; rework to script pending | SOAR |
+| SOAR | implemented | SOAR |
 | NEST | to port | NEST |
 | SPARK | to port | SPARK |
 | TtT | to port, last | Hospital, Patient, CHoSEN Dyadic |
+
+### SOAR
+
+- **Submitted:** at least one NTSV case in the month, or a zero-case
+  attestation. A case's month comes from its delivery date; an attestation's
+  from its month field.
+- **Complete:** every NTSV case passes the required-field rules, including the
+  branching on admission reason and primary indication. An attestation decides
+  only a month with no cases.
+- **Earliest submission date:** the earliest `date` (REDCap `@TODAY`) across
+  the month's records. A value that is not a real calendar date is ignored.
+- **Notes**, as counts, never values: NTSV cases whose delivery date is after
+  the run date, and records whose submission date is not a valid date.
 
 ### TtT spans three REDCap projects
 
@@ -214,13 +257,32 @@ own pipeline, **CHA's pipeline is the reference for the rules** and the tracker
 is the reference for the output shape. Disagreements are resolved explicitly
 rather than worked around.
 
+One known difference, by design: a submission date with an impossible day
+(`2026-02-30`) is ignored here, where the tracker's date parser rolls it over
+into March. `@TODAY` cannot produce such a value.
+
 ### Minimum necessary
 
-Each program lists exactly the fields its rules read. REDCap exports name those
-fields and send **no `forms` parameter** — REDCap returns the union of named
-fields and every field on a named form, so sending both restricts nothing. If a
-required field is added to a program's rules, add it to that program's field
-list too, or it will read as permanently blank.
+Each program lists exactly the fields its rules read (`MINIMUM_FIELDS`).
+REDCap exports name those fields and send **no `forms` parameter** — REDCap
+returns the union of named fields and every field on a named form, so sending
+both restricts nothing. If a required field is added to a program's rules, add
+it to that program's field list too, or it will read as permanently blank; a
+test checks the two agree.
+
+### Layout
+
+| | |
+|---|---|
+| `run_assessment.py` | Entry point |
+| `app/config.py` | Settings, validated together |
+| `app/redcap.py` | REDCap API client |
+| `app/programs/` | One module per program; `__init__.py` describes the interface |
+| `app/runner.py` | Runs each program and year; one failing does not stop the others |
+| `app/models.py` | The file's shapes, serialised key by key |
+| `app/output.py` | Writes the file |
+| `app/delivery.py` | Delivers it |
+| `tests/` | Synthetic records only |
 
 ---
 

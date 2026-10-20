@@ -1,6 +1,7 @@
 # REDCap partition — plan
 
-**Status:** for review — nothing in this document has been built yet
+**Status:** phases 1 and 2 are built for SOAR and await their checkpoints —
+see "Build phases" 
 **Date:** 20 October 2026
 **Supersedes:** the on-demand assessment service described in contract v1
 
@@ -93,6 +94,10 @@ is delivered to somewhere the tracker can reach.
 This keeps CHA in full control of both where the file lives and whether it is
 sent, and it needs nothing beyond `requests`.
 
+**Built as proposed.** The tracker receives the file at
+`/integrations/cha/assessment-files`, authenticated with a token shared with
+CHA.
+
 **For review:** whether CHA IT is content with an outbound HTTPS POST to the
 tracker, or has a different shared location in mind. A different location is
 possible but changes both sides — another library at CHA, and a matching reader
@@ -175,7 +180,9 @@ Three layers, not mutually exclusive:
 | **C** | A small daily job on the tracker side checks the newest file's age and emails a configured address when it is stale | Everything, including the script never running, without anyone having to look | A Render cron job; uses the tracker's existing email |
 
 **Proposed:** B always; C as the proactive alert, because it catches the case
-A cannot; A at CHA's discretion. The recipient for C could be Luis, a CPCQC
+A cannot; A at CHA's discretion. **B is built:** every SOAR preview shows when
+CHA's file was produced and how old it is, warns when it is more than 30 hours
+old, and warns when a newer run for that program failed. The recipient for C could be Luis, a CPCQC
 address, or both.
 
 **For review:** who receives the alert, and whether C is worth a Render cron
@@ -221,8 +228,14 @@ not submitted, and the lock stops the following night's file from correcting
 it. Running after midnight means a file produced the day after a deadline
 includes everything submitted on the deadline day.
 
-As a backstop, the tracker will **warn when a month is finalized from a file
-produced before the end of that month's deadline day**.
+As a backstop, the tracker **asks for confirmation before finalizing a month
+whose tasks were last synced from data produced before the end of that
+month's deadline day**, Mountain time — the same confirm-to-lock step it
+already uses for a month with unresolved tasks. Every Apply records, for each
+month it covered, when its data was produced and the deadline it was judged
+against; finalizing checks the most recent. Per month rather than per task,
+because an Apply leaves unchanged tasks untouched although the newer data
+confirmed them.
 
 **Year rollover.** December's data arrives in January, and submissions can be
 late. The script should compute the previous program year as well as the
@@ -252,13 +265,14 @@ Each phase ends at a checkpoint before the next starts.
 1. **CHA script, SOAR only.** Rework the existing SOAR code into a command-line
    script using only the approved packages. Writes the file to `OUTPUT_DIR`;
    POSTs to `DELIVERY_URL` when set.
-   *Checkpoint:* runs at CHA against live REDCap; the file is reviewed by CHA.
+   *Built.* *Checkpoint:* runs at CHA against live REDCap; the file is
+   reviewed by CHA.
 
 2. **Tracker receives and uses the file.** Ingest endpoint, storage table,
    strict validation, the SOAR sync reading the newest file on the Engagement
    Tracker Workspace, file age on every preview, the finalization warning.
-   *Checkpoint:* a SOAR preview renders on the Engagement Tracker Workspace
-   from a delivered file.
+   *Built.* *Checkpoint:* a SOAR preview renders on the Engagement Tracker
+   Workspace from a delivered file.
 
 3. **SOAR parity.** Compare SOAR previews from My Workspace (direct REDCap)
    and the Engagement Tracker Workspace (CHA file) for the same program year,
@@ -295,3 +309,14 @@ Each phase ends at a checkpoint before the next starts.
 10. **Crosswalks** — the SOAR crosswalk covers 16 data access groups; CHA's
     methodology describes 37 hospitals in that project. Each program needs a
     complete crosswalk.
+11. **The year of a SOAR zero-case attestation** — needs an answer before
+    January. The No-NTSV form records a month but no year, so the year is
+    taken from the program year being assessed; the tracker does the same
+    today. In January and February the script assesses two program years,
+    so each attestation is counted in both: one entered in August 2026 for
+    July appears as a July 2026 submission and as a July 2027 one, and 2027
+    months would show as submitted before they have begun. How does CHA's own
+    pipeline assign the year? A proposed rule: an attestation belongs to the
+    most recent occurrence of its month on or before the date it was entered.
+    Whatever is chosen, the script and the tracker change together, so parity
+    holds.

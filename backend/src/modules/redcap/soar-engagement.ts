@@ -311,7 +311,7 @@ export interface SoarCell {
   daysFromDeadline: number | null;
   deadline: string;
   /**
-   * Set only when the cell came from the CHA assessment service, which sends
+   * Set only when the cell came from CHA's assessment file, which sends
    * missing fields already grouped. The REDCap path leaves it undefined and
    * the sync derives groups from `incompleteRows` instead.
    */
@@ -320,6 +320,12 @@ export interface SoarCell {
     records: number;
     fields: Array<{ field: string; label: string }>;
   }>;
+  /**
+   * CHA's per-hospital diagnostics — future-dated cases, unusable submission
+   * dates — as counts. The REDCap path reports the same through `futureDated`
+   * and `invalidDate` and leaves this undefined.
+   */
+  notes?: string[];
 }
 
 export function dayDiff(aIso: string, bIso: string): number {

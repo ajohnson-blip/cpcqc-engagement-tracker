@@ -31,7 +31,8 @@ import { logger } from '@/config/logger.js';
 import { exportRecords, exportMetadata } from './redcap.client.js';
 import { buildSoarGrid, monthDeadline, SOAR_MINIMUM_FIELDS, type SoarCell } from './soar-engagement.js';
 import { soarCellsFromAssessments } from './cha-assessment.js';
-import { fetchAssessment } from './cha-assessment.client.js';
+import { chaRunForSync } from './cha-snapshot.service.js';
+import { describeSource, type SyncDataSource } from './data-as-of.js';
 import {
   dispositionToTask,
   isHumanEdit,
@@ -182,6 +183,8 @@ export interface SoarSyncResult {
   programYear: number;
   periodsInScope: string[];
   recordsFetched: number;
+  /** Where the grid came from and how old it is. Always shown on the preview. */
+  dataSource: SyncDataSource;
   rows: SoarSyncRow[];
   /** Genuinely actionable items (unexpected DAGs, future-date typos, etc.). */
   warnings: string[];
@@ -385,13 +388,20 @@ export interface RunSoarSyncOptions {
    * the environment is equipped to do rather than a per-run preference.
    */
   source?: 'redcap' | 'cha';
+  /**
+   * CHA path only: build from this file rather than the newest. An apply
+   * passes the snapshot its preview was built from, so what is applied is what
+   * was reviewed even if a newer file arrived in between.
+   */
+  snapshotId?: string;
 }
 
 export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarSyncResult> {
   // Paused by CPCQC — see sync-gate.ts. Checked here too, not only
   // at the route, so no other caller can reach REDCap while paused.
   assertSyncEnabled();
-  if ((opts.source ?? env.SYNC_SOURCE) === 'redcap' && !env.REDCAP_SOAR_TOKEN) {
+  const source = opts.source ?? env.SYNC_SOURCE;
+  if (source === 'redcap' && !env.REDCAP_SOAR_TOKEN) {
     throw new HttpError(
       400,
       'REDCAP_SOAR_TOKEN is not configured on the server. Add it as a Render environment variable.',
@@ -404,11 +414,13 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
 
   // Field labels from the live data dictionary, so staff read "Date of
   // delivery" rather than delivery_date_1. Best-effort: a failure here must not
-  // stop a sync, it just falls back to the variable names.
+  // stop a sync, it just falls back to the variable names. REDCap path only:
+  // CHA's file carries its own labels, and that path never contacts REDCap,
+  // whatever tokens the environment happens to hold.
   const fieldLabels = new Map<string, string>();
   const redcapToken = env.REDCAP_SOAR_TOKEN;
   try {
-    const meta = redcapToken ? await exportMetadata({ token: redcapToken }) : [];
+    const meta = source === 'redcap' && redcapToken ? await exportMetadata({ token: redcapToken }) : [];
     for (const m of meta) {
       const name = String(m['field_name'] ?? '').trim();
       const label = String(m['field_label'] ?? '').replace(/<[^>]*>/g, '').trim();
@@ -423,12 +435,12 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
   let grid: Map<string, SoarCell>;
   let recordsRead = 0;
   // Only the REDCap path has raw records; the DAG scan below is skipped on the
-  // CHA path, where the service reports unknown DAGs in its own warnings.
+  // CHA path, where CHA's file reports unknown DAGs in its own warnings.
   let soarRecords: Array<Record<string, string | null | undefined>> = [];
-  const source = opts.source ?? env.SYNC_SOURCE;
+  let dataSource: SyncDataSource;
   if (source === 'cha') {
-    // The service keys by CHA id; the grid and the sync key by DAG, so build
-    // the translation from the hospitals the tracker already knows.
+    // CHA keys by CHA id; the grid and the sync key by DAG, so build the
+    // translation from the hospitals the tracker already knows.
     const chaIdToDag = new Map<string, string>();
     const allHospitals = await db.select().from(schema.hospitals);
     const byNameLower = new Map(allHospitals.map((h) => [h.name.toLowerCase(), h]));
@@ -436,19 +448,43 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
       const cha = byNameLower.get(name.toLowerCase())?.chaHospitalId;
       if (cha) chaIdToDag.set(String(cha), dag);
     }
-    const response = await fetchAssessment({ program: 'SOAR', programYear });
-    const adapted = soarCellsFromAssessments(response.assessments, chaIdToDag);
+    const { run, warnings: runWarnings } = await chaRunForSync('SOAR', programYear, opts.snapshotId);
+    const adapted = soarCellsFromAssessments(run.assessments, chaIdToDag);
     grid = adapted.cells;
-    recordsRead = response.source.records_read;
-    warnings.push(...response.warnings);
-    for (const chaId of adapted.unmappedChaIds) {
+    recordsRead = run.recordsRead ?? 0;
+    dataSource = describeSource('cha', run.generatedAt, {
+      snapshotId: run.snapshotId,
+      generatorVersion: run.generatorVersion,
+      methodologyVersion: run.methodologyVersion,
+    });
+    if (dataSource.stale) {
       warnings.push(
-        `Assessment service returned CHA id ${chaId}, which no tracker hospital claims — its rows were skipped.`,
+        `CHA's newest SOAR ${programYear} file is ${Math.floor(dataSource.ageHours)} hours old — at least one ` +
+          `nightly run is missing. Check with CHA before applying.`,
+      );
+    }
+    warnings.push(...runWarnings, ...run.warnings.map((w) => `CHA: ${w}`));
+    // CHA's file covers every hospital in the REDCap project; only the active
+    // cohort has monthly tasks. A hospital the tracker knows is an expected
+    // skip, as the REDCap path treats known non-active DAGs; a CHA id no
+    // hospital carries needs looking into.
+    const knownChaIds = new Set(allHospitals.map((h) => h.chaHospitalId).filter(Boolean).map(String));
+    let notActive = 0;
+    for (const chaId of adapted.unmappedChaIds) {
+      if (knownChaIds.has(chaId)) notActive += 1;
+      else
+        warnings.push(
+          `CHA's file has SOAR data for CHA ID ${chaId}, which no tracker hospital carries — its rows were skipped.`,
+        );
+    }
+    if (notActive > 0) {
+      notes.push(
+        `Skipped ${notActive} hospital${notActive === 1 ? '' : 's'} in CHA's file not in SOAR's active cohort — expected.`,
       );
     }
     notes.push(
-      `Grid from the CHA assessment service (methodology ${response.methodology_version}, ` +
-        `${recordsRead} records read, computed ${response.computed_at}).`,
+      `Built from CHA's assessment file of ${run.generatedAt} (script ${run.generatorVersion}, methodology ` +
+        `${run.methodologyVersion}, ${recordsRead} REDCap records read at CHA).`,
     );
   } else {
     // Guarded above, but narrow it here too: this deployment's whole reason for
@@ -462,6 +498,8 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
     soarRecords = records;
     recordsRead = records.length;
     grid = buildSoarGrid(records, { year: programYear, todayIso: today });
+    // fetchedAt is taken before the read, so it is a safe "as of".
+    dataSource = describeSource('redcap', fetchedAt);
   }
 
   const hospitals = await db.select().from(schema.hospitals);
@@ -574,6 +612,8 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
           `${hospitalName} ${period}: a submission-date field isn't a valid date — timeliness may be affected. Fix the date in REDCap.`,
         );
       }
+      // The CHA path reports the same two checks as counted notes.
+      for (const note of cell?.notes ?? []) warnings.push(`${hospitalName} ${period}: ${note}`);
 
       const tiRows = await db
         .select({ ti: schema.taskInstances })
@@ -721,6 +761,12 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
               daysFromDeadline: effCell?.daysFromDeadline ?? null,
               submissionDate: subDate,
               syncedAt: fetchedAt,
+              // Which data this state came from — on the CHA path, which file.
+              dataSource: {
+                kind: dataSource.kind,
+                snapshotId: dataSource.snapshotId,
+                generatedAt: dataSource.generatedAt,
+              },
               ...(override
                 ? {
                     override: {
@@ -737,6 +783,39 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
         );
       }
     }
+  }
+
+  // One record per month an apply covered, saying what data it rested on.
+  // Finalizing checks the latest, to catch data produced before the deadline
+  // day ended. Per month rather than per task: an apply leaves unchanged tasks
+  // untouched, yet the data confirmed them just the same.
+  if (!opts.dryRun && periodsInScope.length > 0) {
+    await db.insert(schema.auditLog).values(
+      periodsInScope.map((period) => {
+        const changed = rows.filter((r) => r.period === period && r.willChange).length;
+        return {
+          id: uuid(),
+          actorUserId: opts.actorUserId ?? null,
+          actorRole: 'cpcqc_staff',
+          action: 'redcap.sync_applied',
+          entityType: 'task_period',
+          entityId: `SOAR:${period}`,
+          diff: {
+            dataSource: {
+              kind: dataSource.kind,
+              snapshotId: dataSource.snapshotId,
+              generatedAt: dataSource.generatedAt,
+            },
+            deadline: deadlineFor(period, periodDueOn.get(period) ?? null),
+            changed,
+          },
+          note:
+            `Applied SOAR ${period} from ` +
+            (dataSource.kind === 'cha' ? `CHA's file of ${dataSource.generatedAt}` : `REDCap, read ${dataSource.generatedAt}`) +
+            ` (${changed} task${changed === 1 ? '' : 's'} changed).`,
+        };
+      }),
+    );
   }
 
   const counts = {
@@ -760,6 +839,7 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
     programYear,
     periodsInScope,
     recordsFetched: recordsRead,
+    dataSource,
     rows,
     warnings,
     notes,

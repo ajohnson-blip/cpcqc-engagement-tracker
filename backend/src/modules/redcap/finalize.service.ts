@@ -3,10 +3,14 @@
  * is finalized, the sync leaves those tasks alone — no recompute, no overwrite —
  * so PMs don't have to re-review months they've already signed off on. Reversible.
  */
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
+import { predatesDeadlineDayEnd } from './data-as-of.js';
+
+const inMountainTime = (iso: string) =>
+  new Date(iso).toLocaleString('en-US', { timeZone: 'America/Denver', dateStyle: 'medium', timeStyle: 'short' });
 
 export async function setPeriodFinalized(opts: {
   initiativeCode: 'SPARK' | 'NEST' | 'SOAR' | 'TTT';
@@ -19,6 +23,11 @@ export async function setPeriodFinalized(opts: {
    * refused — see the 409 below.
    */
   acknowledgeUnresolved?: boolean;
+  /**
+   * Set once the caller has been told the month's tasks were synced from data
+   * produced before the deadline day ended, and chosen to lock anyway.
+   */
+  acknowledgeEarlyData?: boolean;
 }): Promise<{ affected: number; finalized: boolean; finalizedBy: string | null; unresolved: number }> {
   const init = await db.query.initiatives.findFirst({
     where: eq(schema.initiatives.code, opts.initiativeCode),
@@ -75,6 +84,38 @@ export async function setPeriodFinalized(opts: {
     );
   }
 
+  // Data produced before the deadline day ended can lack a submission made
+  // late that day, and locking would keep it out. The question is what the
+  // month was last APPLIED from — likelier to bite since CHA's file arrives
+  // nightly: a file made at 11pm, applied the next morning, misses an 11:30pm
+  // submission. Months last applied before syncs recorded this are not checked.
+  const [lastApply] = await db
+    .select({ diff: schema.auditLog.diff })
+    .from(schema.auditLog)
+    .where(
+      and(
+        eq(schema.auditLog.action, 'redcap.sync_applied'),
+        eq(schema.auditLog.entityType, 'task_period'),
+        eq(schema.auditLog.entityId, `${opts.initiativeCode}:${opts.period}`),
+      ),
+    )
+    .orderBy(desc(schema.auditLog.createdAt))
+    .limit(1);
+  const applied = lastApply?.diff as { deadline?: unknown; dataSource?: { generatedAt?: unknown } } | undefined;
+  const asOf = applied?.dataSource?.generatedAt;
+  const deadline = applied?.deadline;
+  const earlyData =
+    typeof asOf === 'string' && typeof deadline === 'string' && predatesDeadlineDayEnd(asOf, deadline);
+  if (opts.finalize && earlyData && !opts.acknowledgeEarlyData) {
+    throw new HttpError(
+      409,
+      `${opts.initiativeCode} ${opts.period} was last applied from data produced ${inMountainTime(asOf as string)} ` +
+        `Mountain time — before the end of its deadline day, ${deadline as string}. A submission made later that day ` +
+        `could be missing, and finalizing would lock it out. Apply a newer file first, or confirm to lock the month anyway.`,
+      { reason: 'data_predates_deadline', asOf, deadline },
+    );
+  }
+
   const now = new Date();
   await db
     .update(schema.taskInstances)
@@ -94,7 +135,7 @@ export async function setPeriodFinalized(opts: {
     action: opts.finalize ? 'redcap.period_finalized' : 'redcap.period_unlocked',
     entityType: 'task_period',
     entityId: `${opts.initiativeCode}:${opts.period}`,
-    diff: { affected: ids.length, unresolved, finalized: opts.finalize },
+    diff: { affected: ids.length, unresolved, earlyData, finalized: opts.finalize },
     note: opts.finalize
       ? `Finalized ${opts.initiativeCode} ${opts.period} (${ids.length} tasks, ${unresolved} unresolved at lock time)${byLabel ? ` by ${byLabel}` : ''}.`
       : `Unlocked ${opts.initiativeCode} ${opts.period} (${ids.length} tasks) — the sync will update them again.`,

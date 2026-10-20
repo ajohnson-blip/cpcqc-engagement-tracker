@@ -14,6 +14,7 @@ import express from 'express';
 import { z } from 'zod';
 import ExcelJS from 'exceljs';
 import { requireAuth, requireStaff } from '@/middleware/auth.js';
+import { env } from '@/config/env.js';
 import { HttpError } from '@/middleware/errors.js';
 import { importPmWorkbook } from './pm-workbook.service.js';
 import { runSparkRedcapSync } from '@/modules/redcap/spark-sync.service.js';
@@ -102,11 +103,16 @@ router.post(
 /**
  * GET /staff/imports/redcap/status
  *
- * Whether syncing is currently available. Lets the UI explain the pause before
- * a PM clicks Run rather than after.
+ * Whether syncing is currently available, and where this deployment's syncs
+ * get their data. Lets the UI explain the pause before a PM clicks Run rather
+ * than after, and say "CHA's file" rather than "REDCap" where that is true.
  */
 router.get('/redcap/status', requireAuth, requireStaff, (_req, res) => {
-  res.json({ enabled: syncEnabled(), message: syncEnabled() ? null : SYNC_PAUSED_MESSAGE });
+  res.json({
+    enabled: syncEnabled(),
+    message: syncEnabled() ? null : SYNC_PAUSED_MESSAGE,
+    source: env.SYNC_SOURCE,
+  });
 });
 
 /**
@@ -158,10 +164,17 @@ router.post('/redcap/nest', requireAuth, requireStaff, express.json(), async (re
 router.post('/redcap/soar', requireAuth, requireStaff, express.json(), async (req, res) => {
   assertSyncEnabled();
   const dryRun = req.query.dryRun !== 'false';
+  // An apply names the CHA file its preview was built from, so it applies
+  // what was reviewed. Ignored on the REDCap path.
+  const { snapshotId } = z
+    .object({ snapshotId: z.string().uuid().optional() })
+    .passthrough()
+    .parse(req.body ?? {});
   const result = await runSoarRedcapSync({
     dryRun,
     actorUserId: req.auth?.userId ?? null,
     overrides: dryRun ? undefined : parseOverrides(req.body),
+    snapshotId: dryRun ? undefined : snapshotId,
   });
   res.json(result);
 });
@@ -189,11 +202,13 @@ router.post('/redcap/ttt', requireAuth, requireStaff, express.json(), async (req
 /**
  * POST /staff/imports/redcap/finalize
  * Lock (or unlock) a program's month so the sync won't touch it again.
- * Body: { program: 'SPARK'|'NEST', period: '2026-06'|'2026-Q2', finalize: bool,
- *         acknowledgeUnresolved?: bool }
+ * Body: { program: 'SPARK'|'NEST'|'SOAR'|'TTT', period: '2026-06'|'2026-Q2',
+ *         finalize: bool, acknowledgeUnresolved?: bool, acknowledgeEarlyData?: bool }
  *
- * Finalizing a month with unresolved tasks returns 409 unless acknowledged —
- * locking freezes them, and the sync can no longer correct what it froze.
+ * Finalizing returns 409 unless acknowledged when the month has unresolved
+ * tasks, or when its tasks were synced from data produced before the deadline
+ * day ended — locking freezes them, and the sync can no longer correct what it
+ * froze.
  */
 router.post('/redcap/finalize', requireAuth, requireStaff, express.json(), async (req, res) => {
   const body = z
@@ -204,6 +219,9 @@ router.post('/redcap/finalize', requireAuth, requireStaff, express.json(), async
       // Sent on the retry after the client has shown the operator how many
       // tasks are unsettled; the first call is deliberately refused.
       acknowledgeUnresolved: z.boolean().optional(),
+      // Likewise, after the operator has been told the month's data was
+      // produced before its deadline day ended.
+      acknowledgeEarlyData: z.boolean().optional(),
     })
     .parse(req.body);
   const result = await setPeriodFinalized({
@@ -212,6 +230,7 @@ router.post('/redcap/finalize', requireAuth, requireStaff, express.json(), async
     finalize: body.finalize,
     actorUserId: req.auth?.userId ?? null,
     acknowledgeUnresolved: body.acknowledgeUnresolved,
+    acknowledgeEarlyData: body.acknowledgeEarlyData,
   });
   res.json(result);
 });

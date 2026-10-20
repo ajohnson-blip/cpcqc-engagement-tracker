@@ -19,6 +19,7 @@ import publicInterestRouter from '@/modules/annual-interest-forms/public-interes
 import publicEnrollmentRouter from '@/modules/enrollment-forms/enrollment-forms.routes.js';
 import staffEnrollmentRouter from '@/modules/enrollment-forms/enrollment-forms.staff.routes.js';
 import reportsRoutes from '@/modules/reports/reports.routes.js';
+import chaIngestRoutes, { CHA_INGEST_PATH } from '@/modules/redcap/cha-ingest.routes.js';
 import issueReportsRoutes from '@/modules/issue-reports/issue-reports.routes.js';
 import {
   portalAnnualInterestRouter,
@@ -36,7 +37,9 @@ export function createApp() {
     }),
   );
   app.use(compression());
-  app.use(express.json({ limit: '1mb' }));
+  // CHA's assessment file is read raw by its own route, with its own limit.
+  const json = express.json({ limit: '1mb' });
+  app.use((req, res, next) => (req.path.startsWith(CHA_INGEST_PATH) ? next() : json(req, res, next)));
   app.use(cookieParser());
   app.use(pinoHttp({ logger }));
 
@@ -53,6 +56,8 @@ export function createApp() {
     res.json({ status: 'ok', env: env.NODE_ENV, time: new Date().toISOString() });
   });
 
+  // Server to server: CHA's nightly assessment script delivers here.
+  app.use(CHA_INGEST_PATH, chaIngestRoutes);
   app.use('/auth', authRoutes);
   app.use('/hospitals', hospitalsRoutes);
   app.use('/tasks', tasksRoutes);

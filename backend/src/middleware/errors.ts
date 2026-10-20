@@ -34,6 +34,27 @@ export const errorHandler = (
       .json({ error: { code: err.status === 401 ? 'unauthorized' : 'http_error', message: err.message, details: err.details } });
     return;
   }
+  // body-parser's own failures (body too large, malformed JSON) are the
+  // client's, not ours: answer with their 4xx rather than a 500 a well-behaved
+  // client would retry. Fixed messages, because a JSON parse error quotes a
+  // fragment of the body it could not parse.
+  const bodyErr = err as { status?: unknown; expose?: unknown; type?: unknown };
+  if (
+    typeof bodyErr?.type === 'string' &&
+    typeof bodyErr.status === 'number' &&
+    bodyErr.status >= 400 &&
+    bodyErr.status < 500 &&
+    bodyErr.expose === true
+  ) {
+    const message =
+      bodyErr.type === 'entity.too.large'
+        ? 'Request body too large.'
+        : bodyErr.type === 'entity.parse.failed'
+          ? 'Malformed JSON body.'
+          : 'Bad request body.';
+    res.status(bodyErr.status).json({ error: { code: 'bad_request', message } });
+    return;
+  }
   logger.error({ err }, 'Unhandled error');
   res.status(500).json({ error: { code: 'internal_error', message: 'Internal server error' } });
 };

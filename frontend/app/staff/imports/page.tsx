@@ -24,6 +24,7 @@ import type {
   TttSyncRow,
   TttSyncCategory,
   SyncDisposition,
+  SyncDataSource,
 } from '@/lib/types';
 
 interface RowError {
@@ -69,6 +70,55 @@ function RedcapPauseBanner() {
       <p className="font-rounded font-extrabold uppercase tracking-wide">REDCap sync paused</p>
       <p className="mt-1">{paused.message}</p>
     </div>
+  );
+}
+
+/**
+ * Where this deployment's syncs read from: REDCap directly, or CHA's nightly
+ * file. For labels only — the server decides the source. Null until known.
+ */
+function useSyncSource(): 'redcap' | 'cha' | null {
+  const [source, setSource] = useState<'redcap' | 'cha' | null>(null);
+  useEffect(() => {
+    apiFetch('/api/staff/imports/redcap/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.source === 'redcap' || d?.source === 'cha') setSource(d.source);
+      })
+      .catch(() => {
+        /* labels fall back to REDCap's wording */
+      });
+  }, []);
+  return source;
+}
+
+/**
+ * When a preview's data was produced. Always shown: CHA's file is up to a day
+ * old by design, and nobody should mistake it for a live read.
+ */
+function DataAsOf({
+  source,
+  recordsFetched,
+  fetchedAt,
+}: {
+  source?: SyncDataSource;
+  recordsFetched: number;
+  fetchedAt: string;
+}) {
+  if (!source || source.kind === 'redcap') {
+    return (
+      <span className="text-xs text-cpcqc-purple-dark/60">
+        {recordsFetched} REDCap rows · pulled {new Date(fetchedAt).toLocaleString()}
+      </span>
+    );
+  }
+  const hours = Math.floor(source.ageHours);
+  const age = hours < 1 ? 'under an hour ago' : `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  return (
+    <span className={`text-xs ${source.stale ? 'font-bold text-red-700' : 'text-cpcqc-purple-dark/60'}`}>
+      CHA file produced {new Date(source.generatedAt).toLocaleString()} ({age}) · {recordsFetched} REDCap
+      rows read at CHA{source.stale ? ' · older than expected' : ''}
+    </span>
   );
 }
 
@@ -736,24 +786,37 @@ function FinalizeButton({
     }
     setBusy(true);
     try {
-      const res = await apiFetch('/api/staff/imports/redcap/finalize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          program,
-          period,
-          finalize: !finalized,
-          acknowledgeUnresolved,
-        }),
-      });
+      const send = (acknowledgeEarlyData: boolean) =>
+        apiFetch('/api/staff/imports/redcap/finalize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            program,
+            period,
+            finalize: !finalized,
+            acknowledgeUnresolved,
+            acknowledgeEarlyData,
+          }),
+        });
+      let res = await send(false);
       if (!res.ok) {
-        // The server refuses an unacknowledged lock of an unsettled month and
-        // says why; show that rather than a bare status code.
-        const detail = await res
-          .json()
-          .then((d) => d?.error?.message as string | undefined)
-          .catch(() => undefined);
-        throw new Error(detail ?? `Finalize failed (${res.status})`);
+        // The server refuses an unacknowledged lock and says why; show that
+        // rather than a bare status code.
+        const body = (await res.json().catch(() => null)) as {
+          error?: { message?: string; details?: { reason?: string } };
+        } | null;
+        // Synced from data produced before the deadline day ended: a late
+        // deadline-day submission may be missing. Said once; the PM decides.
+        if (res.status === 409 && body?.error?.details?.reason === 'data_predates_deadline') {
+          if (!window.confirm(`${body.error.message}\n\nLock the month anyway?`)) return;
+          res = await send(true);
+          if (!res.ok) {
+            const retry = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+            throw new Error(retry?.error?.message ?? `Finalize failed (${res.status})`);
+          }
+        } else {
+          throw new Error(body?.error?.message ?? `Finalize failed (${res.status})`);
+        }
       }
       await onDone();
     } catch (e) {
@@ -1370,6 +1433,7 @@ const SOAR_CATEGORY_META: Record<SoarSyncCategory, { label: string; className: s
 };
 
 function SoarRedcapSync() {
+  const fromCha = useSyncSource() === 'cha';
   const [loading, setLoading] = useState<false | 'preview' | 'apply'>(false);
   const [result, setResult] = useState<SoarSyncResult | null>(null);
   const [showFinalized, setShowFinalized] = useState(false);
@@ -1385,7 +1449,11 @@ function SoarRedcapSync() {
         headers: { 'Content-Type': 'application/json' },
         body: dryRun
           ? undefined
-          : JSON.stringify({ overrides: buildOverridesPayload(result?.rows ?? [], overrides) }),
+          : JSON.stringify({
+              overrides: buildOverridesPayload(result?.rows ?? [], overrides),
+              // Apply the CHA file that was previewed, not whichever is newest now.
+              snapshotId: result?.dataSource?.snapshotId ?? undefined,
+            }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
@@ -1419,10 +1487,13 @@ function SoarRedcapSync() {
     <section className="mt-10 border-t border-cpcqc-purple-dark/10 pt-8">
       <header className="mb-4">
         <h1 className="inline-flex items-center gap-2 font-rounded text-3xl font-extrabold text-cpcqc-purple-dark">
-          <Database size={26} aria-hidden /> SOAR · REDCap sync
+          <Database size={26} aria-hidden /> SOAR · {fromCha ? 'sync from CHA' : 'REDCap sync'}
         </h1>
         <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
-          Pull SOAR monthly NTSV cesarean data straight from REDCap. A month counts when{' '}
+          {fromCha
+            ? "Build SOAR's monthly status from the assessment file CHA produces from REDCap each night. "
+            : 'Pull SOAR monthly NTSV cesarean data straight from REDCap. '}
+          A month counts when{' '}
           <strong>every NTSV case is complete and on time</strong> — or when the hospital files a{' '}
           <strong>zero-case attestation</strong> (No-NTSV). In the preview you can{' '}
           <strong>override any status</strong> and add a rationale before applying; nothing is
@@ -1439,7 +1510,13 @@ function SoarRedcapSync() {
             className="inline-flex items-center gap-2 rounded-full bg-cpcqc-purple px-5 py-2.5 font-rounded text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-cpcqc-purple/90 disabled:opacity-50"
           >
             <RefreshCw size={16} aria-hidden className={loading === 'preview' ? 'animate-spin' : ''} />
-            {loading === 'preview' ? 'Pulling from REDCap…' : 'Preview from REDCap'}
+            {fromCha
+              ? loading === 'preview'
+                ? 'Reading CHA’s file…'
+                : 'Preview from CHA’s file'
+              : loading === 'preview'
+                ? 'Pulling from REDCap…'
+                : 'Preview from REDCap'}
           </button>
 
           {result && !result.dryRun ? (
@@ -1480,9 +1557,7 @@ function SoarRedcapSync() {
             <h2 className="font-rounded text-lg font-extrabold text-cpcqc-purple-dark">
               {result.dryRun ? 'Dry-run preview' : 'Applied'} · {result.programYear}
             </h2>
-            <span className="text-xs text-cpcqc-purple-dark/60">
-              {result.recordsFetched} REDCap rows · pulled {new Date(result.fetchedAt).toLocaleString()}
-            </span>
+            <DataAsOf source={result.dataSource} recordsFetched={result.recordsFetched} fetchedAt={result.fetchedAt} />
           </div>
 
           <div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">

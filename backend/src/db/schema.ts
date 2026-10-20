@@ -943,3 +943,69 @@ export const userHospitals = pgTable(
     userIdx: index('user_hospitals_user_idx').on(t.userId),
   }),
 );
+
+// ---------- CHA assessment files ----------
+
+/**
+ * Files delivered by CHA's nightly assessment script (format v2 — see
+ * docs/cha-sync-contract.md). One row per file, kept so any preview can be
+ * traced to the file and the code version that produced it.
+ *
+ * The file's content lives in cha_snapshot_runs; this row records where it
+ * came from. `sha256` is of the bytes as delivered, so a second delivery of a
+ * snapshot can be told apart from a different file reusing its id.
+ */
+export const chaSnapshots = pgTable(
+  'cha_snapshots',
+  {
+    id: idCol(),
+    snapshotId: text('snapshot_id').notNull(),
+    formatVersion: text('format_version').notNull(),
+    generatedAt: timestamp('generated_at', { withTimezone: true }).notNull(),
+    generatorName: text('generator_name').notNull(),
+    generatorVersion: text('generator_version').notNull(),
+    sha256: text('sha256').notNull(),
+    byteSize: integer('byte_size').notNull(),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps,
+  },
+  (t) => ({
+    snapshotIdUniq: uniqueIndex('cha_snapshots_snapshot_id_uniq').on(t.snapshotId),
+  }),
+);
+
+/**
+ * One program-year result from a CHA file: either its assessments or the
+ * error that stopped it. Syncs read the newest successful run per program and
+ * year; an error newer than that is shown alongside it, not instead of it.
+ */
+export const chaSnapshotRuns = pgTable(
+  'cha_snapshot_runs',
+  {
+    id: idCol(),
+    chaSnapshotId: text('cha_snapshot_id')
+      .notNull()
+      .references(() => chaSnapshots.id, { onDelete: 'cascade' }),
+    program: text('program').notNull(), // SPARK | NEST | SOAR | TTT
+    programYear: integer('program_year').notNull(),
+    status: text('status').notNull(), // ok | error
+    // The file's generated_at, repeated here so "newest run" is one index scan.
+    generatedAt: timestamp('generated_at', { withTimezone: true }).notNull(),
+    methodologyVersion: text('methodology_version'),
+    recordsRead: integer('records_read'),
+    redcapProject: text('redcap_project'),
+    assessments: jsonb('assessments'),
+    warnings: jsonb('warnings'),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+    ...timestamps,
+  },
+  (t) => ({
+    runUniq: uniqueIndex('cha_snapshot_runs_snapshot_program_year_uniq').on(
+      t.chaSnapshotId,
+      t.program,
+      t.programYear,
+    ),
+    latestIdx: index('cha_snapshot_runs_latest_idx').on(t.program, t.programYear, t.generatedAt),
+  }),
+);

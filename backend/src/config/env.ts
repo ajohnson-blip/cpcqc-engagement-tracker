@@ -74,8 +74,9 @@ const EnvSchema = z.object({
    * Where syncs get their data in THIS deployment.
    *
    * 'redcap' queries REDCap directly and needs the REDCap tokens and a hosting
-   * tier cleared for patient-level data. 'cha' asks the CHA assessment service
-   * and needs neither — that deployment never contacts REDCap at all.
+   * tier cleared for patient-level data. 'cha' reads the newest assessment
+   * file CHA has delivered and needs neither — that deployment never contacts
+   * REDCap at all.
    *
    * It is per-environment rather than per-request because the capability is:
    * the Engagement Tracker Workspace holds no REDCap tokens by design, so
@@ -85,18 +86,16 @@ const EnvSchema = z.object({
   SYNC_SOURCE: z.enum(['redcap', 'cha']).default('redcap'),
 
   /**
-   * CHA assessment service — the partitioned REDCap path. When both URL and
-   * token are set the sync can be asked to source its grid from CHA instead of
-   * querying REDCap directly. Unset means the tracker keeps doing it itself,
-   * which is the behaviour until parity is proven.
+   * The token CHA's nightly script presents when it delivers its assessment
+   * file (POST /integrations/cha/assessment-files). Unset, or shorter than 32
+   * characters, and this deployment refuses deliveries — so a deployment that
+   * does not use CHA's file never accepts one.
    *
-   * The token is a SECRET shared with CHA; rotate it on both sides, no deploy.
+   * A SECRET shared with CHA (their DELIVERY_TOKEN). Rotate it on both sides;
+   * no deploy needed. Generate one with:
+   *   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
    */
-  CHA_ASSESSMENT_URL: z.string().url().optional(),
   CHA_ASSESSMENT_TOKEN: z.string().optional(),
-  // A full program year reads a whole REDCap project; the contract sets 120s
-  // as the ceiling before we would move to a job-and-poll pattern instead.
-  CHA_ASSESSMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
 
   // REDCap (Vanderbilt) integration. The API URL is shared across all CPCQC
   // REDCap projects; each project has its own per-project token. Tokens are

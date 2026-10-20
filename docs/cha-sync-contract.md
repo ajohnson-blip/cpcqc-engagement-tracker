@@ -1,7 +1,8 @@
 # Engagement assessment — file contract
 
-**Status:** draft for review by Luis Montes (CHA) and CPCQC
-**Version:** `v2` (draft)
+**Status:** for review by Luis Montes (CHA) and CPCQC. SOAR is implemented on
+both sides; the other programs follow.
+**Version:** `v2`
 **Date:** 20 October 2026
 
 See `docs/partition-plan.md` for the overall plan, decisions and open questions.
@@ -58,7 +59,8 @@ track CPCQC's deadline calendar.
 
 ## The file
 
-One JSON file per run, UTF-8.
+One JSON file per run, UTF-8. The example below is illustrative; every
+identifier and figure in it is fictional.
 
 ```json
 {
@@ -75,7 +77,7 @@ One JSON file per run, UTF-8.
       "source": { "records_read": 5028, "redcap_project": "CPCQC SOAR NTSV" },
       "assessments": [
         {
-          "cha_id": "428",
+          "cha_id": "EX-001",
           "period": "2026-07",
           "submitted": true,
           "complete": false,
@@ -95,7 +97,7 @@ One JSON file per run, UTF-8.
         }
       ],
       "warnings": [
-        "REDCap DAG \"new_hospital_x\" has data but is not in the crosswalk; its rows were skipped."
+        "REDCap DAG \"new_hospital_x\" has SOAR data but is not in the crosswalk; its rows were skipped."
       ]
     },
     {
@@ -114,7 +116,7 @@ One JSON file per run, UTF-8.
 |---|---|---|
 | `format_version` | string | `"v2"`. The tracker refuses a version it does not implement. |
 | `snapshot_id` | string | A UUID the script generates per run. Makes delivery idempotent — the same snapshot delivered twice is stored once. |
-| `generated_at` | string | UTC, ISO 8601. When the run finished reading REDCap. Shown on every tracker preview built from this file. |
+| `generated_at` | string | UTC, ISO 8601, to the second — `2026-10-20T07:05:12Z`. Taken **before** the script's first REDCap read, so everything submitted before this moment is in the file. Shown on every tracker preview built from this file. |
 | `generator` | object | Script name and version, so a file can be traced to the code that produced it. |
 | `runs` | array | One entry per program per program year. |
 
@@ -152,7 +154,11 @@ Error codes: `redcap_unavailable`, `configuration`, `internal`.
 | `attestation_only` | bool | The only submission is a valid zero-case attestation. |
 | `missing_field_groups` | array | Distinct patterns of missing required fields — see below. Field **names and labels only**, never values. |
 | `linkage` | object | TtT only — see below. |
-| `notes` | string[] | Per-hospital diagnostics. |
+| `notes` | string[] | Per-hospital diagnostics, as counts. For SOAR: NTSV cases whose delivery date is after the run date, and records whose submission date is not a valid date. Never the values themselves. |
+
+Every field above is present in every assessment, except `linkage`, which
+appears on TtT assessments only. `earliest_submission_date` may be `null`;
+nothing else may.
 
 ### Why `missing_field_groups` is grouped, not a flat list
 
@@ -232,14 +238,19 @@ Content-Type: application/json
 Authorization: Bearer <token>
 ```
 
-The body is the file, unchanged.
+The body is the file, unchanged. On the tracker, `DELIVERY_URL` is the
+backend's `/integrations/cha/assessment-files`; CPCQC supplies the full URL and
+the token.
 
 | Response | Meaning |
 |---|---|
-| `200` | Stored, or already stored under this `snapshot_id`. Safe to retry. |
-| `400` | Refused. The body says why — usually a field the contract does not define. Nothing from the file was stored. |
+| `200` | `{"status": "stored", "snapshot_id": …}`, or `"already_stored"` when this `snapshot_id` arrived before with the same content. Safe to retry. |
+| `400` | Refused. `error.message` lists what is wrong and where — usually a field the contract does not define. Nothing from the file was stored. |
 | `401` | Missing or wrong token. |
-| `5xx` | Try again later. The script retries a small number of times. |
+| `409` | This `snapshot_id` was already received with different content. A defect in the sender; not retried. |
+| `413` | The file is larger than the tracker accepts (10 MB). |
+| `503` | The tracker is not configured to receive files. |
+| other `5xx` | Try again later. The script retries twice. |
 
 A failed delivery does not affect the file already written at CHA.
 
@@ -247,7 +258,14 @@ A failed delivery does not affect the file already written at CHA.
 
 - **Strictly.** A field the contract does not define, anywhere in the file,
   causes the whole file to be refused. This is a deliberate second line of
-  defence against something being included by mistake.
+  defence against something being included by mistake. The tracker's
+  messages name where a problem is and what was expected — never the value it
+  found there.
+- **Consistently.** Also refused: a period that is not in the program's
+  cadence or not in the run's program year; two runs for one program year, or
+  two assessments for one hospital and period; more complete records than
+  records; `linkage` outside TtT; a `generated_at` later than the file's
+  arrival.
 - **Per-run status is respected.** A run with `status: "error"` is recorded and
   shown on that program's sync page; the other runs in the file are used.
 - **The newest successful run wins** for each program and program year.

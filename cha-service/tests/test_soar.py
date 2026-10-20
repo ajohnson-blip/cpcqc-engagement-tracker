@@ -1,11 +1,13 @@
 """SOAR assessor tests. All records here are synthetic — no PHI in fixtures."""
 import json
+import unittest
+from datetime import date
 
-from app.models import Assessment
 from app.programs import soar
 
-CROSSWALK = {"acme_general": {"cha_id": "428", "hospital": "Acme General"}}
+CROSSWALK = {"acme_general": "EX-001"}
 LABELS = {"checklist_comms_tool": "Checklist/communication tool used", "age": "Patient's age"}
+TODAY = date(2026, 10, 20)
 
 
 def ntsv(**over) -> dict:
@@ -38,123 +40,214 @@ def no_ntsv(**over) -> dict:
     return row
 
 
-def run(records, year=2026, periods=None):
-    return soar.assess(records, year, CROSSWALK, LABELS, periods)
+def run(records, year=2026, today=TODAY):
+    return soar.assess(records, year, CROSSWALK, LABELS, today)
 
 
-def test_complete_ntsv_row():
-    out, warnings = run([ntsv()])
-    assert warnings == []
-    assert len(out) == 1
-    a = out[0]
-    assert (a.cha_id, a.period) == ("428", "2026-07")
-    assert a.submitted and a.complete
-    assert a.records.total == 1 and a.records.complete == 1
-    assert a.missing_field_groups == []
-    assert a.earliest_submission_date == "2026-08-14"
+def missing_fields(assessment) -> set[str]:
+    return {f.field for g in assessment.missing_field_groups for f in g.fields}
 
 
-def test_incomplete_row_reports_the_blank_field_with_its_label():
-    out, _ = run([ntsv(checklist_comms_tool="")])
-    a = out[0]
-    assert a.submitted and not a.complete
-    assert len(a.missing_field_groups) == 1
-    g = a.missing_field_groups[0]
-    assert g.form == soar.NTSV_FORM and g.records == 1
-    assert g.fields[0].field == "checklist_comms_tool"
-    assert g.fields[0].label == "Checklist/communication tool used"
+class CompletenessTests(unittest.TestCase):
+    def test_complete_ntsv_row(self):
+        out, warnings = run([ntsv()])
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(out), 1)
+        a = out[0]
+        self.assertEqual((a.cha_id, a.period), ("EX-001", "2026-07"))
+        self.assertTrue(a.submitted and a.complete)
+        self.assertEqual((a.records.total, a.records.complete), (1, 1))
+        self.assertEqual(a.missing_field_groups, ())
+        self.assertEqual(a.earliest_submission_date, "2026-08-14")
+        self.assertEqual(a.notes, ())
+
+    def test_incomplete_row_reports_the_blank_field_with_its_label(self):
+        a = run([ntsv(checklist_comms_tool="")])[0][0]
+        self.assertTrue(a.submitted)
+        self.assertFalse(a.complete)
+        self.assertEqual(len(a.missing_field_groups), 1)
+        g = a.missing_field_groups[0]
+        self.assertEqual((g.form, g.records), (soar.NTSV_FORM, 1))
+        self.assertEqual(g.fields[0].field, "checklist_comms_tool")
+        self.assertEqual(g.fields[0].label, "Checklist/communication tool used")
+
+    def test_label_falls_back_to_the_variable_name(self):
+        a = run([ntsv(gest_age="")])[0][0]
+        self.assertEqual(a.missing_field_groups[0].fields[0].label, "gest_age")
+
+    def test_admit_reason_option_4_requires_induction_detail(self):
+        # Admitted "For induction" without the induction fields is incomplete…
+        a = run([ntsv(admit_reason___1="0", admit_reason___4="1")])[0][0]
+        self.assertEqual(missing_fields(a), {soar.NTSV_INDUCTION_REASON, soar.NTSV_INDUCTION_METHOD})
+        # …but supplying them makes it complete.
+        a = run([ntsv(admit_reason___1="0", admit_reason___4="1",
+                      induction_reason___2="1", induction_method___3="1")])[0][0]
+        self.assertTrue(a.complete)
+
+    def test_an_unchecked_admit_reason_is_missing(self):
+        a = run([ntsv(admit_reason___1="0")])[0][0]
+        self.assertEqual(missing_fields(a), {soar.NTSV_ADMIT_CHECKBOX})
+
+    def test_primary_indication_selects_its_conditional_fields(self):
+        # primary = 2 (arrest of dilation) pulls in four conditional fields.
+        a = run([ntsv(c_sect_indication_primary="2")])[0][0]
+        self.assertEqual(missing_fields(a), set(soar.NTSV_COND["2"]))
+        # primary = 4 has no conditional requirements.
+        self.assertTrue(run([ntsv(c_sect_indication_primary="4")])[0][0].complete)
+
+    def test_zero_case_attestation_counts_as_a_complete_submission(self):
+        a = run([no_ntsv()])[0][0]
+        self.assertTrue(a.submitted and a.complete and a.attestation_only)
+        self.assertEqual((a.records.attestation, a.records.total), (1, 0))
+
+    def test_an_incomplete_attestation_is_not_complete(self):
+        a = run([no_ntsv(self_report_nontsv___1="0")])[0][0]
+        self.assertTrue(a.submitted and a.attestation_only)
+        self.assertFalse(a.complete)
+        self.assertEqual(a.missing_field_groups[0].form, soar.NO_NTSV_FORM)
+
+    def test_real_cases_take_precedence_over_an_attestation(self):
+        # A hospital that filed both an incomplete case and an attestation is
+        # not complete: the attestation only settles a month with no cases.
+        a = run([ntsv(age=""), no_ntsv()])[0][0]
+        self.assertTrue(a.submitted)
+        self.assertFalse(a.complete or a.attestation_only)
+
+    def test_attestation_fallback_wins_when_the_instrument_is_missing(self):
+        # A base row carrying both a stray indication and an attestation month
+        # is an attestation — the No-NTSV field is checked first on purpose.
+        row = ntsv(redcap_repeat_instrument="", month_year_nontsv="7", self_report_nontsv___1="1")
+        self.assertTrue(run([row])[0][0].attestation_only)
 
 
-def test_label_falls_back_to_the_variable_name():
-    out, _ = run([ntsv(gest_age="")])
-    assert out[0].missing_field_groups[0].fields[0].label == "gest_age"
+class GroupingTests(unittest.TestCase):
+    def test_grouping_distinguishes_an_abandoned_entry_from_a_systematic_gap(self):
+        abandoned = run([ntsv(age="", gest_age="", who_managed_labor_2="")])[0][0]
+        self.assertEqual(len(abandoned.missing_field_groups), 1)
+        self.assertEqual(abandoned.missing_field_groups[0].records, 1)
+        self.assertEqual(len(abandoned.missing_field_groups[0].fields), 3)
+
+        systematic = run([ntsv(checklist_comms_tool="") for _ in range(3)])[0][0]
+        self.assertEqual(len(systematic.missing_field_groups), 1)
+        self.assertEqual(systematic.missing_field_groups[0].records, 3)
+        self.assertEqual(len(systematic.missing_field_groups[0].fields), 1)
+
+    def test_groups_order_by_field_count_then_record_count(self):
+        records = [ntsv(age="")] * 2 + [ntsv(gest_age="")] * 3 + [ntsv(age="", gest_age="")]
+        groups = run(records)[0][0].missing_field_groups
+        self.assertEqual(
+            [(len(g.fields), g.records) for g in groups],
+            [(2, 1), (1, 3), (1, 2)],
+        )
+
+    def test_fields_within_a_group_are_alphabetical_as_in_the_tracker(self):
+        g = run([ntsv(who_managed_labor_2="", age="")])[0][0].missing_field_groups[0]
+        self.assertEqual([f.field for f in g.fields], ["age", "who_managed_labor_2"])
 
 
-def test_admit_reason_option_4_requires_induction_detail():
-    # Admitted "For induction" without the induction fields is incomplete…
-    out, _ = run([ntsv(admit_reason___1="0", admit_reason___4="1")])
-    missing = {f.field for g in out[0].missing_field_groups for f in g.fields}
-    assert missing == {soar.NTSV_INDUCTION_REASON, soar.NTSV_INDUCTION_METHOD}
-    # …but supplying them makes it complete.
-    out, _ = run([ntsv(admit_reason___1="0", admit_reason___4="1",
-                       induction_reason___2="1", induction_method___3="1")])
-    assert out[0].complete
+class DateTests(unittest.TestCase):
+    def test_earliest_submission_date_wins(self):
+        a = run([ntsv(date="2026-08-20"), ntsv(date="2026-08-02")])[0][0]
+        self.assertEqual(a.earliest_submission_date, "2026-08-02")
+
+    def test_earliest_spans_both_forms(self):
+        a = run([ntsv(date="2026-08-20"), no_ntsv(date="2026-08-05")])[0][0]
+        self.assertEqual(a.earliest_submission_date, "2026-08-05")
+
+    def test_a_time_suffix_is_dropped(self):
+        a = run([ntsv(date="2026-08-14 10:22")])[0][0]
+        self.assertEqual(a.earliest_submission_date, "2026-08-14")
+
+    def test_an_invalid_submission_date_is_ignored_and_counted(self):
+        a = run([ntsv(date="14/08/2026"), ntsv(date="2026-08-20")])[0][0]
+        self.assertEqual(a.earliest_submission_date, "2026-08-20")
+        self.assertEqual(len(a.notes), 1)
+        self.assertIn("1 record has a submission date that is not a valid date", a.notes[0])
+        self.assertNotIn("14/08/2026", a.notes[0])
+
+    def test_an_impossible_calendar_date_is_invalid(self):
+        a = run([ntsv(date="2026-02-30")])[0][0]
+        self.assertIsNone(a.earliest_submission_date)
+        self.assertIn("not a valid date", a.notes[0])
+
+    def test_no_submission_date_means_unknown_timeliness_without_a_note(self):
+        a = run([ntsv(date="")])[0][0]
+        self.assertIsNone(a.earliest_submission_date)
+        self.assertEqual(a.notes, ())
+
+    def test_a_future_delivery_date_is_counted_never_quoted(self):
+        records = [ntsv(delivery_date="2026-12-05"), ntsv(delivery_date="2026-12-09")]
+        a = run(records)[0][0]
+        self.assertEqual(a.period, "2026-12")
+        self.assertEqual(len(a.notes), 1)
+        self.assertIn("2 NTSV records have a delivery date in the future", a.notes[0])
+        blob = json.dumps(a.to_dict())
+        self.assertNotIn("2026-12-05", blob)
+        self.assertNotIn("2026-12-09", blob)
+
+    def test_todays_delivery_date_is_not_in_the_future(self):
+        a = run([ntsv(delivery_date=TODAY.isoformat())])[0][0]
+        self.assertEqual(a.notes, ())
 
 
-def test_primary_indication_selects_its_conditional_fields():
-    # primary = 2 (arrest of dilation) pulls in four conditional fields.
-    out, _ = run([ntsv(c_sect_indication_primary="2")])
-    missing = {f.field for g in out[0].missing_field_groups for f in g.fields}
-    assert missing == set(soar.NTSV_COND["2"])
-    # primary = 4 has no conditional requirements.
-    assert run([ntsv(c_sect_indication_primary="4")])[0][0].complete
+class ScopeTests(unittest.TestCase):
+    def test_unknown_dag_warns_rather_than_disappearing(self):
+        out, warnings = run([ntsv(redcap_data_access_group="mystery_hospital")] * 2)
+        self.assertEqual(out, [])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('"mystery_hospital"', warnings[0])
+
+    def test_test_and_blank_dags_are_not_warned_about(self):
+        _, warnings = run([ntsv(redcap_data_access_group="test"), ntsv(redcap_data_access_group="")])
+        self.assertEqual(warnings, [])
+
+    def test_rows_outside_the_program_year_are_ignored(self):
+        self.assertEqual(run([ntsv(delivery_date="2025-11-02")])[0], [])
+
+    def test_each_program_year_takes_only_its_own_cases(self):
+        records = [ntsv(delivery_date="2025-12-12", date="2026-01-09"), ntsv(delivery_date="2026-01-04")]
+        self.assertEqual([a.period for a in run(records, year=2025)[0]], ["2025-12"])
+        self.assertEqual([a.period for a in run(records, year=2026)[0]], ["2026-01"])
+
+    def test_an_attestation_month_outside_1_to_12_is_ignored(self):
+        self.assertEqual(run([no_ntsv(month_year_nontsv="13")])[0], [])
+
+    def test_rows_that_are_neither_form_are_ignored(self):
+        self.assertEqual(run([{"redcap_data_access_group": "acme_general", "date": "2026-08-01"}])[0], [])
+
+    def test_output_is_sorted_by_hospital_then_period(self):
+        records = [ntsv(delivery_date="2026-08-03"), ntsv(delivery_date="2026-07-03")]
+        self.assertEqual([a.period for a in run(records)[0]], ["2026-07", "2026-08"])
 
 
-def test_zero_case_attestation_counts_as_a_complete_submission():
-    out, _ = run([no_ntsv()])
-    a = out[0]
-    assert a.submitted and a.complete and a.attestation_only
-    assert a.records.attestation == 1 and a.records.total == 0
+class NoRecordContentTests(unittest.TestCase):
+    def test_output_never_carries_a_record_value(self):
+        # Distinctive synthetic values that must not survive into the output:
+        # identifiers, ages, gestational ages and full delivery dates. Field
+        # names may appear; values may not.
+        records = [
+            ntsv(record_id="R-1041", redcap_repeat_instance="3", age="43", gest_age="38.6",
+                 delivery_date="2026-07-23", checklist_comms_tool="", admit_other="free text here"),
+            no_ntsv(record_id="R-2077"),
+        ]
+        out, warnings = run(records)
+        blob = json.dumps({"a": [a.to_dict() for a in out], "w": warnings})
+        for value in ("R-1041", "R-2077", "38.6", "2026-07-23", "free text here", '"43"'):
+            self.assertNotIn(value, blob)
+        self.assertNotIn("record_id", blob)
+
+    def test_minimum_fields_never_include_free_text(self):
+        self.assertNotIn("admit_other", soar.MINIMUM_FIELDS)
+        self.assertNotIn("op_vag_birth_exp", soar.MINIMUM_FIELDS)
+
+    def test_every_field_the_rules_read_is_requested(self):
+        rule_fields = {
+            *soar.NTSV_ALWAYS, soar.NTSV_ADMIT_CHECKBOX, soar.NTSV_INDUCTION_REASON,
+            soar.NTSV_INDUCTION_METHOD, *(f for fs in soar.NTSV_COND.values() for f in fs),
+            soar.NO_NTSV_MONTH_FIELD, soar.NO_NTSV_CHECKBOX, soar.F_SUBMIT_DATE,
+        }
+        self.assertEqual(rule_fields, set(soar.MINIMUM_FIELDS))
 
 
-def test_real_cases_take_precedence_over_an_attestation():
-    # A hospital that filed both an incomplete case and an attestation is not
-    # complete: the attestation only settles a month with no cases.
-    out, _ = run([ntsv(age=""), no_ntsv()])
-    a = out[0]
-    assert a.submitted and not a.complete and not a.attestation_only
-
-
-def test_grouping_distinguishes_an_abandoned_entry_from_a_systematic_gap():
-    abandoned = run([ntsv(age="", gest_age="", who_managed_labor_2="")])[0][0]
-    assert len(abandoned.missing_field_groups) == 1
-    assert abandoned.missing_field_groups[0].records == 1
-    assert len(abandoned.missing_field_groups[0].fields) == 3
-
-    systematic = run([ntsv(checklist_comms_tool="") for _ in range(3)])[0][0]
-    assert len(systematic.missing_field_groups) == 1
-    assert systematic.missing_field_groups[0].records == 3
-    assert len(systematic.missing_field_groups[0].fields) == 1
-
-
-def test_earliest_submission_date_wins():
-    out, _ = run([ntsv(date="2026-08-20"), ntsv(date="2026-08-02")])
-    assert out[0].earliest_submission_date == "2026-08-02"
-
-
-def test_unknown_dag_warns_rather_than_disappearing():
-    out, warnings = run([ntsv(redcap_data_access_group="mystery_hospital")])
-    assert out == []
-    assert any("mystery_hospital" in w for w in warnings)
-
-
-def test_test_dag_is_not_warned_about():
-    _, warnings = run([ntsv(redcap_data_access_group="test")])
-    assert warnings == []
-
-
-def test_rows_outside_the_program_year_are_ignored():
-    assert run([ntsv(delivery_date="2025-11-02")])[0] == []
-
-
-def test_periods_filter():
-    records = [ntsv(delivery_date="2026-07-03"), ntsv(delivery_date="2026-08-03")]
-    out, _ = run(records, periods=["2026-08"])
-    assert [a.period for a in out] == ["2026-08"]
-
-
-def test_attestation_fallback_wins_when_the_instrument_is_missing():
-    # A base row carrying both a stray indication and an attestation month is
-    # an attestation — the No-NTSV field is checked first on purpose.
-    row = ntsv(redcap_repeat_instrument="", month_year_nontsv="7",
-               self_report_nontsv___1="1")
-    out, _ = run([row])
-    assert out[0].attestation_only
-
-
-def test_response_never_carries_a_record_identifier():
-    # The whole reason the service exists: identifiers stay in REDCap.
-    out, _ = run([ntsv(record_id="1041", age=""), no_ntsv(record_id="2077")])
-    blob = json.dumps([Assessment.model_dump(a) for a in out])
-    assert "1041" not in blob and "2077" not in blob
-    assert "record_id" not in blob
+if __name__ == "__main__":
+    unittest.main()

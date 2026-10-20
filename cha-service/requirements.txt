@@ -1,0 +1,4 @@
+# Python 3.13.5. Both packages are on CHA's approved list.
+# pandas 2.2.3 is approved too but not needed: the rules are plain Python.
+requests==2.32.3
+python-dotenv==1.1.0

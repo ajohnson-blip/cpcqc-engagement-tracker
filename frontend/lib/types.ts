@@ -289,12 +289,25 @@ export interface SoarSyncRow {
   note: string;
 }
 
+/** Where a sync's data came from and when it was produced. */
+export interface SyncDataSource {
+  kind: 'redcap' | 'cha';
+  generatedAt: string;
+  snapshotId: string | null;
+  generatorVersion: string | null;
+  methodologyVersion: string | null;
+  ageHours: number;
+  /** CHA's file is older than one missed night would explain. */
+  stale: boolean;
+}
+
 export interface SoarSyncResult {
   dryRun: boolean;
   fetchedAt: string;
   programYear: number;
   periodsInScope: string[];
   recordsFetched: number;
+  dataSource: SyncDataSource;
   rows: SoarSyncRow[];
   warnings: string[];
   notes: string[];
