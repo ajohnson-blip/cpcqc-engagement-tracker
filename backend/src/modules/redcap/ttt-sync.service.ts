@@ -69,7 +69,7 @@ import {
   type SyncOverride,
   type SyncDisposition,
 } from './sync-overrides.js';
-import { assertSyncEnabled } from './sync-gate.js';
+import { assertRedcapSource, assertSyncEnabled } from './sync-gate.js';
 
 type TaskStatus = 'not_started' | 'current_activities' | 'complete' | 'needs_revision';
 type TaskOutcome = 'on_time' | 'late' | 'attended' | 'missed' | 'not_submitted' | null;
@@ -224,6 +224,7 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
   // Paused by CPCQC — see sync-gate.ts. Checked here too, not only
   // at the route, so no other caller can reach REDCap while paused.
   assertSyncEnabled();
+  assertRedcapSource('TtT');
   if (!env.REDCAP_TTT_HOSPITAL_TOKEN || !env.REDCAP_TTT_PATIENT_TOKEN) {
     throw new HttpError(
       400,

@@ -122,6 +122,15 @@ function DataAsOf({
   );
 }
 
+/** On a deployment that reads CHA's file: a program CHA's script does not cover yet. */
+function NotFromChaYet({ program }: { program: string }) {
+  return (
+    <span className="text-sm text-cpcqc-purple-dark/70">
+      {program} isn’t available from CHA’s assessment file yet. This deployment never queries REDCap.
+    </span>
+  );
+}
+
 export default function StaffImportsPage() {
   const [file, setFile] = useState<File | null>(null);
   const [dryRun, setDryRun] = useState(true);
@@ -842,6 +851,7 @@ function FinalizeButton({
 }
 
 function SparkRedcapSync() {
+  const fromCha = useSyncSource() === 'cha';
   const [loading, setLoading] = useState<false | 'preview' | 'apply'>(false);
   const [result, setResult] = useState<SparkSyncResult | null>(null);
   const [showFinalized, setShowFinalized] = useState(false);
@@ -905,13 +915,14 @@ function SparkRedcapSync() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            disabled={loading !== false}
+            disabled={loading !== false || fromCha}
             onClick={() => void run(true)}
             className="inline-flex items-center gap-2 rounded-full bg-cpcqc-purple px-5 py-2.5 font-rounded text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-cpcqc-purple/90 disabled:opacity-50"
           >
             <RefreshCw size={16} aria-hidden className={loading === 'preview' ? 'animate-spin' : ''} />
             {loading === 'preview' ? 'Pulling from REDCap…' : 'Preview from REDCap'}
           </button>
+          {fromCha && <NotFromChaYet program="SPARK" />}
 
           {result && !result.dryRun ? (
             <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
@@ -1167,6 +1178,7 @@ function DetailCell({
 }
 
 function NestRedcapSync() {
+  const fromCha = useSyncSource() === 'cha';
   const [loading, setLoading] = useState<false | 'preview' | 'apply'>(false);
   const [result, setResult] = useState<NestSyncResult | null>(null);
   const [showFinalized, setShowFinalized] = useState(false);
@@ -1230,13 +1242,14 @@ function NestRedcapSync() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            disabled={loading !== false}
+            disabled={loading !== false || fromCha}
             onClick={() => void run(true)}
             className="inline-flex items-center gap-2 rounded-full bg-cpcqc-purple px-5 py-2.5 font-rounded text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-cpcqc-purple/90 disabled:opacity-50"
           >
             <RefreshCw size={16} aria-hidden className={loading === 'preview' ? 'animate-spin' : ''} />
             {loading === 'preview' ? 'Pulling from REDCap…' : 'Preview from REDCap'}
           </button>
+          {fromCha && <NotFromChaYet program="NEST" />}
 
           {result && !result.dryRun ? (
             <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
@@ -1727,6 +1740,7 @@ const TTT_CATEGORY_META: Record<TttSyncCategory, { label: string; className: str
 };
 
 function TttRedcapSync() {
+  const fromCha = useSyncSource() === 'cha';
   const [loading, setLoading] = useState<false | 'preview' | 'apply'>(false);
   const [result, setResult] = useState<TttSyncResult | null>(null);
   const [showFinalized, setShowFinalized] = useState(false);
@@ -1791,13 +1805,14 @@ function TttRedcapSync() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            disabled={loading !== false}
+            disabled={loading !== false || fromCha}
             onClick={() => void run(true)}
             className="inline-flex items-center gap-2 rounded-full bg-cpcqc-purple px-5 py-2.5 font-rounded text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-cpcqc-purple/90 disabled:opacity-50"
           >
             <RefreshCw size={16} aria-hidden className={loading === 'preview' ? 'animate-spin' : ''} />
             {loading === 'preview' ? 'Pulling both projects…' : 'Preview from REDCap'}
           </button>
+          {fromCha && <NotFromChaYet program="TtT" />}
 
           {result && !result.dryRun ? (
             <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700">

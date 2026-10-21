@@ -45,7 +45,7 @@ import {
   type SyncOverride,
   type SyncDisposition,
 } from './sync-overrides.js';
-import { assertSyncEnabled } from './sync-gate.js';
+import { assertRedcapSource, assertSyncEnabled } from './sync-gate.js';
 
 /** A prior PM override recorded in a task's payload, if any. */
 function readPriorOverride(
@@ -326,6 +326,7 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
   // Paused by CPCQC — see sync-gate.ts. Checked here too, not only
   // at the route, so no other caller can reach REDCap while paused.
   assertSyncEnabled();
+  assertRedcapSource('NEST');
   if (!env.REDCAP_NEST_TOKEN) {
     throw new HttpError(
       400,
