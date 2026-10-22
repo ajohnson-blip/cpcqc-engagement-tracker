@@ -67,9 +67,11 @@ const STAFF: StaffSeed[] = [
       { initiativeCode: 'NEST', role: 'qi_advisor' },
     ] },
   // SOAR
+  // Deactivated 2026-10-22, replaced by Reid Bryan; her SOAR assignment was
+  // removed then. Listed so a full run leaves her as she is.
   { email: 'scomstock@cpcqc.org', firstName: 'Sydney', lastName: 'Comstock',
-    title: 'Program Manager, SOAR',
-    assignments: [{ initiativeCode: 'SOAR', role: 'program_manager' }] },
+    title: 'Formerly Program Manager, SOAR',
+    assignments: [] },
   { email: 'jmckoy@cpcqc.org', firstName: 'Jenna', lastName: 'McKoy',
     title: 'QI Advisor, SOAR',
     assignments: [{ initiativeCode: 'SOAR', role: 'qi_advisor' }] },
@@ -87,7 +89,9 @@ const STAFF: StaffSeed[] = [
     role: 'cpcqc_admin',
     title: 'Deputy Director of QI',
     assignments: [] },
+  // Admin since 2026-10-22.
   { email: 'sbanchefsky@cpcqc.org', firstName: 'Sarah', lastName: 'Banchefsky',
+    role: 'cpcqc_admin',
     title: 'Data Program Manager',
     assignments: [] },
   // Org leadership added 2026 — Director + CEO get admin; data analyst is
@@ -114,7 +118,7 @@ const STAFF: StaffSeed[] = [
   { email: 'jarroway@cpcqc.org', firstName: 'Jamie', lastName: 'Arroway',
     role: 'cpcqc_admin',
     assignments: [] },
-  // Added 2026-10-22 as a Program Manager for SOAR, alongside Sydney Comstock.
+  // Added 2026-10-22 as Program Manager for SOAR, replacing Sydney Comstock.
   { email: 'rbryan@cpcqc.org', firstName: 'Reid', lastName: 'Bryan',
     title: 'Program Manager, SOAR',
     assignments: [{ initiativeCode: 'SOAR', role: 'program_manager' }] },
