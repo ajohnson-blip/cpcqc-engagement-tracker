@@ -3,7 +3,9 @@ import json
 import unittest
 from datetime import date
 
+from app.errors import ProjectConfigurationError
 from app.programs import soar
+from tests.fakes import soar_dictionary
 
 CROSSWALK = {"acme_general": "EX-001"}
 LABELS = {"checklist_comms_tool": "Checklist/communication tool used", "age": "Patient's age"}
@@ -40,8 +42,11 @@ def no_ntsv(**over) -> dict:
     return row
 
 
-def run(records, year=2026, today=TODAY):
-    return soar.assess(records, year, CROSSWALK, LABELS, today)
+PERIODS_2026 = soar.attestation_periods_from_dictionary(soar_dictionary([2026]))
+
+
+def run(records, year=2026, today=TODAY, periods=PERIODS_2026, untracked=frozenset()):
+    return soar.assess(records, year, CROSSWALK, LABELS, today, periods, untracked)
 
 
 def missing_fields(assessment) -> set[str]:
@@ -209,8 +214,17 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual([a.period for a in run(records, year=2025)[0]], ["2025-12"])
         self.assertEqual([a.period for a in run(records, year=2026)[0]], ["2026-01"])
 
-    def test_an_attestation_month_outside_1_to_12_is_ignored(self):
-        self.assertEqual(run([no_ntsv(month_year_nontsv="13")])[0], [])
+    def test_an_attestation_code_the_dictionary_does_not_define_is_reported_not_guessed(self):
+        out, warnings = run([no_ntsv(month_year_nontsv="13")])  # 2027 codes not added yet
+        self.assertEqual(out, [])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("1 No-NTSV attestation uses a month code the data dictionary does not define", warnings[0])
+        self.assertNotIn('"13"', warnings[0])
+
+    def test_a_known_untracked_dag_is_skipped_without_a_warning(self):
+        out, warnings = run([ntsv(redcap_data_access_group="example_sustaining")],
+                            untracked=frozenset({"example_sustaining"}))
+        self.assertEqual((out, warnings), ([], []))
 
     def test_rows_that_are_neither_form_are_ignored(self):
         self.assertEqual(run([{"redcap_data_access_group": "acme_general", "date": "2026-08-01"}])[0], [])
@@ -247,6 +261,55 @@ class NoRecordContentTests(unittest.TestCase):
             soar.NO_NTSV_MONTH_FIELD, soar.NO_NTSV_CHECKBOX, soar.F_SUBMIT_DATE,
         }
         self.assertEqual(rule_fields, set(soar.MINIMUM_FIELDS))
+
+
+class AttestationPeriodTests(unittest.TestCase):
+    """month_year_nontsv codes carry the year: 1 = January 2026, consecutive."""
+
+    def test_codes_run_consecutively_from_january_2026(self):
+        self.assertEqual(soar.attestation_code_period(1), "2026-01")
+        self.assertEqual(soar.attestation_code_period(12), "2026-12")
+        self.assertEqual(soar.attestation_code_period(13), "2027-01")
+        self.assertEqual(soar.attestation_code_period(24), "2027-12")
+
+    def test_labels_name_a_month_and_year(self):
+        self.assertEqual(soar.period_from_label("January 2026"), "2026-01")
+        self.assertEqual(soar.period_from_label("<b>Sept</b> 2027"), "2027-09")
+        self.assertEqual(soar.period_from_label("Dec-2026"), "2026-12")
+        self.assertIsNone(soar.period_from_label("2026"))
+        self.assertIsNone(soar.period_from_label("Month 13"))
+
+    def test_choice_lists_parse(self):
+        self.assertEqual(soar.parse_choices("1, January 2026 | 2, February 2026"),
+                         [("1", "January 2026"), ("2", "February 2026")])
+        self.assertEqual(soar.parse_choices(""), [])
+
+    def test_2027_codes_map_once_added(self):
+        periods = soar.attestation_periods_from_dictionary(soar_dictionary([2026, 2027]))
+        self.assertEqual((periods["7"], periods["19"], len(periods)), ("2026-07", "2027-07", 24))
+
+    def test_a_dictionary_relabelled_as_2027_is_refused(self):
+        with self.assertRaisesRegex(ProjectConfigurationError, 'code 1 is labelled "January 2027".*should be 2026-01'):
+            soar.attestation_periods_from_dictionary(soar_dictionary([2027]))
+
+    def test_a_dictionary_without_the_field_or_with_a_bad_code_is_refused(self):
+        with self.assertRaisesRegex(ProjectConfigurationError, "defines no codes"):
+            soar.attestation_periods_from_dictionary([])
+        bad = [{"field_name": "month_year_nontsv", "select_choices_or_calculations": "x, January 2026"}]
+        with self.assertRaisesRegex(ProjectConfigurationError, "not a positive whole number"):
+            soar.attestation_periods_from_dictionary(bad)
+
+    def test_each_attestation_counts_in_exactly_one_year(self):
+        # The case that motivated this: in January both years are assessed.
+        periods = soar.attestation_periods_from_dictionary(soar_dictionary([2026, 2027]))
+        records = [no_ntsv(month_year_nontsv="7"), no_ntsv(month_year_nontsv="13", date="2027-02-04")]
+        y2026, _ = run(records, year=2026, periods=periods)
+        y2027, _ = run(records, year=2027, periods=periods)
+        self.assertEqual([a.period for a in y2026], ["2026-07"])
+        self.assertEqual([a.period for a in y2027], ["2027-01"])
+
+    def test_a_zero_padded_code_is_the_same_code(self):
+        self.assertEqual(soar.no_ntsv_period(no_ntsv(month_year_nontsv="07"), PERIODS_2026), "2026-07")
 
 
 if __name__ == "__main__":

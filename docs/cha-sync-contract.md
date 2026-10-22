@@ -137,7 +137,13 @@ identifier and figure in it is fictional.
 are never sent: a program that silently omitted hospitals would read as those
 hospitals not having submitted.
 
-Error codes: `redcap_unavailable`, `configuration`, `internal`.
+Error codes:
+
+- `redcap_unavailable` — REDCap could not be reached or refused a request.
+- `configuration` — the script's settings or crosswalk, or a REDCap project
+  set up in a way the rules cannot rely on, such as a data dictionary label
+  that breaks a code pattern.
+- `internal` — a defect in the script.
 
 ### Assessment fields
 

@@ -115,6 +115,10 @@ class RedcapClient:
             data[f"fields[{i}]"] = name
         return self._post(token, data)
 
+    def export_metadata(self, token: str) -> list[dict]:
+        """The project's data dictionary. Raises RedcapError if it cannot be read."""
+        return self._post(token, {"content": "metadata"})
+
     def export_field_labels(self, token: str) -> dict[str, str]:
         """field_name -> human label, from the live data dictionary.
 
@@ -123,16 +127,19 @@ class RedcapClient:
         unambiguously.
         """
         try:
-            meta = self._post(token, {"content": "metadata"})
+            return labels_from_metadata(self.export_metadata(token))
         except RedcapError:
             return {}
-        labels: dict[str, str] = {}
-        for m in meta:
-            if not isinstance(m, dict):
-                continue
-            name = str(m.get("field_name", "")).strip()
-            # Dictionary labels often carry rich-text markup.
-            label = re.sub(r"<[^>]*>", "", str(m.get("field_label", ""))).strip()
-            if name and label:
-                labels[name] = label
-        return labels
+
+
+def labels_from_metadata(meta: list[dict]) -> dict[str, str]:
+    """field_name -> label, with the rich-text markup dictionary labels often carry removed."""
+    labels: dict[str, str] = {}
+    for m in meta:
+        if not isinstance(m, dict):
+            continue
+        name = str(m.get("field_name", "")).strip()
+        label = re.sub(r"<[^>]*>", "", str(m.get("field_label", ""))).strip()
+        if name and label:
+            labels[name] = label
+    return labels

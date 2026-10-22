@@ -15,6 +15,7 @@ from typing import Callable
 from . import GENERATOR_NAME, __version__
 from .config import Config
 from .crosswalk import CROSSWALK_DIR, CrosswalkError, load_crosswalk
+from .errors import ProjectConfigurationError
 from .models import Run, Snapshot, Source
 from .programs import IMPLEMENTED
 from .redcap import RedcapClient, RedcapError
@@ -60,6 +61,8 @@ def run_program(
         fetched = module.fetch(client, config.tokens)
     except RedcapError as exc:
         return failed("redcap_unavailable", str(exc))
+    except ProjectConfigurationError as exc:
+        return failed("configuration", str(exc))
     except Exception as exc:  # one program's defect must not stop the others
         return failed("internal", f"Unexpected error while reading REDCap ({describe_exception(exc)}).")
 

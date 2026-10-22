@@ -118,14 +118,14 @@ Both delivery values are supplied by CPCQC.
 | Variable | Program | Notes |
 |---|---|---|
 | `REDCAP_API_URL` | all | Defaults to `https://redcap.vumc.org/api/`. Must be `https://`. |
-| `REDCAP_SOAR_TOKEN` | SOAR | |
+| `REDCAP_SOAR_TOKEN` | SOAR | Needs the Export right — the script reads records and the data dictionary |
 | `REDCAP_NEST_TOKEN` | NEST | Not yet used |
 | `REDCAP_SPARK_TOKEN` | SPARK | Not yet used |
-| `REDCAP_TTT_HOSPITAL_TOKEN` | TtT | Not yet used. Will need the **Logging** user right as well as export — see below |
+| `REDCAP_TTT_HOSPITAL_TOKEN` | TtT | Not yet used. Will need the **Logging** user right as well as Export — see below |
 | `REDCAP_TTT_PATIENT_TOKEN` | TtT | Not yet used |
 | `REDCAP_TTT_DYADIC_TOKEN` | TtT | Not yet used. CHoSEN Dyadic project, Denver Health only |
 | `REDCAP_TTT_DYADIC_API_URL` | TtT | Only if the Dyadic project is on a different REDCap instance |
-| `REDCAP_TTT_DYADIC_DH_DAG` | TtT | Denver Health's data access group in the Dyadic project. Defaults to `denver_health` |
+| `REDCAP_TTT_DYADIC_DH_DAG` | TtT | Denver Health's data access group in the Dyadic project. Defaults to `denver_health_medi` |
 | `REDCAP_TIMEOUT` | all | Seconds per REDCap call, 1–3600. Defaults to 90 |
 
 A token is checked for shape — 32 hexadecimal characters — but never echoed,
@@ -180,7 +180,8 @@ group to CHA ID:
 
 ```json
 {
-  "some_dag": { "cha_id": "EX-001", "hospital": "Some Hospital" }
+  "some_dag":  { "cha_id": "EX-001", "hospital": "Some Hospital" },
+  "other_dag": { "cha_id": "EX-002", "hospital": "Other Hospital", "tracked": false }
 }
 ```
 
@@ -188,16 +189,17 @@ group to CHA ID:
 access groups mapping to one CHA ID is refused, since it would merge their
 data.
 
-A data access group with data but no crosswalk entry is reported in that run's
-`warnings` and its rows are skipped — deliberately loud, because silently
-dropping a hospital would read as that hospital not submitting.
+`"tracked": false` marks a hospital that is known but not tracked for that
+program. Its rows are skipped without a warning. When a hospital joins the
+active cohort, remove `"tracked": false`.
 
-`crosswalk.soar.json` was generated from the tracker's hospital records and all
-16 entries resolved to a CHA ID. **It needs extending:** CHA's SOAR methodology
-describes 37 hospitals in that project, while this map covers the 2026 active
-cohort. The first run against live REDCap will list every missing data access
-group in its warnings. Assessing every hospital in the project is intended —
-the tracker decides which are in an active cohort.
+A data access group with data but **no** crosswalk entry is reported in that
+run's `warnings` and its rows are skipped — deliberately loud, because
+silently dropping a hospital would read as that hospital not submitting.
+
+`crosswalk.soar.json` is complete: the 16 hospitals in SOAR's active cohort are
+tracked, and the other 21 in the project — sustainability-track and not
+enrolled, per CHA's master hospital list — are known but not tracked.
 
 ---
 
@@ -213,8 +215,8 @@ the tracker decides which are in an active cohort.
 ### SOAR
 
 - **Submitted:** at least one NTSV case in the month, or a zero-case
-  attestation. A case's month comes from its delivery date; an attestation's
-  from its month field.
+  attestation. A case's month comes from its delivery date. An attestation's
+  month **and year** come from its `month_year_nontsv` code — see below.
 - **Complete:** every NTSV case passes the required-field rules, including the
   branching on admission reason and primary indication. An attestation decides
   only a month with no cases.
@@ -222,6 +224,20 @@ the tracker decides which are in an active cohort.
   the month's records. A value that is not a real calendar date is ignored.
 - **Notes**, as counts, never values: NTSV cases whose delivery date is after
   the run date, and records whose submission date is not a valid date.
+
+**Attestation codes carry the year.** In the SOAR data dictionary,
+`month_year_nontsv` codes 1–12 are January–December 2026, and 2027 continues at
+13. The script reads each code's month and year from the dictionary's labels,
+so codes added later need no change here. Three safeguards:
+
+- Every label must follow that pattern — code 13 must say January 2027. A
+  dictionary that breaks it, such as 1–12 relabelled as 2027, fails SOAR as a
+  `configuration` error rather than move a year's attestations into the wrong
+  year.
+- An attestation whose code the dictionary does not define is not counted, and
+  the run's warnings say how many, per data access group.
+- The data dictionary is required. If it cannot be read, SOAR fails as
+  `redcap_unavailable`.
 
 ### TtT spans three REDCap projects
 
@@ -241,8 +257,9 @@ the tracker decides which are in an active cohort.
   requested by name.
 - **Submission dates come from REDCap's logging API** — the earliest
   "Create Record" entry per record on the hospital project. The hospital-project
-  token needs the *Logging* user right. If the log is unavailable, timeliness
-  for that run is reported as unknown rather than failing TtT.
+  token needs the *Logging* user right as well as Export, granted by the REDCap
+  project administrator. If the log is unavailable, timeliness for that run is
+  reported as unknown rather than failing TtT.
 - **Required fields come from the live data dictionary** — fields marked
   required on the monthly hospital form, excluding `@HIDDEN` fields and
   `tot_anx_scrnd`.

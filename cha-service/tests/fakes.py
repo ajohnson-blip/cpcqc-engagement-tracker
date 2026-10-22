@@ -34,13 +34,29 @@ class FakeSession:
         return outcome
 
 
-class FakeRedcapClient:
-    """Stands in for RedcapClient: canned records and labels, or an error."""
+MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August",
+          "September", "October", "November", "December")
 
-    def __init__(self, records=None, labels=None, error: BaseException | None = None):
+
+def soar_dictionary(years=(2026,), labels=None) -> list[dict]:
+    """A SOAR data dictionary: month_year_nontsv codes from 1 = January 2026, plus field labels."""
+    choices = " | ".join(
+        f"{i * 12 + j + 1}, {m} {y}" for i, y in enumerate(years) for j, m in enumerate(MONTHS)
+    )
+    meta = [{"field_name": "month_year_nontsv", "field_label": "Month", "select_choices_or_calculations": choices}]
+    meta += [{"field_name": k, "field_label": v} for k, v in (labels or {}).items()]
+    return meta
+
+
+class FakeRedcapClient:
+    """Stands in for RedcapClient: canned records and data dictionary, or an error."""
+
+    def __init__(self, records=None, labels=None, error: BaseException | None = None, meta=None,
+                 meta_error: BaseException | None = None):
         self.records = records or []
-        self.labels = labels or {}
+        self.meta = meta if meta is not None else soar_dictionary(labels=labels)
         self.error = error
+        self.meta_error = meta_error
         self.exports: list[dict] = []
 
     def export_records(self, token, fields, include_record_id=True):
@@ -49,5 +65,7 @@ class FakeRedcapClient:
             raise self.error
         return self.records
 
-    def export_field_labels(self, token):
-        return self.labels
+    def export_metadata(self, token):
+        if self.meta_error:
+            raise self.meta_error
+        return self.meta

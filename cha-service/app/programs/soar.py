@@ -15,12 +15,15 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Iterable
 
+from ..crosswalk import Crosswalk
+from ..errors import ProjectConfigurationError
 from ..models import Assessment, MissingField, MissingFieldGroup, RecordCounts
-from ..redcap import RedcapClient
+from ..redcap import RedcapClient, labels_from_metadata
 
 PROGRAM = "SOAR"
 TOKEN_SETTINGS = ("REDCAP_SOAR_TOKEN",)
-METHODOLOGY_VERSION = "soar-2026.10"
+# 2026.10.1: an attestation's year comes from its month code, not the year assessed.
+METHODOLOGY_VERSION = "soar-2026.10.1"
 REDCAP_PROJECT = "CPCQC SOAR NTSV"
 
 NTSV_FORM = "ntsv_cesarean_section"
@@ -77,6 +80,8 @@ _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 class Fetched:
     records: list[dict]
     labels: dict[str, str]
+    # month_year_nontsv code -> "YYYY-MM", from the data dictionary.
+    attestation_periods: dict[str, str]
 
     @property
     def records_read(self) -> int:
@@ -84,16 +89,30 @@ class Fetched:
 
 
 def fetch(client: RedcapClient, tokens: dict[str, str]) -> Fetched:
+    """Records and the data dictionary.
+
+    The dictionary is required, not best effort: besides labels, it defines
+    which month and year each attestation code means.
+    """
     token = tokens["REDCAP_SOAR_TOKEN"]
+    meta = client.export_metadata(token)
+    periods = attestation_periods_from_dictionary(meta)
     records = client.export_records(token, MINIMUM_FIELDS)
-    labels = client.export_field_labels(token)
-    return Fetched(records=records, labels=labels)
+    return Fetched(records=records, labels=labels_from_metadata(meta), attestation_periods=periods)
 
 
 def assess_year(
-    fetched: Fetched, program_year: int, crosswalk: dict[str, str], today: date
+    fetched: Fetched, program_year: int, crosswalk: Crosswalk, today: date
 ) -> tuple[list[Assessment], list[str]]:
-    return assess(fetched.records, program_year, crosswalk, fetched.labels, today)
+    return assess(
+        fetched.records,
+        program_year,
+        crosswalk.cha_ids,
+        fetched.labels,
+        today,
+        fetched.attestation_periods,
+        crosswalk.untracked,
+    )
 
 
 def is_filled(value) -> bool:
@@ -160,17 +179,91 @@ def ntsv_period(row: dict) -> str | None:
     return raw[:7] if len(raw) >= 7 and raw[4] == "-" else None
 
 
-def no_ntsv_period(row: dict, year: int) -> str | None:
-    """The attestation's month dropdown, placed in the program year.
+# --- No-NTSV attestation periods, read from the data dictionary ---
+#
+# month_year_nontsv codes name a month AND a year: 1-12 are January-December
+# 2026, and later years continue consecutively (13 = January 2027), the same
+# pattern as TtT's monthly form. The dictionary's labels decide what each code
+# means, and every label must agree with that pattern: relabelling 1-12 as
+# 2027 instead of adding codes would otherwise move a year's attestations into
+# the wrong year without a sound. An attestation whose code the dictionary
+# does not define is reported, never guessed. Identical to the tracker's
+# attestationPeriodsFromDictionary.
 
-    The form records a month but no year, so the program year supplies it —
-    as the tracker does. See the plan's open questions on year rollover.
-    """
-    raw = str(row.get(NO_NTSV_MONTH_FIELD, "")).strip()
-    if not raw.isdigit():
+FIRST_CODE_YEAR = 2026
+_MONTH_NAMES = (
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+)
+
+
+def _normalise_code(raw) -> str | None:
+    """A dropdown code as REDCap stores it: "07" and "7" are the same code."""
+    s = str(raw if raw is not None else "").strip()
+    return str(int(s)) if s.isdigit() else None
+
+
+def attestation_code_period(code: int) -> str:
+    """The period a code means under the consecutive pattern: 1 -> 2026-01, 13 -> 2027-01."""
+    zero_based = code - 1
+    return f"{FIRST_CODE_YEAR + zero_based // 12}-{zero_based % 12 + 1:02d}"
+
+
+def period_from_label(label: str) -> str | None:
+    """"January 2026" -> "2026-01". Full or three-letter month names; None if either part is missing."""
+    text = re.sub(r"<[^>]*>", " ", label).lower()
+    year = re.search(r"\b(20\d{2})\b", text)
+    words = re.findall(r"[a-z]+", text)
+    month = next(
+        (i for i, name in enumerate(_MONTH_NAMES) if any(len(w) >= 3 and name.startswith(w) for w in words)),
+        None,
+    )
+    if not year or month is None:
         return None
-    month = int(raw)
-    return f"{year}-{month:02d}" if 1 <= month <= 12 else None
+    return f"{year.group(1)}-{month + 1:02d}"
+
+
+def parse_choices(raw) -> list[tuple[str, str]]:
+    """REDCap's select_choices_or_calculations: "1, January 2026 | 2, February 2026"."""
+    out = []
+    for part in str(raw if raw is not None else "").split("|"):
+        code, sep, label = part.partition(",")
+        if sep and code.strip():
+            out.append((code.strip(), label.strip()))
+    return out
+
+
+def attestation_periods_from_dictionary(meta: list[dict]) -> dict[str, str]:
+    """Code -> period for month_year_nontsv. Raises ProjectConfigurationError, naming the code."""
+    field = next(
+        (m for m in meta if isinstance(m, dict) and str(m.get("field_name", "")).strip() == NO_NTSV_MONTH_FIELD),
+        None,
+    )
+    choices = parse_choices(field.get("select_choices_or_calculations") if field else None)
+    if not choices:
+        raise ProjectConfigurationError(f"The SOAR data dictionary defines no codes for {NO_NTSV_MONTH_FIELD}.")
+    periods: dict[str, str] = {}
+    for code, label in choices:
+        n = _normalise_code(code)
+        if n is None or int(n) < 1:
+            raise ProjectConfigurationError(
+                f'{NO_NTSV_MONTH_FIELD} has a code, "{code}", that is not a positive whole number.'
+            )
+        expected = attestation_code_period(int(n))
+        if period_from_label(label) != expected:
+            raise ProjectConfigurationError(
+                f'{NO_NTSV_MONTH_FIELD} code {n} is labelled "{label}", but codes run consecutively from '
+                f"1 = January {FIRST_CODE_YEAR}, so code {n} should be {expected}. Stopping rather than place "
+                "attestations in the wrong month."
+            )
+        periods[n] = expected
+    return periods
+
+
+def no_ntsv_period(row: dict, periods: dict[str, str]) -> str | None:
+    """An attestation's reporting period from its code; None when blank or undefined."""
+    code = _normalise_code(row.get(NO_NTSV_MONTH_FIELD))
+    return periods.get(code) if code is not None else None
 
 
 def missing_ntsv_fields(row: dict) -> list[str]:
@@ -235,12 +328,15 @@ def assess(
     crosswalk: dict[str, str],
     labels: dict[str, str],
     today: date,
+    attestation_periods: dict[str, str],
+    untracked: frozenset[str] = frozenset(),
 ) -> tuple[list[Assessment], list[str]]:
     """Assessments per (hospital, period), plus warnings.
 
     `crosswalk` maps REDCap DAG -> CHA ID. A DAG with data but no crosswalk
     entry is reported as a warning rather than silently dropped: silence would
-    read as a hospital that did not submit.
+    read as a hospital that did not submit. DAGs in `untracked` are known and
+    deliberately skipped, without a warning.
 
     `today` flags NTSV rows whose delivery date has not happened yet — almost
     always a data-entry error. Only the count leaves this function.
@@ -263,9 +359,11 @@ def assess(
         }
     )
 
+    undefined_codes: dict[str, int] = defaultdict(int)
+
     for row in records:
         dag = str(row.get(F_DAG, "")).strip()
-        if dag in IGNORED_DAGS:
+        if dag in IGNORED_DAGS or dag in untracked:
             continue
         seen_dags.add(dag)
         cha_id = crosswalk.get(dag)
@@ -288,8 +386,12 @@ def assess(
             if delivered and delivered > today_iso:
                 cell["future_dated"] += 1
         elif kind == "no_ntsv":
-            period = no_ntsv_period(row, program_year)
+            period = no_ntsv_period(row, attestation_periods)
             if period is None:
+                if is_filled(row.get(NO_NTSV_MONTH_FIELD)):
+                    undefined_codes[dag] += 1
+                continue
+            if not period.startswith(f"{program_year}-"):
                 continue
             cell = cells[(cha_id, period)]
             cell["attestations"] += 1
@@ -310,6 +412,12 @@ def assess(
     for dag in sorted(seen_dags - crosswalk.keys()):
         warnings.append(
             f'REDCap DAG "{dag}" has SOAR data but is not in the crosswalk; its rows were skipped.'
+        )
+    for dag, n in sorted(undefined_codes.items()):
+        counted = "it was" if n == 1 else "they were"
+        warnings.append(
+            f'REDCap DAG "{dag}": {_plural(n, "No-NTSV attestation uses", "No-NTSV attestations use")} '
+            f"a month code the data dictionary does not define, so {counted} not counted."
         )
 
     out: list[Assessment] = []

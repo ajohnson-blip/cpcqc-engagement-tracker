@@ -1,8 +1,8 @@
 # REDCap partition — plan
 
-**Status:** phases 1 and 2 are built for SOAR and await their checkpoints —
-see "Build phases" 
-**Date:** 20 October 2026
+**Status:** SOAR's phase 1 checkpoint is passed; phase 2 is built and waits on
+the first delivered file — see "Build phases"
+**Date:** 22 October 2026
 **Supersedes:** the on-demand assessment service described in contract v1
 
 ---
@@ -63,10 +63,37 @@ new path has been shown to agree with it. The Engagement Tracker Workspace runs
    python-dotenv 1.1.0. Tests use the standard library's `unittest` so that
    running them needs nothing further.
 4. **TtT spans three REDCap projects** — hospital, patient, and CHoSEN Dyadic.
+5. **Delivery is an outbound HTTPS POST** to the tracker (`DELIVERY_URL`) —
+   CHA's preference, pending CHA IT approval.
+6. **Alerting uses B and C** (see "Failure handling and alerting"). Alerts go
+   to Luis Montes and a shared CPCQC address, so they do not depend on one
+   person being available.
+7. **The previous program year is assessed in January and February.**
+8. **An attestation's year comes from its code.** `month_year_nontsv` codes
+   1–12 are January–December 2026 in the SOAR data dictionary. 2027 continues
+   at 13 — codes 13–24 are to be added, not 1–12 relabelled — the same pattern
+   as TtT's monthly form. Both the script and the tracker read each code's
+   month and year from the data dictionary, refuse a dictionary whose labels
+   break that pattern, and flag an attestation whose code the dictionary does
+   not define rather than guess. Each attestation counts in exactly one year.
+   **The 2027 codes must be in the form before hospitals enter December 2026
+   attestations in January.**
+9. **SOAR's crosswalk is complete.** The 16 active hospitals are tracked; the
+   other 21 in the project are listed as known but not tracked
+   (`"tracked": false`) and skipped without a warning, so a warning fires only
+   for a data access group nobody has listed. When a hospital joins the active
+   cohort, its entry changes to tracked.
+10. **UCHealth Memorial:** CHA ID `632` remains the combined record through
+    December 2026. From January 2027, `632C` (Central) and `632N` (North), both
+    with parent CHA ID 632 so CHA and CDPHE linkage still rolls up. IDs are
+    strings.
+11. **Service tokens** for the nightly job are issued by the REDCap project
+    administrator. The TtT hospital-project token needs the Export and Logging
+    rights.
 
 ---
 
-## The output location — needs a decision
+## The output location
 
 The script writes its file to a location CHA sets. Two kinds of location are
 possible using only the approved packages:
@@ -98,8 +125,7 @@ sent, and it needs nothing beyond `requests`.
 `/integrations/cha/assessment-files`, authenticated with a token shared with
 CHA.
 
-**For review:** whether CHA IT is content with an outbound HTTPS POST to the
-tracker, or has a different shared location in mind. A different location is
+**Decided:** the outbound POST is CHA's preference, pending CHA IT approval. A different location is
 possible but changes both sides — another library at CHA, and a matching reader
 in the tracker.
 
@@ -135,15 +161,15 @@ Points that are easy to get wrong:
   different things. In Dyadic, 7 is alcohol, 8 nicotine and 9 cannabis, all
   excluded; in the patient project 8 and 9 qualify.
 - **The Dyadic project is shared with other collaboratives.** Only rows in
-  Denver Health's data access group are used — `denver_health` by default,
-  configurable as `REDCAP_TTT_DYADIC_DH_DAG` because the spelling may differ.
+  Denver Health's data access group are used — `denver_health_medi` there,
+  confirmed by CHA, and configurable as `REDCAP_TTT_DYADIC_DH_DAG`.
 - **Dyadic's record-ID field may not be called `record_id`**, so it is not
   requested by name.
 - **Submission dates come from REDCap's logging API**, as the earliest
   "Create Record" entry per record — not from a field. The hospital-project
-  token therefore needs the *Logging* user right as well as export. If the log
-  is unavailable, timeliness for that run is reported as unknown rather than
-  failing the program.
+  token therefore needs the *Logging* user right as well as Export, granted by
+  the REDCap project administrator. If the log is unavailable, timeliness for
+  that run is reported as unknown rather than failing the program.
 - **Required fields come from the live data dictionary**: fields marked
   required on the monthly hospital form, excluding `@HIDDEN` fields and
   `tot_anx_scrnd`.
@@ -179,14 +205,12 @@ Three layers, not mutually exclusive:
 | **B** | Every tracker preview shows the file's age, and warns when it is older than a threshold | Everything, but only when a PM looks | Tracker change only |
 | **C** | A small daily job on the tracker side checks the newest file's age and emails a configured address when it is stale | Everything, including the script never running, without anyone having to look | A Render cron job; uses the tracker's existing email |
 
-**Proposed:** B always; C as the proactive alert, because it catches the case
-A cannot; A at CHA's discretion. **B is built:** every SOAR preview shows when
-CHA's file was produced and how old it is, warns when it is more than 30 hours
-old, and warns when a newer run for that program failed. The recipient for C could be Luis, a CPCQC
-address, or both.
+**Decided:** B and C; A at CHA's discretion. C is the only layer that catches
+the script never running. Alerts go to Luis Montes and a shared CPCQC address.
 
-**For review:** who receives the alert, and whether C is worth a Render cron
-job's cost.
+**B is built:** every SOAR preview shows when CHA's file was produced and how
+old it is, warns when it is more than 30 hours old, and warns when a newer run
+for that program failed. C is phase 6.
 
 ---
 
@@ -238,9 +262,10 @@ because an Apply leaves unchanged tasks untouched although the newer data
 confirmed them.
 
 **Year rollover.** December's data arrives in January, and submissions can be
-late. The script should compute the previous program year as well as the
-current one for part of the new year. *For review: how long.* January through
-February is proposed, overridable with `PROGRAM_YEARS`.
+late, so the script assesses the previous program year as well as the current
+one in January and February, overridable with `PROGRAM_YEARS`. This counts
+nothing twice: a case's month comes from its delivery date, and an
+attestation's month and year from its code.
 
 ---
 
@@ -265,14 +290,18 @@ Each phase ends at a checkpoint before the next starts.
 1. **CHA script, SOAR only.** Rework the existing SOAR code into a command-line
    script using only the approved packages. Writes the file to `OUTPUT_DIR`;
    POSTs to `DELIVERY_URL` when set.
-   *Built.* *Checkpoint:* runs at CHA against live REDCap; the file is
-   reviewed by CHA.
+   *Built.* *Checkpoint passed:* run at CHA against live REDCap, the results
+   matched CHA's own pipeline for every hospital-month of the 16 tracked
+   hospitals — submitted, complete, record counts, attestations and earliest
+   submission date. Missing-field groups were not compared, since CHA's
+   pipeline records only counts; phase 3 compares them against the tracker.
 
 2. **Tracker receives and uses the file.** Ingest endpoint, storage table,
    strict validation, the SOAR sync reading the newest file on the Engagement
    Tracker Workspace, file age on every preview, the finalization warning.
-   *Built.* *Checkpoint:* a SOAR preview renders on the Engagement Tracker
-   Workspace from a delivered file.
+   *Built and deployed.* *Checkpoint:* a SOAR preview renders on the
+   Engagement Tracker Workspace from a delivered file — once CHA IT approves
+   delivery.
 
 3. **SOAR parity.** Compare SOAR previews from My Workspace (direct REDCap)
    and the Engagement Tracker Workspace (CHA file) for the same program year,
@@ -292,31 +321,22 @@ Each phase ends at a checkpoint before the next starts.
 
 ## Open questions
 
-1. **Delivery** — outbound POST to the tracker, or a different shared location?
-2. **Alerts** — recipient, and whether to run the proactive check.
-3. **TtT logging right** — can CHA grant the *Logging* user right on the TtT
-   hospital-project token?
-4. **CHoSEN Dyadic instance** — the same REDCap instance as CPCQC's projects,
-   or a different one? And Denver Health's data access group name there.
-5. **Retention** — how long CHA keeps nightly files, and how long the tracker
-   keeps received ones.
-6. **Rollover window** — how long the previous program year is computed.
-7. **Run time** — a specific time after midnight Mountain that suits CHA's
+1. **Delivery approval** — CHA IT's approval of the outbound HTTPS POST.
+2. **Alert address** — which shared CPCQC address receives the staleness alert.
+3. **CHoSEN Dyadic instance** — whether the Dyadic project is on the same
+   REDCap instance as CPCQC's projects. If not, `REDCAP_TTT_DYADIC_API_URL`
+   names it.
+4. **Retention** — CHA suggests keeping its nightly files for one year. How
+   long the tracker keeps received files is CPCQC's decision.
+5. **Run time** — a specific time after midnight Mountain that suits CHA's
    systems.
-8. **Hospital identifiers** — the UCHealth Memorial campus split needs
-   identifiers CHA's master list does not currently contain.
-9. **Readiness assessment** — annual rather than monthly; whether it moves too.
-10. **Crosswalks** — the SOAR crosswalk covers 16 data access groups; CHA's
-    methodology describes 37 hospitals in that project. Each program needs a
-    complete crosswalk.
-11. **The year of a SOAR zero-case attestation** — needs an answer before
-    January. The No-NTSV form records a month but no year, so the year is
-    taken from the program year being assessed; the tracker does the same
-    today. In January and February the script assesses two program years,
-    so each attestation is counted in both: one entered in August 2026 for
-    July appears as a July 2026 submission and as a July 2027 one, and 2027
-    months would show as submitted before they have begun. How does CHA's own
-    pipeline assign the year? A proposed rule: an attestation belongs to the
-    most recent occurrence of its month on or before the date it was entered.
-    Whatever is chosen, the script and the tracker change together, so parity
-    holds.
+6. **The annual readiness assessment (HRA)** — the readiness assessment
+   hospitals complete each year is also in REDCap. Should the nightly script
+   report it too, so the tracker can mark each hospital's readiness task as
+   submitted, or does it stay outside this partition for now?
+7. **The 2027 attestation codes** — the REDCap project administrator adds
+   `month_year_nontsv` codes 13–24, labelled January–December 2027, before
+   January. Until then a 2027 attestation cannot be entered; once they are
+   added, nothing else changes.
+8. **Memorial in SOAR from 2027** — whether Central and North get separate
+   data access groups in the SOAR project, and if so their names.

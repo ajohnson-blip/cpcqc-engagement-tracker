@@ -12,7 +12,7 @@ from app.output import filename_for, serialize, write_file
 from app.programs import soar
 from app.redcap import RedcapError
 from app.runner import build_snapshot
-from tests.fakes import FAKE_TOKEN, FakeRedcapClient
+from tests.fakes import FAKE_TOKEN, FakeRedcapClient, soar_dictionary
 
 TODAY = date(2026, 10, 20)
 STARTED = datetime(2026, 10, 20, 7, 5, 12, tzinfo=timezone.utc)
@@ -137,6 +137,16 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("R-1041", err.message)
         self.assertNotIn("invalid literal", err.message)
 
+    def test_an_unreadable_dictionary_fails_the_program_as_redcap_unavailable(self):
+        snap = self.snapshot(FakeRedcapClient(records(), meta_error=RedcapError("REDCap did not respond within 90s")))
+        self.assertEqual(snap.runs[0].error.code, "redcap_unavailable")
+
+    def test_a_dictionary_that_breaks_the_code_pattern_is_a_configuration_error(self):
+        snap = self.snapshot(FakeRedcapClient(records(), meta=soar_dictionary([2027])))
+        err = snap.runs[0].error
+        self.assertEqual(err.code, "configuration")
+        self.assertIn('code 1 is labelled "January 2027"', err.message)
+
     def test_a_missing_crosswalk_is_a_configuration_error(self):
         (self.crosswalks / "crosswalk.soar.json").unlink()
         snap = self.snapshot(FakeRedcapClient(records()))
@@ -192,8 +202,24 @@ class CrosswalkTests(unittest.TestCase):
         return load_crosswalk("SOAR", self.dir)
 
     def test_maps_dag_to_cha_id(self):
-        self.assertEqual(self.load({"a": {"cha_id": "EX-001", "hospital": "A"}, "b": {"cha_id": 9001}}),
+        self.assertEqual(self.load({"a": {"cha_id": "EX-001", "hospital": "A"}, "b": {"cha_id": 9001}}).cha_ids,
                          {"a": "EX-001", "b": "9001"})
+
+    def test_tracked_false_is_known_but_skipped(self):
+        crosswalk = self.load({"a": {"cha_id": "EX-001"}, "b": {"cha_id": "EX-002", "tracked": False}})
+        self.assertEqual((crosswalk.cha_ids, crosswalk.untracked), ({"a": "EX-001"}, frozenset({"b"})))
+
+    def test_untracked_ids_still_cannot_repeat(self):
+        with self.assertRaisesRegex(CrosswalkError, "both map to CHA ID EX-001"):
+            self.load({"a": {"cha_id": "EX-001"}, "b": {"cha_id": "EX-001", "tracked": False}})
+
+    def test_refuses_a_tracked_value_that_is_not_true_or_false(self):
+        with self.assertRaisesRegex(CrosswalkError, "not true or false"):
+            self.load({"a": {"cha_id": "EX-001", "tracked": "no"}})
+
+    def test_refuses_a_crosswalk_that_tracks_nothing(self):
+        with self.assertRaisesRegex(CrosswalkError, "tracks no hospital"):
+            self.load({"a": {"cha_id": "EX-001", "tracked": False}})
 
     def test_refuses_an_entry_without_a_cha_id(self):
         with self.assertRaises(CrosswalkError):
@@ -209,8 +235,8 @@ class CrosswalkTests(unittest.TestCase):
 
     def test_the_shipped_soar_crosswalk_loads(self):
         crosswalk = load_crosswalk("SOAR")
-        self.assertEqual(len(crosswalk), 16)
-        self.assertTrue(all(cha_id.isdigit() for cha_id in crosswalk.values()))
+        self.assertEqual((len(crosswalk.cha_ids), len(crosswalk.untracked)), (16, 21))
+        self.assertTrue(all(cha_id.isdigit() for cha_id in crosswalk.cha_ids.values()))
 
 
 if __name__ == "__main__":

@@ -62,5 +62,110 @@
   "wray_community_dis": {
     "cha_id": "604",
     "hospital": "Wray Community District Hospital"
+  },
+  "banner_fort_collin": {
+    "cha_id": "345",
+    "hospital": "Banner Fort Collins Medical Center",
+    "tracked": false
+  },
+  "community_hospital": {
+    "cha_id": "716",
+    "hospital": "Community Hospital",
+    "tracked": false
+  },
+  "delta_hospital": {
+    "cha_id": "712",
+    "hospital": "Delta Hospital",
+    "tracked": false
+  },
+  "denver_health": {
+    "cha_id": "428",
+    "hospital": "Denver Health Medical Center",
+    "tracked": false
+  },
+  "lutheran_medical_c": {
+    "cha_id": "440",
+    "hospital": "Intermountain Health Lutheran Hospital",
+    "tracked": false
+  },
+  "medical_center_of": {
+    "cha_id": "432",
+    "hospital": "HCA HealthONE Aurora",
+    "tracked": false
+  },
+  "medical_center_ofb": {
+    "cha_id": "318",
+    "hospital": "UCHealth Medical Center Of The Rockies",
+    "tracked": false
+  },
+  "montrose_memorial": {
+    "cha_id": "752",
+    "hospital": "Montrose Regional Health",
+    "tracked": false
+  },
+  "north_colorado_med": {
+    "cha_id": "548",
+    "hospital": "Banner North Colorado Medical Center",
+    "tracked": false
+  },
+  "platte_valley_medi": {
+    "cha_id": "552",
+    "hospital": "Intermountain Health Platte Valley Hospital",
+    "tracked": false
+  },
+  "poudre_valley_hosp": {
+    "cha_id": "556",
+    "hospital": "UCHealth Poudre Valley Hospital",
+    "tracked": false
+  },
+  "saint_marys_hospit": {
+    "cha_id": "768",
+    "hospital": "Intermountain Health St. Mary's Regional Hospital",
+    "tracked": false
+  },
+  "san_luis_valley_he": {
+    "cha_id": "684",
+    "hospital": "San Luis Valley Health",
+    "tracked": false
+  },
+  "swedish_medical_ce": {
+    "cha_id": "508",
+    "hospital": "HCA HealthONE Swedish",
+    "tracked": false
+  },
+  "uc_health_highland": {
+    "cha_id": "346",
+    "hospital": "UCHealth Highlands Ranch Hospital",
+    "tracked": false
+  },
+  "uchealth_greeley": {
+    "cha_id": "374",
+    "hospital": "UCHealth Greeley Hospital",
+    "tracked": false
+  },
+  "uchealth_longs_pea": {
+    "cha_id": "502",
+    "hospital": "UCHealth Longs Peak Hospital",
+    "tracked": false
+  },
+  "uchealth_memorial": {
+    "cha_id": "632",
+    "hospital": "UCHealth Memorial Hospital Central/North",
+    "tracked": false
+  },
+  "uchealth_yampa_val": {
+    "cha_id": "764",
+    "hospital": "UCHealth Yampa Valley Medical Center",
+    "tracked": false
+  },
+  "vail_health_hospit": {
+    "cha_id": "780",
+    "hospital": "Vail Health",
+    "tracked": false
+  },
+  "valley_view_hospit": {
+    "cha_id": "868",
+    "hospital": "Valley View Hospital",
+    "tracked": false
   }
 }
