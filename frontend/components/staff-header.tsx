@@ -141,6 +141,20 @@ export function StaffHeader() {
           >
             Access
           </Link>
+          {/* CPCQC staff accounts — admins only; the API enforces it too. */}
+          {user?.role === 'cpcqc_admin' && (
+            <Link
+              href="/staff/team"
+              className={clsx(
+                'rounded-full px-3 py-1.5 font-rounded text-xs font-bold uppercase tracking-wide transition',
+                activeMatch('/staff/team')
+                  ? 'bg-cpcqc-purple text-white'
+                  : 'text-cpcqc-purple-dark hover:bg-cpcqc-purple/10',
+              )}
+            >
+              Team
+            </Link>
+          )}
         </nav>
 
         <div className="flex items-center gap-3 text-sm">

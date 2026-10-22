@@ -2,7 +2,8 @@
 
 /**
  * Step 2 of self-service password reset: set a new password using the token
- * from the emailed link.
+ * from the emailed link. Also where a new CPCQC staff member chooses their
+ * first password: their setup link adds `setup=1`, which changes the wording.
  *
  * The backend revokes every refresh token on success, so completing this signs
  * the account out everywhere — which is the point if the reset was prompted by
@@ -21,7 +22,9 @@ const MIN_PASSWORD_LENGTH = 12;
 
 function ResetPasswordForm() {
   const router = useRouter();
-  const token = useSearchParams().get('token') ?? '';
+  const params = useSearchParams();
+  const token = params.get('token') ?? '';
+  const setup = params.get('setup') === '1';
 
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -44,7 +47,9 @@ function ResetPasswordForm() {
     } catch (err) {
       setError(
         err instanceof ApiError && err.status === 400
-          ? 'This reset link is invalid or has expired. Request a new one to continue.'
+          ? setup
+            ? 'This setup link has expired or was already used. Ask a CPCQC administrator for a new one.'
+            : 'This reset link is invalid or has expired. Request a new one to continue.'
           : 'Something went wrong. Please try again.',
       );
     } finally {
@@ -77,10 +82,12 @@ function ResetPasswordForm() {
       <div className="text-center">
         <CheckCircle2 className="mx-auto h-10 w-10 text-cpcqc-teal-dark" />
         <h1 className="mt-3 font-rounded text-xl font-bold text-cpcqc-purple-dark">
-          Password updated
+          {setup ? 'Password set' : 'Password updated'}
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          You&apos;ve been signed out on all devices. Sign in with your new password to continue.
+          {setup
+            ? 'Your account is ready. Sign in with your email address and the password you just chose.'
+            : 'You’ve been signed out on all devices. Sign in with your new password to continue.'}
         </p>
         <button
           onClick={() => router.push('/login')}
@@ -95,7 +102,7 @@ function ResetPasswordForm() {
   return (
     <>
       <h1 className="font-rounded text-xl font-bold text-cpcqc-purple-dark">
-        Choose a new password
+        {setup ? 'Welcome — choose your password' : 'Choose a new password'}
       </h1>
       <p className="mt-1 text-sm text-slate-600">
         At least {MIN_PASSWORD_LENGTH} characters. A short phrase you&apos;ll remember works better
@@ -146,7 +153,7 @@ function ResetPasswordForm() {
           disabled={!canSubmit}
           className="w-full rounded-full bg-cpcqc-purple px-4 py-2 font-rounded text-sm font-bold text-white transition hover:bg-cpcqc-purple-dark disabled:opacity-50"
         >
-          {submitting ? 'Updating…' : 'Update password'}
+          {submitting ? 'Saving…' : setup ? 'Set password' : 'Update password'}
         </button>
       </form>
     </>
