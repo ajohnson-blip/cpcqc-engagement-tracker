@@ -2,13 +2,15 @@
  * CPCQC staff accounts — the admin-only "Add staff member" flow that replaces
  * running scripts/create-cpcqc-staff.ts by hand.
  *
+ * Removing someone is a soft delete — see deactivateStaffAccount.
+ *
  * Unlike champion accounts, staff never receive a password. A new account is
  * created with a random one nobody knows, and the person chooses their own
  * through a one-time setup link: the password-reset mechanism with a longer
  * expiry. The admin handles a credential only if the email cannot be sent,
  * when the link is returned once so they can pass it on.
  */
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { randomBytes } from 'node:crypto';
 import { v4 as uuid } from 'uuid';
 import { db, schema } from '@/db/index.js';
@@ -239,4 +241,91 @@ export async function sendStaffSetupLink(
   });
 
   return { emailed: result.sent, setupUrl: result.sent ? null : setupUrl, expiresInDays: STAFF_SETUP_TTL_DAYS };
+}
+
+/**
+ * Remove a staff member's access: the admin-facing version of
+ * scripts/deactivate-staff-account.ts, with the same effects.
+ *
+ * A soft delete. The row stays and `deactivated_at` is set, because staff are
+ * referenced by the audit log and by task history, and deleting them would
+ * orphan the record of what they did. Their initiative roles are removed, since
+ * those drive the "your CPCQC contacts" block hospitals see, and their saved
+ * sign-ins are revoked. An access token already issued keeps working until it
+ * expires (at most JWT_ACCESS_TTL_SECONDS), as for any sign-out.
+ *
+ * Refuses to remove the acting admin, and the last active admin — either would
+ * leave nobody able to manage staff.
+ */
+export async function deactivateStaffAccount(
+  userId: string,
+  actorUserId: string | null,
+): Promise<{ removedRoles: StaffAssignment[]; sessionsRevoked: number }> {
+  const user = await db.query.users.findFirst({ where: eq(schema.users.id, userId) });
+  if (!user) throw new HttpError(404, 'Staff member not found.');
+  if (!user.role.startsWith('cpcqc')) {
+    throw new HttpError(400, 'Only CPCQC staff accounts are removed here. Hospital champions are removed under Access.');
+  }
+  if (user.deactivatedAt) throw new HttpError(409, 'That account is already deactivated.');
+  if (userId === actorUserId) throw new HttpError(400, "You can't remove your own account. Ask another admin.");
+  if (user.role === 'cpcqc_admin') {
+    const [{ admins }] = await db
+      .select({ admins: sql<number>`count(*)::int` })
+      .from(schema.users)
+      .where(and(eq(schema.users.role, 'cpcqc_admin'), isNull(schema.users.deactivatedAt)));
+    if (admins <= 1) throw new HttpError(400, "That is the only active admin, so they can't be removed.");
+  }
+
+  const assignments = await db
+    .select({
+      id: schema.staffInitiativeAssignments.id,
+      code: schema.initiatives.code,
+      role: schema.staffInitiativeAssignments.staffRole,
+    })
+    .from(schema.staffInitiativeAssignments)
+    .innerJoin(schema.initiatives, eq(schema.initiatives.id, schema.staffInitiativeAssignments.initiativeId))
+    .where(eq(schema.staffInitiativeAssignments.userId, userId));
+
+  const now = new Date();
+  let sessionsRevoked = 0;
+  await db.transaction(async (tx) => {
+    for (const a of assignments) {
+      await tx.delete(schema.staffInitiativeAssignments).where(eq(schema.staffInitiativeAssignments.id, a.id));
+      await tx.insert(schema.auditLog).values({
+        id: uuid(),
+        actorUserId,
+        actorRole: 'cpcqc_admin',
+        action: 'staff_assignment.remove',
+        entityType: 'user',
+        entityId: userId,
+        diff: { initiative: a.code, staffRole: a.role },
+        note: `${user.email} removed as ${a.role} for ${a.code} (account removed).`,
+      });
+    }
+    await tx.update(schema.users).set({ deactivatedAt: now, updatedAt: now }).where(eq(schema.users.id, userId));
+    const revoked = await tx
+      .update(schema.refreshTokens)
+      .set({ revokedAt: now, updatedAt: now })
+      .where(and(eq(schema.refreshTokens.userId, userId), isNull(schema.refreshTokens.revokedAt)))
+      .returning({ id: schema.refreshTokens.id });
+    sessionsRevoked = revoked.length;
+    await tx.insert(schema.auditLog).values({
+      id: uuid(),
+      actorUserId,
+      actorRole: 'cpcqc_admin',
+      action: 'user.deactivate',
+      entityType: 'user',
+      entityId: userId,
+      diff: { deactivatedAt: { from: null, to: now.toISOString() }, sessionsRevoked },
+      note: `CPCQC staff account ${user.email} removed by an admin. History retained.`,
+    });
+  });
+
+  return {
+    removedRoles: assignments.map((a) => ({
+      initiativeCode: a.code as InitiativeCode,
+      role: a.role as AssignmentRole,
+    })),
+    sessionsRevoked,
+  };
 }

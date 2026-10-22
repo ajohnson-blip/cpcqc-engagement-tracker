@@ -4,6 +4,7 @@
  *   GET  /staff/team                      the CPCQC staff and admin accounts
  *   POST /staff/team                      add a staff member and email a setup link
  *   POST /staff/team/:userId/setup-link   email a fresh setup link
+ *   POST /staff/team/:userId/deactivate   remove a staff member's access
  *
  * Champion (hospital) accounts are managed under /staff/users, by any staff.
  */
@@ -12,6 +13,7 @@ import { z } from 'zod';
 import { requireAdmin, requireAuth } from '@/middleware/auth.js';
 import {
   createStaffAccount,
+  deactivateStaffAccount,
   listStaffAccounts,
   sendStaffSetupLink,
   STAFF_APP_ROLES,
@@ -49,6 +51,11 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
 router.post('/:userId/setup-link', requireAuth, requireAdmin, async (req, res) => {
   const userId = z.string().uuid().parse(req.params.userId);
   res.json(await sendStaffSetupLink(userId, req.auth?.userId ?? null, 'resend'));
+});
+
+router.post('/:userId/deactivate', requireAuth, requireAdmin, async (req, res) => {
+  const userId = z.string().uuid().parse(req.params.userId);
+  res.json(await deactivateStaffAccount(userId, req.auth?.userId ?? null));
 });
 
 export default router;

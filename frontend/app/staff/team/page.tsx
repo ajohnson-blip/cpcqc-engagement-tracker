@@ -3,8 +3,8 @@
 /**
  * CPCQC staff accounts — admins only.
  *
- * Lists the CPCQC staff and admin accounts, adds new ones, and sends setup
- * links. A new account never has a password anyone knows: the person gets an
+ * Lists the CPCQC staff and admin accounts, adds new ones, sends setup links,
+ * and removes people who have left. A new account never has a password anyone knows: the person gets an
  * emailed link to choose their own. The link is shown here only if the email
  * could not be sent, so the admin can pass it on.
  *
@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, Copy, Mail, ShieldCheck, UserPlus, X } from 'lucide-react';
+import { CheckCircle2, Copy, Mail, ShieldCheck, UserMinus, UserPlus, X } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import type {
@@ -43,6 +43,7 @@ export default function StaffTeamPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'cpcqc_admin';
   const [staff, setStaff] = useState<StaffAccount[] | null>(null);
+  const [removeFor, setRemoveFor] = useState<StaffAccount | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [linkFor, setLinkFor] = useState<StaffAccount | null>(null);
@@ -149,13 +150,25 @@ export default function StaffTeamPage() {
                 </td>
                 <td className="px-4 py-3 text-right">
                   {s.active && (
-                    <button
-                      type="button"
-                      onClick={() => setLinkFor(s)}
-                      className="inline-flex items-center gap-1 rounded-full border border-cpcqc-purple-dark/20 px-3 py-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5"
-                    >
-                      <Mail size={12} aria-hidden /> Send setup link
-                    </button>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setLinkFor(s)}
+                        className="inline-flex items-center gap-1 rounded-full border border-cpcqc-purple-dark/20 px-3 py-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5"
+                      >
+                        <Mail size={12} aria-hidden /> Send setup link
+                      </button>
+                      {/* Not on your own row: removing yourself is refused anyway. */}
+                      {s.id !== user?.userId && (
+                        <button
+                          type="button"
+                          onClick={() => setRemoveFor(s)}
+                          className="inline-flex items-center gap-1 rounded-full border border-cpcqc-pink-dark/30 px-3 py-1 text-xs font-bold uppercase tracking-wide text-cpcqc-pink-dark hover:bg-cpcqc-pink-dark/5"
+                        >
+                          <UserMinus size={12} aria-hidden /> Remove
+                        </button>
+                      )}
+                    </div>
                   )}
                 </td>
               </tr>
@@ -166,6 +179,9 @@ export default function StaffTeamPage() {
 
       {showAdd && <AddStaffModal onClose={() => setShowAdd(false)} onCreated={load} />}
       {linkFor && <SetupLinkModal member={linkFor} onClose={() => setLinkFor(null)} />}
+      {removeFor && (
+        <RemoveStaffModal member={removeFor} onClose={() => setRemoveFor(null)} onRemoved={load} />
+      )}
 
       <style jsx>{`
         :global(.modal-input) {
@@ -502,6 +518,101 @@ function SetupLinkModal({ member, onClose }: { member: StaffAccount; onClose: ()
               className="rounded-full bg-cpcqc-purple px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90 disabled:opacity-50"
             >
               {sending ? 'Sending…' : 'Send link'}
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function RemoveStaffModal({
+  member,
+  onClose,
+  onRemoved,
+}: {
+  member: StaffAccount;
+  onClose: () => void;
+  onRemoved: () => void;
+}) {
+  const [removing, setRemoving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  async function remove() {
+    setError(null);
+    setRemoving(true);
+    try {
+      await api.post(`/staff/team/${member.id}/deactivate`);
+      setDone(true);
+      onRemoved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not remove this staff member.');
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  const roles = member.assignments.map((a) => `${a.initiativeCode} ${ROLE_LABEL[a.role]}`);
+
+  return (
+    <Modal title={done ? 'Staff member removed' : 'Remove staff member'} onClose={onClose}>
+      {done ? (
+        <>
+          <div className="flex items-start gap-2 rounded-lg bg-cpcqc-teal-dark/10 px-3 py-2 text-sm text-cpcqc-purple-dark">
+            <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-cpcqc-teal-dark" aria-hidden />
+            <span>
+              <strong>{fullName(member)}</strong> can no longer sign in. Their history in the
+              tracker is kept.
+            </span>
+          </div>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full bg-cpcqc-purple px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90"
+            >
+              Done
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="space-y-2 text-sm text-cpcqc-purple-dark">
+            <p>
+              Remove <strong>{fullName(member)}</strong> ({member.email})?
+            </p>
+            <ul className="list-disc space-y-1 pl-5 text-cpcqc-purple-dark/80">
+              <li>They can no longer sign in, and their saved sign-ins end.</li>
+              {roles.length > 0 && (
+                <li>
+                  Their initiative roles are removed — {roles.join(', ')} — so hospitals stop seeing
+                  them as a contact.
+                </li>
+              )}
+              <li>Everything they did in the tracker stays on record.</li>
+              <li>If they have the tracker open right now, it stops working within a few hours.</li>
+            </ul>
+          </div>
+          {error && (
+            <div className="rounded-lg bg-cpcqc-pink-dark/10 px-3 py-2 text-sm text-cpcqc-pink-dark">{error}</div>
+          )}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={removing}
+              className="rounded-full border border-cpcqc-purple-dark/20 px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void remove()}
+              disabled={removing}
+              className="rounded-full bg-cpcqc-pink-dark px-4 py-1.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-cpcqc-pink-dark/90 disabled:opacity-50"
+            >
+              {removing ? 'Removing…' : 'Remove'}
             </button>
           </div>
         </>
