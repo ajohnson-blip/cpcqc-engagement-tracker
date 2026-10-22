@@ -22,7 +22,13 @@
  * sign in as them.
  *
  * Usage:
- *   npm run create-cpcqc-staff
+ *   npm run create-cpcqc-staff                                  # everyone listed
+ *   npm run create-cpcqc-staff -- --only rbryan@cpcqc.org       # just these people
+ *
+ * Every run re-applies the name, role and assignments of everyone it touches,
+ * so keep this list in step with production — or use --only, which leaves
+ * everyone else alone. A role changed in the app and not here would be
+ * reverted by a full run.
  */
 import 'dotenv/config';
 import { randomBytes } from 'node:crypto';
@@ -71,9 +77,11 @@ const STAFF: StaffSeed[] = [
   { email: 'sbriley@cpcqc.org', firstName: 'Sarah', lastName: 'Briley',
     title: 'Program Manager, Turning the Tide',
     assignments: [{ initiativeCode: 'TTT', role: 'program_manager' }] },
+  // Deactivated; her TtT assignment was removed at the same time. Listed so a
+  // full run leaves her as she is rather than restoring it.
   { email: 'turningthetide@cpcqc.org', firstName: 'Abby', lastName: 'Alyesh',
-    title: 'QI Advisor, Turning the Tide',
-    assignments: [{ initiativeCode: 'TTT', role: 'qi_advisor' }] },
+    title: 'Formerly QI Advisor, Turning the Tide',
+    assignments: [] },
   // Cross-org leadership — no initiative-specific assignments.
   { email: 'ebrooks@cpcqc.org', firstName: 'Liz', lastName: 'Brooks',
     role: 'cpcqc_admin',
@@ -102,6 +110,14 @@ const STAFF: StaffSeed[] = [
   { email: 'okowalsky@cpcqc.org', firstName: 'Olivia', lastName: 'Kowalsky',
     title: 'QI Advisor, Turning the Tide',
     assignments: [{ initiativeCode: 'TTT', role: 'qi_advisor' }] },
+  // Account created outside this script; made an admin 2026-10-22.
+  { email: 'jarroway@cpcqc.org', firstName: 'Jamie', lastName: 'Arroway',
+    role: 'cpcqc_admin',
+    assignments: [] },
+  // Added 2026-10-22 as a Program Manager for SOAR, alongside Sydney Comstock.
+  { email: 'rbryan@cpcqc.org', firstName: 'Reid', lastName: 'Bryan',
+    title: 'Program Manager, SOAR',
+    assignments: [{ initiativeCode: 'SOAR', role: 'program_manager' }] },
 ];
 
 async function findOrCreateUser(rec: StaffSeed) {
@@ -167,6 +183,20 @@ async function main() {
     process.exit(1);
   }
 
+  // --only <email>, repeatable: touch just these people.
+  const only = new Set<string>();
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--only' && args[i + 1]) only.add(args[++i]!.toLowerCase());
+  }
+  const unknown = [...only].filter((e) => !STAFF.some((r) => r.email.toLowerCase() === e));
+  if (unknown.length) {
+    // eslint-disable-next-line no-console
+    console.error(`Not in this script's list: ${unknown.join(', ')}. Add them to STAFF first.`);
+    process.exit(1);
+  }
+  const selected = only.size ? STAFF.filter((r) => only.has(r.email.toLowerCase())) : STAFF;
+
   const summary: Array<{
     name: string;
     email: string;
@@ -175,7 +205,7 @@ async function main() {
     created: boolean;
   }> = [];
 
-  for (const rec of STAFF) {
+  for (const rec of selected) {
     const user = await findOrCreateUser(rec);
     const labels: string[] = [];
     for (const a of rec.assignments) {
@@ -208,9 +238,9 @@ async function main() {
 
   // eslint-disable-next-line no-console
   console.log(
-    '\nNewly created accounts have a random password nobody knows.\n' +
-      'Send each new person a password-reset link so they set their own:\n' +
-      "  POST /auth/forgot-password  { \"email\": \"<their address>\" }",
+    '\nNewly created accounts have a random password nobody knows. Each new person\n' +
+      'sets their own: "Forgot password?" on the sign-in page emails them a link\n' +
+      '(POST /auth/password-reset/request { "email": "<their address>" }).',
   );
 }
 
