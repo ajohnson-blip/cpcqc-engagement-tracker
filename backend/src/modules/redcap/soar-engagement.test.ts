@@ -6,8 +6,26 @@ import {
   checkNoNtsvRow,
   classifyRow,
   buildSoarGrid,
+  attestationCodePeriod,
+  attestationPeriodsFromDictionary,
+  hasUndefinedAttestationCode,
+  noNtsvPeriod,
+  parseChoices,
+  periodFromLabel,
+  type BuildGridOptions,
   type RedcapRow,
 } from './soar-engagement.js';
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** month_year_nontsv as the SOAR data dictionary defines it: code 1 = January 2026, consecutive. */
+function dictionary(years: number[]): Array<Record<string, unknown>> {
+  const choices = years.flatMap((y, i) => MONTHS.map((m, j) => `${i * 12 + j + 1}, ${m} ${y}`));
+  return [{ field_name: 'month_year_nontsv', select_choices_or_calculations: choices.join(' | ') }];
+}
+const PERIODS_2026 = attestationPeriodsFromDictionary(dictionary([2026]));
+const soarGrid = (rows: RedcapRow[], opts: Partial<BuildGridOptions> = {}) =>
+  buildSoarGrid(rows, { attestationPeriods: PERIODS_2026, ...opts });
 
 describe('deadlines (2nd Friday of the following month)', () => {
   it('matches the CPCQC SOAR deadline sheet', () => {
@@ -141,7 +159,7 @@ describe('buildSoarGrid', () => {
   }
 
   it('NTSV cases all complete + on time → dataComplete, onTime, not attestation-only', () => {
-    const grid = buildSoarGrid([ntsv('2026-03-10', '2026-04-10'), ntsv('2026-03-12', '2026-04-11')]);
+    const grid = soarGrid([ntsv('2026-03-10', '2026-04-10'), ntsv('2026-03-12', '2026-04-11')]);
     const cell = grid.get(`${dag}::2026-03`)!;
     expect(cell.ntsv.nRows).toBe(2);
     expect(cell.dataComplete).toBe(true);
@@ -150,7 +168,7 @@ describe('buildSoarGrid', () => {
   });
 
   it('one bad NTSV row fails the whole month', () => {
-    const grid = buildSoarGrid([ntsv('2026-03-10', '2026-04-10'), ntsv('2026-03-12', '2026-04-10', { age: '' })]);
+    const grid = soarGrid([ntsv('2026-03-10', '2026-04-10'), ntsv('2026-03-12', '2026-04-10', { age: '' })]);
     const cell = grid.get(`${dag}::2026-03`)!;
     expect(cell.dataComplete).toBe(false);
     expect(cell.ntsv.nComplete).toBe(1);
@@ -158,7 +176,7 @@ describe('buildSoarGrid', () => {
   });
 
   it('valid No-NTSV attestation alone → submitted + complete + attestationOnly', () => {
-    const grid = buildSoarGrid([attestation('3', '2026-04-10')]);
+    const grid = soarGrid([attestation('3', '2026-04-10')]);
     const cell = grid.get(`${dag}::2026-03`)!;
     expect(cell.submitted).toBe(true);
     expect(cell.attestationOnly).toBe(true);
@@ -167,7 +185,7 @@ describe('buildSoarGrid', () => {
   });
 
   it('incomplete attestation → submitted but not complete', () => {
-    const grid = buildSoarGrid([attestation('3', '2026-04-10', { self_report_nontsv___1: '0' })]);
+    const grid = soarGrid([attestation('3', '2026-04-10', { self_report_nontsv___1: '0' })]);
     const cell = grid.get(`${dag}::2026-03`)!;
     expect(cell.submitted).toBe(true);
     expect(cell.dataComplete).toBe(false);
@@ -175,7 +193,7 @@ describe('buildSoarGrid', () => {
 
   it('NTSV cases take precedence over an attestation for completeness', () => {
     // A real case that's incomplete + an attestation in the same month → not complete.
-    const grid = buildSoarGrid([ntsv('2026-03-10', '2026-04-10', { gest_age: '' }), attestation('3', '2026-04-10')]);
+    const grid = soarGrid([ntsv('2026-03-10', '2026-04-10', { gest_age: '' }), attestation('3', '2026-04-10')]);
     const cell = grid.get(`${dag}::2026-03`)!;
     expect(cell.attestationOnly).toBe(false);
     expect(cell.dataComplete).toBe(false);
@@ -190,31 +208,105 @@ describe('buildSoarGrid', () => {
       self_report_nontsv___1: '1',
       date: '2026-03-05',
     };
-    const cell = buildSoarGrid([row]).get(`${dag}::2026-02`)!;
+    const cell = soarGrid([row]).get(`${dag}::2026-02`)!;
     expect(cell.attestationOnly).toBe(true);
     expect(cell.noNtsv.submitted).toBe(true);
     expect(cell.dataComplete).toBe(true);
   });
 
   it('late submission → onTime false', () => {
-    const grid = buildSoarGrid([ntsv('2026-03-10', '2026-04-20')]);
+    const grid = soarGrid([ntsv('2026-03-10', '2026-04-20')]);
     expect(grid.get(`${dag}::2026-03`)!.onTime).toBe(false); // past 2026-04-17
   });
 
   it('ignores a corrupt submission date (invalidDate flag, timeliness N/A)', () => {
-    const cell = buildSoarGrid([ntsv('2026-03-10', '#C@9J&ikv$fU%!KF')]).get(`${dag}::2026-03`)!;
+    const cell = soarGrid([ntsv('2026-03-10', '#C@9J&ikv$fU%!KF')]).get(`${dag}::2026-03`)!;
     expect(cell.invalidDate).toBe(true);
     expect(cell.earliestSubmissionDate).toBeNull();
     expect(cell.onTime).toBeNull();
   });
 
   it('flags future-dated deliveries when todayIso is given', () => {
-    const grid = buildSoarGrid([ntsv('2026-12-03', '2026-07-05')], { todayIso: '2026-07-08' });
+    const grid = soarGrid([ntsv('2026-12-03', '2026-07-05')], { todayIso: '2026-07-08' });
     expect(grid.get(`${dag}::2026-12`)!.futureDated).toBe(1);
   });
 
   it('ignores the test DAG', () => {
-    const grid = buildSoarGrid([ntsv('2026-03-10', '2026-04-10', { redcap_data_access_group: 'test' })]);
+    const grid = soarGrid([ntsv('2026-03-10', '2026-04-10', { redcap_data_access_group: 'test' })]);
     expect(grid.size).toBe(0);
+  });
+});
+
+describe('No-NTSV attestation periods (the code carries the year)', () => {
+  const dag = 'example_hospital_a';
+  const attestation = (code: string): RedcapRow => ({
+    redcap_repeat_instrument: 'no_ntsv_csections',
+    redcap_data_access_group: dag,
+    month_year_nontsv: code,
+    self_report_nontsv___1: '1',
+    date: '2027-02-05',
+  });
+
+  it('runs consecutively from 1 = January 2026', () => {
+    expect(attestationCodePeriod(1)).toBe('2026-01');
+    expect(attestationCodePeriod(12)).toBe('2026-12');
+    expect(attestationCodePeriod(13)).toBe('2027-01');
+    expect(attestationCodePeriod(24)).toBe('2027-12');
+  });
+
+  it('reads a month and year from a label', () => {
+    expect(periodFromLabel('January 2026')).toBe('2026-01');
+    expect(periodFromLabel('<b>Sept</b> 2027')).toBe('2027-09');
+    expect(periodFromLabel('Dec-2026')).toBe('2026-12');
+    expect(periodFromLabel('2026')).toBeNull();
+    expect(periodFromLabel('Month 13')).toBeNull();
+  });
+
+  it('parses REDCap choice lists', () => {
+    expect(parseChoices('1, January 2026 | 2, February 2026')).toEqual([
+      { code: '1', label: 'January 2026' },
+      { code: '2', label: 'February 2026' },
+    ]);
+    expect(parseChoices('')).toEqual([]);
+  });
+
+  it('maps 2027 codes once they are added', () => {
+    const periods = attestationPeriodsFromDictionary(dictionary([2026, 2027]));
+    expect(periods.get('7')).toBe('2026-07');
+    expect(periods.get('19')).toBe('2027-07');
+    expect(periods.size).toBe(24);
+  });
+
+  it('refuses a dictionary whose labels break the pattern, such as 1–12 relabelled as 2027', () => {
+    const relabelled = dictionary([2027]);
+    expect(() => attestationPeriodsFromDictionary(relabelled)).toThrow(
+      /code 1 is labelled "January 2027".*should be 2026-01/,
+    );
+  });
+
+  it('refuses a dictionary without the field or with a malformed code', () => {
+    expect(() => attestationPeriodsFromDictionary([])).toThrow(/defines no codes/);
+    expect(() =>
+      attestationPeriodsFromDictionary([
+        { field_name: 'month_year_nontsv', select_choices_or_calculations: 'x, January 2026' },
+      ]),
+    ).toThrow(/not a positive whole number/);
+  });
+
+  it('counts each attestation in exactly one year', () => {
+    const periods = attestationPeriodsFromDictionary(dictionary([2026, 2027]));
+    const grid = buildSoarGrid([attestation('7'), attestation('19')], { attestationPeriods: periods });
+    expect([...grid.keys()].sort()).toEqual([`${dag}::2026-07`, `${dag}::2027-07`]);
+  });
+
+  it('leaves out a code the dictionary does not define, and says so', () => {
+    const row = attestation('19'); // 2027 codes not added yet
+    expect(soarGrid([row]).size).toBe(0);
+    expect(hasUndefinedAttestationCode(row, PERIODS_2026)).toBe(true);
+    expect(hasUndefinedAttestationCode({ ...row, month_year_nontsv: '' }, PERIODS_2026)).toBe(false);
+  });
+
+  it('treats a zero-padded code as the same code', () => {
+    expect(noNtsvPeriod(attestation('07'), PERIODS_2026)).toBe('2026-07');
   });
 });

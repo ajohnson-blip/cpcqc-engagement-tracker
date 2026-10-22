@@ -29,7 +29,14 @@ import { env } from '@/config/env.js';
 import { HttpError } from '@/middleware/errors.js';
 import { logger } from '@/config/logger.js';
 import { exportRecords, exportMetadata } from './redcap.client.js';
-import { buildSoarGrid, monthDeadline, SOAR_MINIMUM_FIELDS, type SoarCell } from './soar-engagement.js';
+import {
+  attestationPeriodsFromDictionary,
+  buildSoarGrid,
+  hasUndefinedAttestationCode,
+  monthDeadline,
+  SOAR_MINIMUM_FIELDS,
+  type SoarCell,
+} from './soar-engagement.js';
 import {
   dispositionToTask,
   isHumanEdit,
@@ -397,16 +404,30 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
   // Field labels from the live data dictionary, so staff read "Date of
   // delivery" rather than delivery_date_1. Best-effort: a failure here must not
   // stop a sync, it just falls back to the variable names.
-  const fieldLabels = new Map<string, string>();
+  //
+  // The dictionary is also where No-NTSV attestation codes are defined — each
+  // code names a month and a year — so unlike the labels it is required.
+  let meta: Array<Record<string, unknown>>;
   try {
-    const meta = await exportMetadata({ token: env.REDCAP_SOAR_TOKEN });
-    for (const m of meta) {
-      const name = String(m['field_name'] ?? '').trim();
-      const label = String(m['field_label'] ?? '').replace(/<[^>]*>/g, '').trim();
-      if (name && label) fieldLabels.set(name, label);
-    }
+    meta = await exportMetadata({ token: env.REDCAP_SOAR_TOKEN });
   } catch {
-    /* labels are a convenience; variable names still identify the field */
+    throw new HttpError(
+      502,
+      'Could not read the SOAR data dictionary from REDCap. It says which month and year each No-NTSV ' +
+        'attestation code means, so the sync cannot run without it. Try again shortly.',
+    );
+  }
+  let attestationPeriods: Map<string, string>;
+  try {
+    attestationPeriods = attestationPeriodsFromDictionary(meta);
+  } catch (e) {
+    throw new HttpError(409, e instanceof Error ? e.message : String(e));
+  }
+  const fieldLabels = new Map<string, string>();
+  for (const m of meta) {
+    const name = String(m['field_name'] ?? '').trim();
+    const label = String(m['field_label'] ?? '').replace(/<[^>]*>/g, '').trim();
+    if (name && label) fieldLabels.set(name, label);
   }
 
   const records = await exportRecords({
@@ -414,7 +435,15 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
     // Patient-level instruments: minimum necessary, not the whole form.
     fields: SOAR_MINIMUM_FIELDS,
   });
-  const grid = buildSoarGrid(records, { year: programYear, todayIso: today });
+  const grid = buildSoarGrid(records, { attestationPeriods, todayIso: today });
+  // Attestations whose code the dictionary does not define cannot be placed in
+  // a month. Counted per DAG and reported, never guessed.
+  const undefinedCodes = new Map<string, number>();
+  for (const r of records) {
+    if (!hasUndefinedAttestationCode(r, attestationPeriods)) continue;
+    const dag = String(r['redcap_data_access_group'] ?? '').trim();
+    undefinedCodes.set(dag, (undefinedCodes.get(dag) ?? 0) + 1);
+  }
 
   const hospitals = await db.select().from(schema.hospitals);
   const hospitalsByName = new Map(hospitals.map((h) => [h.name.toLowerCase(), h]));
@@ -496,6 +525,14 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
     if (!hospital) {
       warnings.push(`Mapped hospital "${hospitalName}" (DAG ${dag}) not found in the tracker — skipped.`);
       continue;
+    }
+    const undefinedCount = undefinedCodes.get(dag) ?? 0;
+    if (undefinedCount > 0) {
+      warnings.push(
+        `${hospitalName}: ${undefinedCount} No-NTSV attestation${undefinedCount === 1 ? ' uses' : 's use'} a month ` +
+          `code the SOAR data dictionary doesn't define, so ${undefinedCount === 1 ? 'it was' : 'they were'} not ` +
+          `counted. Check the form's month choices in REDCap.`,
+      );
     }
 
     let enrollment: typeof schema.enrollments.$inferSelect | undefined;
