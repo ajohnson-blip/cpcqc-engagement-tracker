@@ -11,7 +11,8 @@
  *     arrest of descent each add their own required fields).
  *   - This is a CLASSIC repeating-instruments project (not longitudinal): the
  *     reporting month comes from delivery_date (NTSV) or month_year_nontsv
- *     (No-NTSV), NOT from redcap_event_name.
+ *     (No-NTSV), NOT from redcap_event_name. month_year_nontsv codes carry the
+ *     year as well as the month — see attestationPeriodsFromDictionary.
  *
  * "Data complete" for a hospital-month:
  *   - If ≥1 NTSV case row: EVERY NTSV row must pass its branching-logic check.
@@ -210,13 +211,103 @@ export function ntsvMonth(row: RedcapRow): { year: number; month: number } | nul
   return parseYearMonth(row['delivery_date']);
 }
 
-/** No-NTSV reporting month = month_year_nontsv dropdown (1–12) in the given year. */
-export function noNtsvMonth(row: RedcapRow, year: number): { year: number; month: number } | null {
-  const raw = row[NO_NTSV_MONTH_FIELD];
-  if (!isFieldFilled(raw)) return null;
-  const m = parseInt(String(raw).trim(), 10);
-  if (!Number.isFinite(m) || m < 1 || m > 12) return null;
-  return { year, month: m };
+// =====================================================================
+// No-NTSV attestation periods — read from the data dictionary
+// =====================================================================
+
+/**
+ * `month_year_nontsv` codes name a month AND a year: 1–12 are January–December
+ * 2026, and later years continue consecutively (13 = January 2027), the same
+ * pattern as TtT's monthly form. Per CHA, confirmed in the data dictionary.
+ *
+ * The dictionary's labels decide what each code means, and every label must
+ * agree with that pattern. Relabelling 1–12 as 2027 instead of adding codes
+ * would otherwise move a whole year's attestations into the wrong year without
+ * a sound, so a label that disagrees stops the sync instead. An attestation
+ * whose code the dictionary does not define is flagged, never guessed.
+ */
+const FIRST_CODE_YEAR = 2026;
+
+const MONTH_NAMES = [
+  'january', 'february', 'march', 'april', 'may', 'june',
+  'july', 'august', 'september', 'october', 'november', 'december',
+];
+
+/** A dropdown code as REDCap stores it: "07" and "7" are the same code. */
+function normaliseCode(raw: unknown): string | null {
+  const s = String(raw ?? '').trim();
+  return /^\d+$/.test(s) ? String(parseInt(s, 10)) : null;
+}
+
+/** The period a code means under the consecutive pattern: 1 → "2026-01", 13 → "2027-01". */
+export function attestationCodePeriod(code: number): string {
+  const zeroBased = code - 1;
+  const year = FIRST_CODE_YEAR + Math.floor(zeroBased / 12);
+  return `${year}-${String((zeroBased % 12) + 1).padStart(2, '0')}`;
+}
+
+/** "January 2026" → "2026-01". Full or three-letter month names; null if either part is missing. */
+export function periodFromLabel(label: string): string | null {
+  const text = label.replace(/<[^>]*>/g, ' ').toLowerCase();
+  const year = /\b(20\d{2})\b/.exec(text)?.[1];
+  const words = text.match(/[a-z]+/g) ?? [];
+  const month = MONTH_NAMES.findIndex((name) => words.some((w) => w.length >= 3 && name.startsWith(w)));
+  if (!year || month < 0) return null;
+  return `${year}-${String(month + 1).padStart(2, '0')}`;
+}
+
+/** REDCap's `select_choices_or_calculations`: "1, January 2026 | 2, February 2026". */
+export function parseChoices(raw: unknown): Array<{ code: string; label: string }> {
+  return String(raw ?? '')
+    .split('|')
+    .map((part) => {
+      const i = part.indexOf(',');
+      return i < 0 ? null : { code: part.slice(0, i).trim(), label: part.slice(i + 1).trim() };
+    })
+    .filter((c): c is { code: string; label: string } => c !== null && c.code !== '');
+}
+
+/**
+ * Code → period for month_year_nontsv, from the SOAR data dictionary
+ * (REDCap's metadata export). Throws, naming the code, when the field is
+ * missing or a label does not follow the pattern — the sync must not run on a
+ * mapping it cannot trust.
+ */
+export function attestationPeriodsFromDictionary(meta: Array<Record<string, unknown>>): Map<string, string> {
+  const field = meta.find((m) => String(m['field_name'] ?? '').trim() === NO_NTSV_MONTH_FIELD);
+  const choices = parseChoices(field?.['select_choices_or_calculations']);
+  if (choices.length === 0) {
+    throw new Error(`The SOAR data dictionary defines no codes for ${NO_NTSV_MONTH_FIELD}.`);
+  }
+  const periods = new Map<string, string>();
+  for (const { code, label } of choices) {
+    const n = normaliseCode(code);
+    if (n === null || Number(n) < 1) {
+      throw new Error(`${NO_NTSV_MONTH_FIELD} has a code, "${code}", that is not a positive whole number.`);
+    }
+    const expected = attestationCodePeriod(Number(n));
+    const labelled = periodFromLabel(label);
+    if (labelled !== expected) {
+      throw new Error(
+        `${NO_NTSV_MONTH_FIELD} code ${n} is labelled "${label}", but codes run consecutively from ` +
+          `1 = January ${FIRST_CODE_YEAR}, so code ${n} should be ${expected}. Stopping rather than place ` +
+          `attestations in the wrong month.`,
+      );
+    }
+    periods.set(n, expected);
+  }
+  return periods;
+}
+
+/** No-NTSV reporting period from its month_year_nontsv code; null when blank or undefined. */
+export function noNtsvPeriod(row: RedcapRow, periods: Map<string, string>): string | null {
+  const code = normaliseCode(row[NO_NTSV_MONTH_FIELD]);
+  return code === null ? null : (periods.get(code) ?? null);
+}
+
+/** Filled in, but with a code the data dictionary does not define. */
+export function hasUndefinedAttestationCode(row: RedcapRow, periods: Map<string, string>): boolean {
+  return isFieldFilled(row[NO_NTSV_MONTH_FIELD]) && noNtsvPeriod(row, periods) === null;
 }
 
 /** Classify a raw row by repeat instrument, with a field-presence fallback. */
@@ -317,8 +408,12 @@ function dayDiff(aIso: string, bIso: string): number {
 }
 
 export interface BuildGridOptions {
-  /** Reporting year used to resolve No-NTSV month dropdowns. Default 2026. */
-  year?: number;
+  /**
+   * month_year_nontsv code → period, from attestationPeriodsFromDictionary.
+   * Required: the code says which year an attestation is for, so it is never
+   * inferred from the year being synced.
+   */
+  attestationPeriods: Map<string, string>;
   /** DAGs to drop entirely (test groups). */
   ignoreDags?: string[];
   /** ISO date; NTSV rows dated after this are counted as `futureDated`. */
@@ -330,8 +425,7 @@ export interface BuildGridOptions {
  * bucketed by delivery_date, No-NTSV attestations by their month dropdown.
  * Readiness/base rows are ignored. Keyed by `${dagCode}::${period}`.
  */
-export function buildSoarGrid(rows: RedcapRow[], opts: BuildGridOptions = {}): Map<string, SoarCell> {
-  const year = opts.year ?? 2026;
+export function buildSoarGrid(rows: RedcapRow[], opts: BuildGridOptions): Map<string, SoarCell> {
   const ignore = new Set(opts.ignoreDags ?? ['test', '']);
   const groups = new Map<string, { ntsv: RedcapRow[]; noNtsv: RedcapRow[] }>();
 
@@ -339,12 +433,15 @@ export function buildSoarGrid(rows: RedcapRow[], opts: BuildGridOptions = {}): M
     const dag = String(row[F_DAG] ?? '').trim();
     if (ignore.has(dag)) continue;
     const kind = classifyRow(row);
-    let ym: { year: number; month: number } | null = null;
-    if (kind === 'ntsv') ym = ntsvMonth(row);
-    else if (kind === 'no_ntsv') ym = noNtsvMonth(row, year);
-    else continue;
-    if (!ym) continue;
-    const period = `${ym.year}-${String(ym.month).padStart(2, '0')}`;
+    let period: string | null = null;
+    if (kind === 'ntsv') {
+      const ym = ntsvMonth(row);
+      period = ym ? `${ym.year}-${String(ym.month).padStart(2, '0')}` : null;
+    } else if (kind === 'no_ntsv') {
+      // An undefined code leaves the attestation out; the sync reports it.
+      period = noNtsvPeriod(row, opts.attestationPeriods);
+    } else continue;
+    if (!period) continue;
     const key = `${dag}::${period}`;
     if (!groups.has(key)) groups.set(key, { ntsv: [], noNtsv: [] });
     if (kind === 'ntsv') groups.get(key)!.ntsv.push(row);
