@@ -112,10 +112,10 @@ const EnvSchema = z.object({
   // Dyadic project. Optional: when set, the TtT sync folds DH's eligible Dyadic
   // maternal forms into DH's patient-form counts so it stops false-flagging as a
   // linkage gap. Also PHI — we only ever count rows. REDCAP_TTT_DYADIC_DH_DAG is
-  // DH's Data Access Group *in the Dyadic project* (its DAG spelling can differ
-  // from the TtT projects); defaults to 'denver_health'.
+  // DH's Data Access Group *in the Dyadic project*, which is spelled differently
+  // from the TtT projects: 'denver_health_medi', confirmed by CHA (Oct 2026).
   REDCAP_TTT_DYADIC_TOKEN: z.string().optional(),
-  REDCAP_TTT_DYADIC_DH_DAG: z.string().default('denver_health'),
+  REDCAP_TTT_DYADIC_DH_DAG: z.string().default('denver_health_medi'),
 
   // CHoSEN Dyadic is a different collaborative and may live on a different
   // REDCap instance than the CPCQC projects. Leave unset to reuse

@@ -29,7 +29,14 @@ import { env } from '@/config/env.js';
 import { HttpError } from '@/middleware/errors.js';
 import { logger } from '@/config/logger.js';
 import { exportRecords, exportMetadata } from './redcap.client.js';
-import { buildSoarGrid, monthDeadline, SOAR_MINIMUM_FIELDS, type SoarCell } from './soar-engagement.js';
+import {
+  attestationPeriodsFromDictionary,
+  buildSoarGrid,
+  hasUndefinedAttestationCode,
+  monthDeadline,
+  SOAR_MINIMUM_FIELDS,
+  type SoarCell,
+} from './soar-engagement.js';
 import { soarCellsFromAssessments } from './cha-assessment.js';
 import { chaRunForSync } from './cha-snapshot.service.js';
 import { describeSource, type SyncDataSource } from './data-as-of.js';
@@ -413,21 +420,36 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
   const fetchedAt = new Date().toISOString();
 
   // Field labels from the live data dictionary, so staff read "Date of
-  // delivery" rather than delivery_date_1. Best-effort: a failure here must not
-  // stop a sync, it just falls back to the variable names. REDCap path only:
-  // CHA's file carries its own labels, and that path never contacts REDCap,
-  // whatever tokens the environment happens to hold.
+  // delivery" rather than delivery_date_1. REDCap path only: CHA's file
+  // carries its own labels, and that path never contacts REDCap, whatever
+  // tokens the environment happens to hold.
+  //
+  // The dictionary is also where No-NTSV attestation codes are defined — each
+  // code names a month and a year — so on the REDCap path it is required.
   const fieldLabels = new Map<string, string>();
   const redcapToken = env.REDCAP_SOAR_TOKEN;
-  try {
-    const meta = source === 'redcap' && redcapToken ? await exportMetadata({ token: redcapToken }) : [];
+  let attestationPeriods = new Map<string, string>();
+  if (source === 'redcap' && redcapToken) {
+    let meta: Array<Record<string, unknown>>;
+    try {
+      meta = await exportMetadata({ token: redcapToken });
+    } catch {
+      throw new HttpError(
+        502,
+        'Could not read the SOAR data dictionary from REDCap. It says which month and year each No-NTSV ' +
+          'attestation code means, so the sync cannot run without it. Try again shortly.',
+      );
+    }
+    try {
+      attestationPeriods = attestationPeriodsFromDictionary(meta);
+    } catch (e) {
+      throw new HttpError(409, e instanceof Error ? e.message : String(e));
+    }
     for (const m of meta) {
       const name = String(m['field_name'] ?? '').trim();
       const label = String(m['field_label'] ?? '').replace(/<[^>]*>/g, '').trim();
       if (name && label) fieldLabels.set(name, label);
     }
-  } catch {
-    /* labels are a convenience; variable names still identify the field */
   }
 
   const warnings: string[] = [];
@@ -438,6 +460,10 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
   // CHA path, where CHA's file reports unknown DAGs in its own warnings.
   let soarRecords: Array<Record<string, string | null | undefined>> = [];
   let dataSource: SyncDataSource;
+  // Attestations whose code the dictionary does not define cannot be placed in
+  // a month. Counted per DAG and reported, never guessed. (CHA's file reports
+  // its own in its warnings.)
+  const undefinedCodes = new Map<string, number>();
   if (source === 'cha') {
     // CHA keys by CHA id; the grid and the sync key by DAG, so build the
     // translation from the hospitals the tracker already knows.
@@ -497,7 +523,12 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
     });
     soarRecords = records;
     recordsRead = records.length;
-    grid = buildSoarGrid(records, { year: programYear, todayIso: today });
+    grid = buildSoarGrid(records, { attestationPeriods, todayIso: today });
+    for (const r of records) {
+      if (!hasUndefinedAttestationCode(r, attestationPeriods)) continue;
+      const dag = String(r['redcap_data_access_group'] ?? '').trim();
+      undefinedCodes.set(dag, (undefinedCodes.get(dag) ?? 0) + 1);
+    }
     // fetchedAt is taken before the read, so it is a safe "as of".
     dataSource = describeSource('redcap', fetchedAt);
   }
@@ -580,6 +611,14 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
     if (!hospital) {
       warnings.push(`Mapped hospital "${hospitalName}" (DAG ${dag}) not found in the tracker — skipped.`);
       continue;
+    }
+    const undefinedCount = undefinedCodes.get(dag) ?? 0;
+    if (undefinedCount > 0) {
+      warnings.push(
+        `${hospitalName}: ${undefinedCount} No-NTSV attestation${undefinedCount === 1 ? ' uses' : 's use'} a month ` +
+          `code the SOAR data dictionary doesn't define, so ${undefinedCount === 1 ? 'it was' : 'they were'} not ` +
+          `counted. Check the form's month choices in REDCap.`,
+      );
     }
 
     let enrollment: typeof schema.enrollments.$inferSelect | undefined;
