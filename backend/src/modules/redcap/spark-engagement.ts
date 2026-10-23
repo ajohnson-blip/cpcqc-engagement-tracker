@@ -85,6 +85,18 @@ export const ALWAYS_REQUIRED = [
 /** All 74 data fields — used to decide whether a row carries any data at all. */
 export const ALL_DATA_FIELDS = [...ALWAYS_REQUIRED, ...IPV_CONDITIONAL_FIELDS];
 
+/**
+ * The only fields the SPARK sync reads — the submission date and the 74 data
+ * fields — so the export names them rather than taking the whole form.
+ * Derived from the lists above for the same reason as SOAR_MINIMUM_FIELDS: a
+ * field added to the rules is retrieved automatically.
+ *
+ * Pass as `fields` WITHOUT `form`: REDCap unions named fields with every field
+ * on a named form, so sending both restricts nothing. The client adds
+ * `record_id`, which brings the event and data access group columns with it.
+ */
+export const SPARK_MINIMUM_FIELDS: string[] = [F_DATE, ...ALL_DATA_FIELDS];
+
 // =====================================================================
 // Deadline schedule (2nd Friday of the month after the quarter end)
 // =====================================================================

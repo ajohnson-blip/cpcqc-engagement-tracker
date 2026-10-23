@@ -28,6 +28,7 @@ import {
   DEADLINES,
   eventToQuarter,
   rowHasData,
+  SPARK_MINIMUM_FIELDS,
   F_EVENT,
   type SparkCell,
   type MissingBySection,
@@ -305,7 +306,11 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
   const today = new Date().toISOString().slice(0, 10);
   const fetchedAt = new Date().toISOString();
 
-  const records = await exportRecords({ token: env.REDCAP_SPARK_TOKEN, form: 'quarterly_measures' });
+  const records = await exportRecords({
+    token: env.REDCAP_SPARK_TOKEN,
+    // Named fields only, not the whole quarterly_measures form.
+    fields: SPARK_MINIMUM_FIELDS,
+  });
   const grid = buildSparkGrid(records);
 
   // Lookups.

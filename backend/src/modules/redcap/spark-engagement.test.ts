@@ -11,6 +11,7 @@ import {
   checkTimeliness,
   rowHasData,
   buildSparkGrid,
+  SPARK_MINIMUM_FIELDS,
   type RedcapRow,
 } from './spark-engagement.js';
 
@@ -19,6 +20,11 @@ describe('field definitions', () => {
     expect(ALWAYS_REQUIRED).toHaveLength(56);
     expect(IPV_CONDITIONAL_FIELDS).toHaveLength(18);
     expect(ALL_DATA_FIELDS).toHaveLength(74);
+  });
+
+  it('exports exactly what the rules read: the date and the 74 data fields', () => {
+    expect(new Set(SPARK_MINIMUM_FIELDS)).toEqual(new Set(['date', ...ALL_DATA_FIELDS]));
+    expect(SPARK_MINIMUM_FIELDS).toHaveLength(75);
   });
 });
 
