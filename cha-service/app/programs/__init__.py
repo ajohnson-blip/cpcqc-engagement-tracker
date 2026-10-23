@@ -1,6 +1,6 @@
 """Per-program assessors.
 
-SOAR is the reference implementation; NEST follows it. Each program is a module
+SOAR is the reference implementation; NEST and SPARK follow it. Each program is a module
 here exposing:
 
     PROGRAM              "SOAR", "NEST", ...
@@ -19,9 +19,9 @@ assessing so one export serves every program year in scope.
 
 Adding a program means adding it to IMPLEMENTED below.
 """
-from . import nest, soar
+from . import nest, soar, spark
 
-IMPLEMENTED = {soar.PROGRAM: soar, nest.PROGRAM: nest}
+IMPLEMENTED = {soar.PROGRAM: soar, nest.PROGRAM: nest, spark.PROGRAM: spark}
 
 # Every program the contract defines, implemented or not, so configuration can
 # tell a typo from a program that simply has not been ported yet.

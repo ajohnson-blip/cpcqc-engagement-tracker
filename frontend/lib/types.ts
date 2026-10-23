@@ -145,8 +145,10 @@ export interface SparkSyncResult {
   programYear: number;
   quartersInScope: string[];
   recordsFetched: number;
+  dataSource: SyncDataSource;
   rows: SparkSyncRow[];
   warnings: string[];
+  notes: string[];
   counts: {
     willChange: number;
     counting: number;

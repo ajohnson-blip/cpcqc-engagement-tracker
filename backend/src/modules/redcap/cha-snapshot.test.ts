@@ -159,7 +159,7 @@ describe('parseSnapshotFile', () => {
     );
     const spark = edited((f) => {
       f.runs[1].program = 'SPARK';
-      f.runs[1].assessments = [{ ...f.runs[1].assessments[0], period: '2026-Q3' }];
+      f.runs[1].assessments = [{ ...f.runs[1].assessments[0], period: '2026-Q3', fields_required: 56 }];
     });
     expect(() => parseSnapshotFile(spark, RECEIVED)).not.toThrow();
   });
@@ -232,6 +232,40 @@ describe('parseSnapshotFile', () => {
     it('refuses a key the contract does not define inside forms', () => {
       const found = problems(asNest((f) => (f.runs[1].assessments[0].forms[0].record_ids = ['1'])));
       expect(found.some((p) => p.startsWith('runs[1].assessments[0].forms[0]: key the contract does not define'))).toBe(true);
+    });
+  });
+
+  describe('SPARK fields_required', () => {
+    const asSpark = (change: (f: any) => void = () => {}) =>
+      edited((f) => {
+        f.runs[1].program = 'SPARK';
+        f.runs[1].assessments = [{ ...f.runs[1].assessments[3], period: '2026-Q3', fields_required: 56 }];
+        change(f);
+      });
+
+    it('accepts it on SPARK', () => {
+      expect(() => parseSnapshotFile(asSpark(), RECEIVED)).not.toThrow();
+    });
+
+    it('requires it on SPARK and refuses it elsewhere', () => {
+      expect(problems(asSpark((f) => delete f.runs[1].assessments[0].fields_required))).toContain(
+        'runs[1].assessments[0].fields_required: required for SPARK',
+      );
+      expect(problems(edited((f) => (f.runs[1].assessments[0].fields_required = 56)))).toContain(
+        'runs[1].assessments[0].fields_required: fields_required is defined for SPARK only',
+      );
+    });
+
+    it('cannot be fewer than the fields reported missing', () => {
+      expect(problems(asSpark((f) => (f.runs[1].assessments[0].fields_required = 0)))[0]).toMatch(/fields_required/);
+      const tooFew = asSpark((f) => {
+        f.runs[1].assessments[0].missing_field_groups[0].fields = [
+          { field: 'a', label: 'A' },
+          { field: 'b', label: 'B' },
+        ];
+        f.runs[1].assessments[0].fields_required = 1;
+      });
+      expect(problems(tooFew)).toContain('runs[1].assessments[0].fields_required: fewer than the fields reported missing');
     });
   });
 

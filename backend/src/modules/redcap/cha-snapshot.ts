@@ -62,6 +62,9 @@ const assessmentSchema = z
         .object({ form: text(100), records: count.min(1), fields: z.array(missingFieldSchema).min(1) })
         .strict(),
     ),
+    // SPARK only: how many fields the submission had to complete (56, or 74
+    // with IPV screening), for the tracker's percent-complete. Required there.
+    fields_required: z.number().int().min(1).max(200).optional(),
     // NEST only: each form's rows. Required there, refused elsewhere.
     forms: z
       .array(z.object({ form: text(100), total: count, complete: count }).strict())
@@ -165,6 +168,22 @@ export const snapshotFileSchema = z
           });
         } else if (a.forms !== undefined) {
           ctx.addIssue({ code: 'custom', path: [...at, 'forms'], message: 'forms is defined for NEST only' });
+        }
+        if (run.program === 'SPARK') {
+          if (a.fields_required === undefined) {
+            ctx.addIssue({ code: 'custom', path: [...at, 'fields_required'], message: 'required for SPARK' });
+          } else {
+            const missing = a.missing_field_groups.reduce((n, g) => n + g.fields.length, 0);
+            if (missing > a.fields_required) {
+              ctx.addIssue({
+                code: 'custom',
+                path: [...at, 'fields_required'],
+                message: 'fewer than the fields reported missing',
+              });
+            }
+          }
+        } else if (a.fields_required !== undefined) {
+          ctx.addIssue({ code: 'custom', path: [...at, 'fields_required'], message: 'fields_required is defined for SPARK only' });
         }
       });
     });

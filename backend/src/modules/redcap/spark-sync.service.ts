@@ -15,6 +15,10 @@
  *
  * Always runnable as a dry-run (preview) — the staff UI previews first, then
  * applies. Re-running is idempotent: every cell is recomputed from REDCap.
+ *
+ * On a deployment with SYNC_SOURCE=cha the grid comes from CHA's nightly
+ * assessment file instead, and REDCap is never contacted — see the SOAR sync,
+ * which this follows.
  */
 import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
@@ -25,13 +29,18 @@ import { logger } from '@/config/logger.js';
 import { exportRecords } from './redcap.client.js';
 import {
   buildSparkGrid,
+  competingRecordCount,
   DEADLINES,
   eventToQuarter,
   rowHasData,
   F_EVENT,
+  type RedcapRow,
   type SparkCell,
   type MissingBySection,
 } from './spark-engagement.js';
+import { sparkCellsFromAssessments } from './cha-assessment.js';
+import { chaRunForSync } from './cha-snapshot.service.js';
+import { describeSource, type SyncDataSource } from './data-as-of.js';
 import {
   dispositionToTask,
   isHumanEdit,
@@ -42,7 +51,7 @@ import {
   type SyncOverride,
   type SyncDisposition,
 } from './sync-overrides.js';
-import { assertRedcapSource, assertSyncEnabled } from './sync-gate.js';
+import { assertSyncEnabled } from './sync-gate.js';
 
 /** A prior PM override recorded in a task's payload, if any. */
 function readPriorOverride(
@@ -132,8 +141,13 @@ export interface SparkSyncResult {
   programYear: number;
   quartersInScope: string[];
   recordsFetched: number;
+  /** Where the grid came from and how old it is. Always shown on the preview. */
+  dataSource: SyncDataSource;
   rows: SparkSyncRow[];
+  /** Actionable items (unexpected DAGs or events, unusable dates, etc.). */
   warnings: string[];
+  /** Expected/informational notes (e.g. which CHA file the grid came from). */
+  notes: string[];
   counts: {
     willChange: number;
     counting: number;
@@ -194,7 +208,7 @@ function decide(cell: SparkCell | undefined, deadline: string | null, today: str
   // a PM resolving duplicates works in REDCap, and naming the record here would
   // put a REDCap identifier in the tracker's database for no added benefit.
   const dupSuffix = cell.duplicateRecords
-    ? ` ⚠ ${cell.dataRecordIds.length} competing records for this period; the most complete was used. Resolve in REDCap.`
+    ? ` ⚠ ${competingRecordCount(cell)} competing records for this period; the most complete was used. Resolve in REDCap.`
     : '';
   const ms = missingSummary(cell.missing);
 
@@ -287,14 +301,22 @@ export interface RunSparkSyncOptions {
   actorUserId?: string | null;
   /** PM overrides keyed by task instance id (apply only). */
   overrides?: Map<string, SyncOverride>;
+  /** Override the deployment's configured source. Parity tooling only. */
+  source?: 'redcap' | 'cha';
+  /**
+   * CHA path only: build from this file rather than the newest. An apply
+   * passes the snapshot its preview was built from, so what is applied is what
+   * was reviewed even if a newer file arrived in between.
+   */
+  snapshotId?: string;
 }
 
 export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<SparkSyncResult> {
   // Paused by CPCQC — see sync-gate.ts. Checked here too, not only
   // at the route, so no other caller can reach REDCap while paused.
   assertSyncEnabled();
-  assertRedcapSource('SPARK');
-  if (!env.REDCAP_SPARK_TOKEN) {
+  const source = opts.source ?? env.SYNC_SOURCE;
+  if (source === 'redcap' && !env.REDCAP_SPARK_TOKEN) {
     throw new HttpError(
       400,
       'REDCAP_SPARK_TOKEN is not configured on the server. Add it as a Render environment variable.',
@@ -306,8 +328,69 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
   const today = new Date().toISOString().slice(0, 10);
   const fetchedAt = new Date().toISOString();
 
-  const records = await exportRecords({ token: env.REDCAP_SPARK_TOKEN, form: 'quarterly_measures' });
-  const grid = buildSparkGrid(records);
+  const warnings: string[] = [];
+  const notes: string[] = [];
+  let grid: Map<string, SparkCell>;
+  let recordsRead = 0;
+  // Only the REDCap path has raw records; the event and DAG scans below are
+  // skipped on the CHA path, where CHA's file reports both in its warnings.
+  let records: RedcapRow[] = [];
+  let dataSource: SyncDataSource;
+  if (source === 'cha') {
+    // CHA keys by CHA id; the grid and the sync key by DAG.
+    const chaIdToDag = new Map<string, string>();
+    const allHospitals = await db.select().from(schema.hospitals);
+    const byNameLower = new Map(allHospitals.map((h) => [h.name.toLowerCase(), h]));
+    for (const [dag, name] of Object.entries(SPARK_DAG_TO_HOSPITAL_NAME)) {
+      const cha = byNameLower.get(name.toLowerCase())?.chaHospitalId;
+      if (cha) chaIdToDag.set(String(cha), dag);
+    }
+    const { run, warnings: runWarnings } = await chaRunForSync('SPARK', programYear, opts.snapshotId);
+    const adapted = sparkCellsFromAssessments(run.assessments, chaIdToDag);
+    grid = adapted.cells;
+    recordsRead = run.recordsRead ?? 0;
+    dataSource = describeSource('cha', run.generatedAt, {
+      snapshotId: run.snapshotId,
+      generatorVersion: run.generatorVersion,
+      methodologyVersion: run.methodologyVersion,
+    });
+    if (dataSource.stale) {
+      warnings.push(
+        `CHA's newest SPARK ${programYear} file is ${Math.floor(dataSource.ageHours)} hours old — at least one ` +
+          `nightly run is missing. Check with CHA before applying.`,
+      );
+    }
+    warnings.push(...runWarnings, ...run.warnings.map((w) => `CHA: ${w}`));
+    // A hospital the tracker knows but SPARK does not track is an expected
+    // skip; a CHA id no hospital carries needs looking into.
+    const knownChaIds = new Set(allHospitals.map((h) => h.chaHospitalId).filter(Boolean).map(String));
+    let notActive = 0;
+    for (const chaId of adapted.unmappedChaIds) {
+      if (knownChaIds.has(chaId)) notActive += 1;
+      else
+        warnings.push(
+          `CHA's file has SPARK data for CHA ID ${chaId}, which no tracker hospital carries — its rows were skipped.`,
+        );
+    }
+    if (notActive > 0) {
+      notes.push(
+        `Skipped ${notActive} hospital${notActive === 1 ? '' : 's'} in CHA's file not in SPARK's active cohort — expected.`,
+      );
+    }
+    notes.push(
+      `Built from CHA's assessment file of ${run.generatedAt} (script ${run.generatorVersion}, methodology ` +
+        `${run.methodologyVersion}, ${recordsRead} REDCap records read at CHA).`,
+    );
+  } else {
+    // Guarded above, but narrow it here too: this deployment's whole reason for
+    // holding a REDCap token is this call.
+    if (!env.REDCAP_SPARK_TOKEN) throw new HttpError(400, 'REDCAP_SPARK_TOKEN must be configured.');
+    records = await exportRecords({ token: env.REDCAP_SPARK_TOKEN, form: 'quarterly_measures' });
+    recordsRead = records.length;
+    grid = buildSparkGrid(records);
+    // fetchedAt is taken before the read, so it is a safe "as of".
+    dataSource = describeSource('redcap', fetchedAt);
+  }
 
   // Lookups.
   const hospitals = await db.select().from(schema.hospitals);
@@ -327,7 +410,8 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
   });
 
   const rows: SparkSyncRow[] = [];
-  const warnings: string[] = [];
+  // The deadline each quarter was judged against, for the per-quarter apply record.
+  const quarterDeadline = new Map<string, string>();
 
   // Safety net: a data-bearing quarterly event (…_data…) that maps to no quarter
   // is being SILENTLY DROPPED — exactly the bug where "aprjune" wasn't recognized
@@ -421,6 +505,7 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
         periodEndIso(quarter),
         DEADLINES[quarter]?.deadline ?? periodEndIso(quarter),
       );
+      if (!quarterDeadline.has(quarter)) quarterDeadline.set(quarter, deadline);
       const tl = recomputeTimeliness(cell?.submissionDate ?? null, deadline);
       const effCell = cell ? { ...cell, onTime: tl.onTime, daysFromDeadline: tl.daysFromDeadline } : undefined;
 
@@ -429,6 +514,8 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
           `${hospitalName} ${quarter}: the submission-date field isn't a valid date — timeliness can't be determined, so it counts as no-date. Fix the date in REDCap.`,
         );
       }
+      // The CHA path reports the same check as a counted note.
+      for (const note of cell?.notes ?? []) warnings.push(`${hospitalName} ${quarter}: ${note}`);
 
       const decision = decide(effCell, deadline, today);
       const override = opts.overrides?.get(ti.id);
@@ -506,7 +593,7 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
         missingTotal: cell?.missing.total ?? 0,
         missingSummary: cell ? missingSummary(cell.missing) : null,
         duplicateRecords: cell?.duplicateRecords ?? false,
-        competingRecordCount: cell?.dataRecordIds.length ?? 0,
+        competingRecordCount: cell ? competingRecordCount(cell) : 0,
         currentStatus: ti.status,
         currentOutcome: ti.outcome,
         newStatus: finalStatus,
@@ -535,8 +622,14 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
               submissionDate: cell?.submissionDate ?? null,
               missing: cell?.missing ?? null,
               duplicateRecords: cell?.duplicateRecords ?? false,
-              competingRecordCount: cell?.dataRecordIds.length ?? 0,
+              competingRecordCount: cell ? competingRecordCount(cell) : 0,
               syncedAt: fetchedAt,
+              // Which data this state came from — on the CHA path, which file.
+              dataSource: {
+                kind: dataSource.kind,
+                snapshotId: dataSource.snapshotId,
+                generatedAt: dataSource.generatedAt,
+              },
               ...(override
                 ? {
                     override: {
@@ -555,6 +648,38 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
     }
   }
 
+  // One record per quarter an apply covered, saying what data it rested on,
+  // for finalize's check that the data could not have missed a deadline-day
+  // submission. As in the SOAR sync.
+  if (!opts.dryRun && quartersInScope.length > 0) {
+    await db.insert(schema.auditLog).values(
+      quartersInScope.map((quarter) => {
+        const changed = rows.filter((r) => r.quarter === quarter && r.willChange).length;
+        return {
+          id: uuid(),
+          actorUserId: opts.actorUserId ?? null,
+          actorRole: 'cpcqc_staff',
+          action: 'redcap.sync_applied',
+          entityType: 'task_period',
+          entityId: `SPARK:${quarter}`,
+          diff: {
+            dataSource: {
+              kind: dataSource.kind,
+              snapshotId: dataSource.snapshotId,
+              generatedAt: dataSource.generatedAt,
+            },
+            deadline: quarterDeadline.get(quarter) ?? DEADLINES[quarter]?.deadline ?? periodEndIso(quarter),
+            changed,
+          },
+          note:
+            `Applied SPARK ${quarter} from ` +
+            (dataSource.kind === 'cha' ? `CHA's file of ${dataSource.generatedAt}` : `REDCap, read ${dataSource.generatedAt}`) +
+            ` (${changed} task${changed === 1 ? '' : 's'} changed).`,
+        };
+      }),
+    );
+  }
+
   const counts = {
     willChange: rows.filter((r) => r.willChange).length,
     counting: rows.filter((r) => r.category === 'counting' || r.category === 'complete_nodate').length,
@@ -567,7 +692,7 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
   };
 
   logger.info(
-    { dryRun: opts.dryRun, programYear, recordsFetched: records.length, ...counts },
+    { dryRun: opts.dryRun, programYear, source, recordsFetched: recordsRead, ...counts },
     'SPARK REDCap sync complete',
   );
 
@@ -576,9 +701,11 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
     fetchedAt,
     programYear,
     quartersInScope,
-    recordsFetched: records.length,
+    recordsFetched: recordsRead,
+    dataSource,
     rows,
     warnings,
+    notes,
     counts,
   };
 }

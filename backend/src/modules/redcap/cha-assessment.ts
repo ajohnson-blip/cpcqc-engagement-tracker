@@ -1,6 +1,6 @@
 /**
- * The adapters from CHA's assessments onto the tracker's own grids — SOAR's and
- * NEST's.
+ * The adapters from CHA's assessments onto the tracker's own grids — SOAR's,
+ * NEST's and SPARK's.
  *
  * Pure — no network, no database, no `@/` imports — so it is unit testable.
  * The file format and its validation live in cha-snapshot.ts.
@@ -13,6 +13,7 @@
 import type { ChaAssessment } from './cha-snapshot.js';
 import { monthDeadline, dayDiff, type FormRollup, type SoarCell } from './soar-engagement.js';
 import { monthDeadline as nestMonthDeadline, type NestCell } from './nest-engagement.js';
+import { ALWAYS_REQUIRED, bucketMissing, checkTimeliness, type SparkCell } from './spark-engagement.js';
 
 /**
  * CHA reports missing fields by REDCap instrument name; the REDCap path labels
@@ -157,6 +158,58 @@ export function nestCellsFromAssessments(
         ...g,
         form: NEST_FORM_LABELS[g.form] ?? g.form,
       })),
+      notes: a.notes,
+    });
+  }
+
+  return { cells, unmappedChaIds: [...unmapped].sort() };
+}
+
+/**
+ * Assessments → the same `Map<dag::quarter, SparkCell>` the REDCap path builds.
+ * CHA reports the submission it chose (the latest dated record), its missing
+ * fields, and how many records competed; percent-complete is computed here
+ * from `fields_required` with the REDCap path's own formula.
+ */
+export function sparkCellsFromAssessments(
+  assessments: ChaAssessment[],
+  chaIdToDag: Map<string, string>,
+): { cells: Map<string, SparkCell>; unmappedChaIds: string[] } {
+  const cells = new Map<string, SparkCell>();
+  const unmapped = new Set<string>();
+
+  for (const a of assessments) {
+    const dag = chaIdToDag.get(a.cha_id);
+    if (!dag) {
+      unmapped.add(a.cha_id);
+      continue;
+    }
+    if (!/^\d{4}-Q[1-4]$/.test(a.period)) continue;
+
+    const missing = bucketMissing(a.missing_field_groups.flatMap((g) => g.fields.map((f) => f.field)));
+    const required = a.fields_required ?? ALWAYS_REQUIRED.length;
+    const pctComplete = Math.round(((required - missing.total) / required) * 1000) / 10;
+    const submissionDate = a.earliest_submission_date ?? null;
+    const timeliness = checkTimeliness(submissionDate, a.period);
+
+    cells.set(`${dag}::${a.period}`, {
+      dagCode: dag,
+      quarter: a.period,
+      submitted: a.submitted,
+      complete: a.complete,
+      pctComplete,
+      missing,
+      onTime: timeliness.onTime,
+      daysFromDeadline: timeliness.daysFromDeadline,
+      submissionDate,
+      // Reported in `notes`, as counts, rather than as this flag.
+      invalidDate: false,
+      ipvScreened: required > ALWAYS_REQUIRED.length,
+      // Record ids stay in REDCap; CHA sends how many competed.
+      primaryRecordId: null,
+      dataRecordIds: [],
+      duplicateRecords: a.records.total > 1,
+      competingRecords: a.records.total,
       notes: a.notes,
     });
   }

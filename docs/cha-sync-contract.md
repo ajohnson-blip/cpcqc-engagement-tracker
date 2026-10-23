@@ -1,7 +1,7 @@
 # Engagement assessment — file contract
 
-**Status:** for review by Luis Montes (CHA) and CPCQC. SOAR and NEST are
-implemented on both sides; SPARK and TtT follow.
+**Status:** for review by Luis Montes (CHA) and CPCQC. SOAR, NEST and SPARK
+are implemented on both sides; TtT follows.
 **Version:** `v2`
 **Date:** 20 October 2026
 
@@ -153,18 +153,20 @@ Error codes:
 | `period` | string | `YYYY-MM` or `YYYY-Qn`, matching the program's cadence. |
 | `submitted` | bool | Any qualifying submission exists for this hospital-period. |
 | `complete` | bool | Every submitted record passes the program's required-field rules. |
-| `earliest_submission_date` | string \| null | Earliest data-entry date for the period, `YYYY-MM-DD`. Null when REDCap captured none; the tracker then reports timeliness as unknown. **Never a clinical date.** |
+| `earliest_submission_date` | string \| null | The data-entry date timeliness is judged by, `YYYY-MM-DD`: for SOAR and NEST the earliest across the period's records; for SPARK that of the record taken as the submission (see "SPARK additions"). Null when REDCap captured none; the tracker then reports timeliness as unknown. **Never a clinical date.** |
 | `records.total` | int | Records in scope for this hospital-period. |
 | `records.complete` | int | Records passing row-level completeness. |
 | `records.attestation` | int | Zero-case attestations (SOAR). |
 | `attestation_only` | bool | The only submission is a valid zero-case attestation. |
 | `missing_field_groups` | array | Distinct patterns of missing required fields — see below. Field **names and labels only**, never values. |
 | `forms` | array | NEST only — see below. |
+| `fields_required` | int | SPARK only — see below. |
 | `linkage` | object | TtT only — see below. |
 | `notes` | string[] | Per-hospital diagnostics, as counts. For SOAR: NTSV cases whose delivery date is after the run date, and records whose submission date is not a valid date. For NEST: records whose data-entry date is not a valid date. Never the values themselves. |
 
 Every field above is present in every assessment, except `forms`, which
-appears on NEST assessments only, and `linkage`, on TtT assessments only.
+appears on NEST assessments only, `fields_required`, on SPARK assessments
+only, and `linkage`, on TtT assessments only.
 `earliest_submission_date` may be `null`; nothing else may.
 
 ### Why `missing_field_groups` is grouped, not a flat list
@@ -210,6 +212,31 @@ instrument name, with each one's rows:
 `records.total` and `records.complete` are the sums across the two forms;
 `records.attestation` is `0`. A NEST month's reporting period comes from its
 REDCap event (`march_2026_arm_1` is `2026-03`).
+
+### SPARK additions
+
+SPARK records are a hospital's aggregate counts for a quarter, not
+patient-level rows, and a hospital may enter more than one record for the same
+quarter. One is taken as the submission: the latest with a date entered, or,
+when none has a date, the most complete (then the highest denominator total) —
+CHA's row-selection rule. So for SPARK:
+
+- `period` is a quarter, `YYYY-Qn`, from the REDCap event
+  (`janmar_26_data_arm_1` is `2026-Q1`).
+- `submitted`, `complete`, `earliest_submission_date` and
+  `missing_field_groups` describe the record taken as the submission.
+- `records.total` is how many distinct records were entered for the quarter —
+  more than one means competing records, which the tracker flags for a PM to
+  resolve in REDCap — and `records.complete` how many of them pass.
+  `records.attestation` is `0`.
+- `fields_required` is how many fields the submission had to complete: 56, or
+  74 when IPV screening is implemented. The tracker shows percent-complete
+  from it.
+
+```json
+"records": { "total": 2, "complete": 1, "attestation": 0 },
+"fields_required": 56
+```
 
 ### TtT additions
 
@@ -291,8 +318,9 @@ A failed delivery does not affect the file already written at CHA.
   two assessments for one hospital and period; more complete records than
   records; `linkage` outside TtT; `forms` outside NEST, a NEST assessment
   without an entry for each of its forms, a form NEST does not have, or more
-  complete rows than rows in a form; a `generated_at` later than the file's
-  arrival.
+  complete rows than rows in a form; `fields_required` outside SPARK, missing
+  from a SPARK assessment, or fewer than the fields reported missing; a
+  `generated_at` later than the file's arrival.
 - **Per-run status is respected.** A run with `status: "error"` is recorded and
   shown on that program's sync page; the other runs in the file are used.
 - **The newest successful run wins** for each program and program year.

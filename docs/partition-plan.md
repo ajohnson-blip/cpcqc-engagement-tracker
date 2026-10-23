@@ -1,8 +1,8 @@
 # REDCap partition — plan
 
 **Status:** SOAR's phase 1 checkpoint is passed; phase 2 is built and waits on
-the first delivered file. NEST is built on both sides and awaits its first
-live run — see "Build phases"
+the first delivered file. NEST and SPARK are built on both sides and await
+their first live runs — see "Build phases"
 **Date:** 22 October 2026
 **Supersedes:** the on-demand assessment service described in contract v1
 
@@ -141,7 +141,7 @@ in the tracker.
 
 | Program | REDCap project(s) | Token(s) | Read | Notes |
 |---|---|---|---|---|
-| **SPARK** | SPARK | `REDCAP_SPARK_TOKEN` | `quarterly_measures`: submission date, IPV gate, events | Aggregate counts, not patient-level. Longitudinal — only `*_data*` events are quarterly submissions. Currently exported as a whole form; the script will request named fields. |
+| **SPARK** | SPARK | `REDCAP_SPARK_TOKEN` | `quarterly_measures`: submission date, IPV gate, events | Aggregate counts, not patient-level. Longitudinal — only `*_data*` events are quarterly submissions. The script requests the 74 data fields and the date by name; the tracker's direct path still exports the whole form. |
 | **NEST** | NEST | `REDCAP_NEST_TOKEN` | `safe_sleep_audit`, `chart_reviews` | Repeating instruments. Race, ethnicity, language and payor are required fields, so they are retrieved to test for presence; their values are never used or sent. |
 | **SOAR** | SOAR | `REDCAP_SOAR_TOKEN` | `ntsv_cesarean_section`, `no_ntsv_csections` | Age, delivery date and gestational age are required fields, retrieved for presence only. Reference implementation already written. |
 | **TtT** | Hospital, Patient, CHoSEN Dyadic | three tokens — see below | monthly hospital form, its data dictionary and its log; patient form; Dyadic maternal form | The most involved program. Ported last. |
@@ -322,6 +322,11 @@ Each phase ends at a checkpoint before the next starts.
    (`forms`), since the tracker reports which form is missing when only one
    arrived. *Checkpoint:* Luis runs NEST against live REDCap and compares it
    with his pipeline; then NEST parity.
+   *SPARK built:* the script assesses SPARK (the event-based quarter, CHA's
+   row-selection rule, 56 required fields plus 18 when IPV screening is
+   implemented), and the tracker's SPARK sync reads it from the file. SPARK
+   assessments carry `fields_required` for percent-complete, and competing
+   records as a count. *Checkpoint:* as for NEST.
 
 5. **TtT**, last — three projects, the logging API, the Dyadic differences.
 

@@ -103,6 +103,9 @@ class Assessment:
     missing_field_groups: tuple[MissingFieldGroup, ...] = ()
     # NEST only: per-form counts. None elsewhere.
     forms: tuple[FormCounts, ...] | None = None
+    # SPARK only: how many fields the submission had to complete — 56, or 74
+    # with IPV screening — so the tracker can show how complete it is.
+    fields_required: int | None = None
     linkage: Linkage | None = None
     notes: tuple[str, ...] = ()
 
@@ -121,6 +124,8 @@ class Assessment:
         # Program-specific; omitted rather than null elsewhere, as the contract shows.
         if self.forms is not None:
             out["forms"] = [f.to_dict() for f in self.forms]
+        if self.fields_required is not None:
+            out["fields_required"] = self.fields_required
         if self.linkage is not None:
             out["linkage"] = self.linkage.to_dict()
         return out

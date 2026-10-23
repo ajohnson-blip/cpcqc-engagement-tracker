@@ -127,10 +127,16 @@ router.post('/redcap/spark', requireAuth, requireStaff, express.json(), async (r
   // Default to a dry-run unless the caller explicitly passes dryRun=false. These
   // are official compliance records, so "apply" must be a deliberate choice.
   const dryRun = req.query.dryRun !== 'false';
+  // As for SOAR: an apply names the CHA file its preview was built from.
+  const { snapshotId } = z
+    .object({ snapshotId: z.string().uuid().optional() })
+    .passthrough()
+    .parse(req.body ?? {});
   const result = await runSparkRedcapSync({
     dryRun,
     actorUserId: req.auth?.userId ?? null,
     overrides: dryRun ? undefined : parseOverrides(req.body),
+    snapshotId: dryRun ? undefined : snapshotId,
   });
   res.json(result);
 });

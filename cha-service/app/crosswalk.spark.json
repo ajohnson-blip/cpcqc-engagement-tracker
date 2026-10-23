@@ -1,0 +1,61 @@
+{
+  "adventhealth_avist": {
+    "cha_id": "300",
+    "hospital": "AdventHealth Avista"
+  },
+  "denver_health": {
+    "cha_id": "428",
+    "hospital": "Denver Health Medical Center"
+  },
+  "east_morgan_county": {
+    "cha_id": "568",
+    "hospital": "East Morgan County Hospital"
+  },
+  "mercy_hospital": {
+    "cha_id": "748",
+    "hospital": "CommonSpirit - Mercy Hospital"
+  },
+  "montrose_regional": {
+    "cha_id": "752",
+    "hospital": "Montrose Regional Health"
+  },
+  "san_luis_valley_he": {
+    "cha_id": "684",
+    "hospital": "San Luis Valley Health"
+  },
+  "st_anthony_summit": {
+    "cha_id": "312",
+    "hospital": "CommonSpirit - St. Anthony Summit Hospital"
+  },
+  "st_francis_hospita": {
+    "cha_id": "327",
+    "hospital": "CommonSpirit - St. Francis Hospital - Interquest"
+  },
+  "st_thomas_more_hos": {
+    "cha_id": "676",
+    "hospital": "CommonSpirit - St. Thomas More Hospital"
+  },
+  "valley_view_hospit": {
+    "cha_id": "868",
+    "hospital": "Valley View Hospital"
+  },
+  "wray_community_dis": {
+    "cha_id": "604",
+    "hospital": "Wray Community District Hospital"
+  },
+  "longmont_united_ho": {
+    "cha_id": "540",
+    "hospital": "CommonSpirit - Longmont United Hospital",
+    "tracked": false
+  },
+  "parkview_medical_c": {
+    "cha_id": "644",
+    "hospital": "UCHealth Parkview Medical Center",
+    "tracked": false
+  },
+  "st_elizabeth_hospi": {
+    "cha_id": "572",
+    "hospital": "CommonSpirit - St. Elizabeth Hospital",
+    "tracked": false
+  }
+}

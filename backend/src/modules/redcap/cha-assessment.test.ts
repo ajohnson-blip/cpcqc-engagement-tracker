@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { nestCellsFromAssessments, soarCellsFromAssessments } from './cha-assessment.js';
+import { nestCellsFromAssessments, soarCellsFromAssessments, sparkCellsFromAssessments } from './cha-assessment.js';
 import type { ChaAssessment } from './cha-snapshot.js';
 import { monthDeadline } from './soar-engagement.js';
 import { monthDeadline as nestMonthDeadline } from './nest-engagement.js';
+import { checkCompleteness, competingRecordCount, ALWAYS_REQUIRED, type RedcapRow } from './spark-engagement.js';
 
 const CHA_TO_DAG = new Map([['EX-001', 'example_hospital_a'], ['EX-002', 'example_hospital_b']]);
 
@@ -188,5 +189,73 @@ describe('nestCellsFromAssessments', () => {
 
   it('surfaces a CHA id it cannot map', () => {
     expect(nestCellsFromAssessments([nest({ cha_id: 'EX-999' })], CHA_TO_DAG).unmappedChaIds).toEqual(['EX-999']);
+  });
+});
+
+describe('sparkCellsFromAssessments', () => {
+  const spark = (over: Partial<ChaAssessment> = {}): ChaAssessment =>
+    assessment({
+      period: '2026-Q1',
+      earliest_submission_date: '2026-04-07',
+      records: { total: 1, complete: 1, attestation: 0 },
+      fields_required: 56,
+      ...over,
+    });
+
+  it('keys by quarter and judges timeliness here', () => {
+    const cell = sparkCellsFromAssessments([spark()], CHA_TO_DAG).cells.get('example_hospital_a::2026-Q1')!;
+    expect(cell.submitted && cell.complete).toBe(true);
+    expect(cell.submissionDate).toBe('2026-04-07');
+    expect(cell.onTime).toBe(true); // Q1 deadline 2026-04-10
+    expect(cell.pctComplete).toBe(100);
+    expect(cell.duplicateRecords).toBe(false);
+  });
+
+  it('computes percent-complete exactly as the REDCap path does', () => {
+    // A row missing three of its 56 fields, judged both ways.
+    const row: RedcapRow = {};
+    for (const f of ALWAYS_REQUIRED) row[f] = '10';
+    row['ipv_screen_implemented'] = '2';
+    for (const f of ['denom_total', 'ssdoh_total', 'pmhc_total']) delete row[f];
+    const direct = checkCompleteness(row);
+    const cell = sparkCellsFromAssessments(
+      [
+        spark({
+          complete: false,
+          missing_field_groups: [
+            {
+              form: 'quarterly_measures',
+              records: 1,
+              fields: ['denom_total', 'ssdoh_total', 'pmhc_total'].map((f) => ({ field: f, label: f })),
+            },
+          ],
+        }),
+      ],
+      CHA_TO_DAG,
+    ).cells.get('example_hospital_a::2026-Q1')!;
+    expect(cell.pctComplete).toBe(direct.pct);
+    expect(cell.missing).toEqual(direct.missing);
+  });
+
+  it('knows IPV screening from the required count', () => {
+    const cell = sparkCellsFromAssessments([spark({ fields_required: 74 })], CHA_TO_DAG).cells.get(
+      'example_hospital_a::2026-Q1',
+    )!;
+    expect(cell.ipvScreened).toBe(true);
+  });
+
+  it('carries competing records as a count, never identifiers', () => {
+    const cell = sparkCellsFromAssessments(
+      [spark({ records: { total: 3, complete: 1, attestation: 0 } })],
+      CHA_TO_DAG,
+    ).cells.get('example_hospital_a::2026-Q1')!;
+    expect(cell.duplicateRecords).toBe(true);
+    expect(competingRecordCount(cell)).toBe(3);
+    expect(cell.dataRecordIds).toEqual([]);
+    expect(cell.primaryRecordId).toBeNull();
+  });
+
+  it('ignores a period that is not a quarter', () => {
+    expect(sparkCellsFromAssessments([spark({ period: '2026-07' })], CHA_TO_DAG).cells.size).toBe(0);
   });
 });

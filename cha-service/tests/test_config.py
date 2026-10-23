@@ -127,9 +127,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(load_config(self.env(PROGRAMS="soar, SOAR"), OCTOBER).programs, ("SOAR",))
 
     def test_only_tokens_in_scope_are_held(self):
-        # SPARK is not implemented yet; NEST is, but PROGRAMS leaves it out.
-        c = load_config(self.env(REDCAP_SPARK_TOKEN=FAKE_TOKEN), OCTOBER)
-        self.assertNotIn("REDCAP_SPARK_TOKEN", c.tokens)
+        # TtT is not implemented yet; NEST is, but PROGRAMS leaves it out.
+        c = load_config(self.env(REDCAP_TTT_HOSPITAL_TOKEN=FAKE_TOKEN), OCTOBER)
+        self.assertNotIn("REDCAP_TTT_HOSPITAL_TOKEN", c.tokens)
         c = load_config(self.env(PROGRAMS="SOAR", REDCAP_NEST_TOKEN=FAKE_TOKEN), OCTOBER)
         self.assertNotIn("REDCAP_NEST_TOKEN", c.tokens)
 

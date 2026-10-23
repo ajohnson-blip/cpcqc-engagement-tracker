@@ -217,7 +217,7 @@ export interface MissingBySection {
   total: number;
 }
 
-function bucketMissing(missing: string[]): MissingBySection {
+export function bucketMissing(missing: string[]): MissingBySection {
   const out: MissingBySection = { denom: [], ssdoh: [], pmhc: [], ipv: [], other: [], total: missing.length };
   for (const f of missing) {
     if (f.startsWith('denom')) out.denom.push(f);
@@ -311,6 +311,19 @@ export interface SparkCell {
   dataRecordIds: string[];
   /** True when more than one record competed — a data-quality flag. */
   duplicateRecords: boolean;
+  /**
+   * How many records competed, when the cell came from CHA's assessment file,
+   * which sends the count rather than record ids (those stay in REDCap). The
+   * REDCap path leaves it undefined and counts `dataRecordIds`.
+   */
+  competingRecords?: number;
+  /** CHA's per-hospital diagnostics, as counts. The REDCap path uses `invalidDate`. */
+  notes?: string[];
+}
+
+/** How many records competed for this cell, whichever path built it. */
+export function competingRecordCount(cell: SparkCell): number {
+  return cell.competingRecords ?? cell.dataRecordIds.length;
 }
 
 /**

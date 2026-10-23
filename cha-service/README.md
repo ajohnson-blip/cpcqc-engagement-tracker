@@ -8,7 +8,7 @@ previews from that file.
 - **Plan, decisions and open questions:** `docs/partition-plan.md`
 - **File format:** `docs/cha-sync-contract.md` — this script implements **v2**
 
-**Status:** SOAR and NEST are implemented. SPARK and TtT follow. Each program
+**Status:** SOAR, NEST and SPARK are implemented. TtT follows. Each program
 moves over once it has been shown to agree with the tracker's current results.
 
 ---
@@ -120,7 +120,7 @@ Both delivery values are supplied by CPCQC.
 | `REDCAP_API_URL` | all | Defaults to `https://redcap.vumc.org/api/`. Must be `https://`. |
 | `REDCAP_SOAR_TOKEN` | SOAR | Needs the Export right — the script reads records and the data dictionary |
 | `REDCAP_NEST_TOKEN` | NEST | Needs the Export right |
-| `REDCAP_SPARK_TOKEN` | SPARK | Not yet used |
+| `REDCAP_SPARK_TOKEN` | SPARK | Needs the Export right |
 | `REDCAP_TTT_HOSPITAL_TOKEN` | TtT | Not yet used. Will need the **Logging** user right as well as Export — see below |
 | `REDCAP_TTT_PATIENT_TOKEN` | TtT | Not yet used |
 | `REDCAP_TTT_DYADIC_TOKEN` | TtT | Not yet used. CHoSEN Dyadic project, Denver Health only |
@@ -201,6 +201,10 @@ silently dropping a hospital would read as that hospital not submitting.
 tracked, and the other 21 in the project — sustainability-track and not
 enrolled, per CHA's master hospital list — are known but not tracked.
 
+`crosswalk.spark.json` lists SPARK's 11 active hospitals, and the 3 in the
+project that are not enrolled — Longmont United, St. Elizabeth and Parkview —
+as known but not tracked.
+
 `crosswalk.nest.json` lists the 9 hospitals in NEST's active cohort, with CHA
 IDs from the tracker's hospital records. The first live NEST run will list any
 other data access group in the project in its warnings; add those as
@@ -214,7 +218,7 @@ other data access group in the project in its warnings; add those as
 |---|---|---|
 | SOAR | implemented | SOAR |
 | NEST | implemented | NEST |
-| SPARK | to port | SPARK |
+| SPARK | implemented | SPARK |
 | TtT | to port, last | Hospital, Patient, CHoSEN Dyadic |
 
 ### SOAR
@@ -267,6 +271,26 @@ so codes added later need no change here. Three safeguards:
   ignored and counted in `notes`.
 - Race, ethnicity, language and payor are retrieved only to test that they
   are filled in; their free-text companions are never requested.
+
+### SPARK
+
+- **Quarterly, aggregate counts** on the `quarterly_measures` form — not
+  patient-level data. Only the 74 data fields and the submission date are
+  requested.
+- **The quarter comes from the REDCap event**: confirmed event names, then the
+  month-range pattern for future quarters (`janmar_27_data_arm_1` is
+  `2027-Q1`; Q2 is accepted spelled `aprjune` or `aprjun`). A `*_data*` event
+  that carries data but cannot be read as a quarter is reported in the run's
+  warnings and skipped.
+- **One record per hospital-quarter is the submission**: the latest with a
+  date entered; with none dated, the most complete, then the highest
+  denominator total. `records.total` says how many records competed; which one
+  was used stays in REDCap.
+- **Complete:** all 56 always-required fields filled, plus the 18 IPV fields
+  when IPV screening is implemented (`ipv_screen_implemented` = 1).
+  `fields_required` (56 or 74) lets the tracker show percent-complete.
+- **Submission date:** the `date` field of the record used. A value that is not
+  a real calendar date is ignored and noted.
 
 ### TtT spans three REDCap projects
 
