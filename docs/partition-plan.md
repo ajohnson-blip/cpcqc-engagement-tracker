@@ -168,7 +168,7 @@ Points that are easy to get wrong:
   excluded; in the patient project 8 and 9 qualify.
 - **The Dyadic project is shared with other collaboratives.** Only rows in
   Denver Health's data access group are used — `denver_health_medi` there,
-  confirmed by CHA, and configurable as `REDCAP_TTT_DYADIC_DH_DAG`.
+  confirmed by CHA, and recorded in the script's TtT crosswalk.
 - **Dyadic's record-ID field may not be called `record_id`**, so it is not
   requested by name.
 - **Submission dates come from REDCap's logging API**, as the earliest
@@ -176,6 +176,10 @@ Points that are easy to get wrong:
   token therefore needs the *Logging* user right as well as Export, granted by
   the REDCap project administrator. If the log is unavailable, timeliness for
   that run is reported as unknown rather than failing the program.
+- **Any other read failing fails TtT for that run** — the hospital project,
+  its dictionary, the patient project or Dyadic. Linkage without the Dyadic
+  forms would read as Denver Health missing its patient forms. The tracker
+  keeps using the newest successful file and says that a newer run failed.
 - **Required fields come from the live data dictionary**: fields marked
   required on the monthly hospital form, excluding `@HIDDEN` fields and
   `tot_anx_scrnd`.
@@ -329,6 +333,16 @@ Each phase ends at a checkpoint before the next starts.
    records as a count. *Checkpoint:* as for NEST.
 
 5. **TtT**, last — three projects, the logging API, the Dyadic differences.
+   *Built:* the script reads the hospital project (its dictionary for the
+   required fields, its log for submission dates), the patient project and,
+   for Denver Health, the Dyadic project; it joins them on CHA ID through a
+   crosswalk keyed by hospital, with each project's groups. Patient-level rows
+   are reduced to group, delivery month and eligibility as they are read.
+   TtT assessments carry `linkage`, and the tracker checks its flags against
+   the counts on receipt. The tracker's TtT sync reads it from the file as the
+   others do; no patient-level record reaches the tracker on this path.
+   *Checkpoint:* Luis runs TtT against live REDCap and compares it with his
+   pipeline — including Denver Health's Dyadic forms — then TtT parity.
 
 6. **Alerting** — the staleness job and its recipient, once decided.
 
@@ -349,9 +363,15 @@ Each phase ends at a checkpoint before the next starts.
    `month_year_nontsv` codes 13–24, labelled January–December 2027, before
    January. Until then a 2027 attestation cannot be entered; once they are
    added, nothing else changes.
-5. **Memorial in SOAR from 2027** — whether Central and North get separate
-   data access groups in the SOAR project, and if so their names.
+5. **Memorial from 2027** — in SOAR, whether Central and North get separate
+   data access groups, and if so their names. In TtT, North's group in the
+   hospital project, and which of the two patient-project groups,
+   `uchealth_memorial` and `uchealth_memorialb`, is whose. Until then CHA ID
+   632 covers both.
 6. **NEST's 2027 events** — NEST's reporting month comes from the REDCap
    event. When the project's 2027 monthly events are created, their names are
    added to the script and the tracker together; until then, data entered
    against them is reported, not counted.
+7. **TtT's `tot_dep_scrnd`** — whether total depression screened stays a
+   required field, as the data dictionary marks it, or is excluded as
+   `tot_anx_scrnd` is. Both the script and the tracker currently require it.

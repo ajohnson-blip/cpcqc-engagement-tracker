@@ -25,22 +25,3 @@ export function syncEnabled(): boolean {
 export function assertSyncEnabled(): void {
   if (!env.SYNC_ENABLED) throw new HttpError(503, SYNC_PAUSED_MESSAGE);
 }
-
-/**
- * For a program whose sync can only query REDCap directly, on a deployment
- * that reads CHA's assessment file instead (SYNC_SOURCE=cha). That deployment
- * holds no REDCap tokens by design, so refuse plainly — the alternative is a
- * "token not configured" error, which invites someone to add one.
- *
- * Call it before any token check. Remove a program's call once its sync can
- * read CHA's file.
- */
-export function assertRedcapSource(program: string): void {
-  if (env.SYNC_SOURCE === 'cha') {
-    throw new HttpError(
-      409,
-      `${program} isn't available from CHA's assessment file yet. This deployment reads CHA's file and never ` +
-        `queries REDCap, so ${program} will sync here once CHA's script covers it.`,
-    );
-  }
-}

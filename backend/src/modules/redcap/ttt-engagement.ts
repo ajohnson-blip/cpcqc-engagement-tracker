@@ -156,6 +156,25 @@ export function checkCompleteness(row: RedcapRow, requiredFields: string[]): Com
 }
 
 // =====================================================================
+// A hospital-month's report, as the sync decides from it
+// =====================================================================
+
+/** One hospital-month on the hospital project, keyed `${chaId}::${period}`. */
+export interface TttHospitalCell {
+  /** Positive SUD screens, summed across the month's reports. */
+  positives: number;
+  /** True when ANY of the month's reports passes (Luis's rule). */
+  complete: boolean;
+  /** Missing required fields, across the month's reports. */
+  missing: string[];
+  /** Earliest "create" log entry among the month's reports, YYYY-MM-DD. */
+  submissionDate: string | null;
+  nRecords: number;
+  /** CHA path only: CHA's per-hospital diagnostics, as counts. */
+  notes?: string[];
+}
+
+// =====================================================================
 // Cross-project linkage
 // =====================================================================
 

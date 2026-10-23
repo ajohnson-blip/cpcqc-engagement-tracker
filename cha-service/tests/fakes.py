@@ -54,12 +54,15 @@ class FakeRedcapClient:
     """Stands in for RedcapClient: canned records and data dictionary, or an error."""
 
     def __init__(self, records=None, labels=None, error: BaseException | None = None, meta=None,
-                 meta_error: BaseException | None = None):
+                 meta_error: BaseException | None = None, log=None, log_error: BaseException | None = None):
         self.records = records or []
         self.meta = meta if meta is not None else soar_dictionary(labels=labels)
         self.error = error
         self.meta_error = meta_error
+        self.log = log or []
+        self.log_error = log_error
         self.exports: list[dict] = []
+        self.api_url = "https://redcap.example/api/"
 
     def export_records(self, token, fields, include_record_id=True):
         self.exports.append({"token": token, "fields": list(fields), "include_record_id": include_record_id})
@@ -77,3 +80,14 @@ class FakeRedcapClient:
         if self.meta_error:
             return {}
         return labels_from_metadata(self.meta)
+
+    def export_log(self, token, begin_time):
+        self.exports.append({"token": token, "log_since": begin_time})
+        if self.log_error:
+            raise self.log_error
+        return self.log
+
+    def at(self, api_url):
+        # The same canned data; recorded so a test can see the instance asked for.
+        self.api_url = api_url
+        return self

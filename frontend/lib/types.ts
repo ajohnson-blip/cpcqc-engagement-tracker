@@ -375,9 +375,12 @@ export interface TttSyncResult {
   programYear: number;
   eligibilityMode: 'explicit' | 'derived' | 'either';
   periodsInScope: string[];
-  hospitalRecords: number;
-  patientRecords: number;
-  requiredFieldCount: number;
+  recordsFetched: number;
+  dataSource: SyncDataSource;
+  /** REDCap path only; null when the preview was built from CHA's file. */
+  hospitalRecords: number | null;
+  patientRecords: number | null;
+  requiredFieldCount: number | null;
   rows: TttSyncRow[];
   warnings: string[];
   notes: string[];

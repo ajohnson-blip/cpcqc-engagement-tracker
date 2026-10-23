@@ -5,8 +5,9 @@
  *   npm run redcap:ttt-sync              # dry-run (no writes) — prints preview
  *   npm run redcap:ttt-sync -- --apply   # write to the database
  *
- * Requires REDCAP_TTT_HOSPITAL_TOKEN + REDCAP_TTT_PATIENT_TOKEN (TtT spans two
- * projects) and DATABASE_URL. Same code path as the staff UI.
+ * Requires DATABASE_URL, and on a REDCap deployment REDCAP_TTT_HOSPITAL_TOKEN +
+ * REDCAP_TTT_PATIENT_TOKEN (TtT spans two projects); with SYNC_SOURCE=cha it
+ * reads CHA's newest file instead. Same code path as the staff UI.
  */
 import 'dotenv/config';
 import { runTttRedcapSync } from '../src/modules/redcap/ttt-sync.service.js';
@@ -20,8 +21,11 @@ async function main() {
   const r = await runTttRedcapSync({ dryRun: !apply });
 
   console.log(
-    `\nProgram year ${r.programYear} · ${r.hospitalRecords} hospital rows · ${r.patientRecords} patient rows · ` +
-      `${r.requiredFieldCount} required fields · eligibility=${r.eligibilityMode} · ${r.rows.length} hospital×month cells\n`,
+    r.dataSource.kind === 'cha'
+      ? `\nProgram year ${r.programYear} · CHA file of ${r.dataSource.generatedAt} · ${r.recordsFetched} REDCap rows ` +
+          `read at CHA · ${r.rows.length} hospital×month cells\n`
+      : `\nProgram year ${r.programYear} · ${r.hospitalRecords} hospital rows · ${r.patientRecords} patient rows · ` +
+          `${r.requiredFieldCount} required fields · eligibility=${r.eligibilityMode} · ${r.rows.length} hospital×month cells\n`,
   );
   console.log('Counts:', JSON.stringify(r.counts));
 

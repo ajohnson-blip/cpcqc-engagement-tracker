@@ -19,6 +19,11 @@
  *
  * Active cohort = the tracker's TtT enrollment (NOT the crosswalk's Active_2026
  * flag, which is inverted on Littleton/Good Samaritan).
+ *
+ * On a deployment with SYNC_SOURCE=cha the grids come from CHA's nightly
+ * assessment file instead — CHA counts the patient forms, so no patient-level
+ * record ever reaches the tracker — and REDCap is never contacted. Everything
+ * from step 5 on is the same for both paths.
  */
 import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
@@ -46,6 +51,7 @@ import {
   classifyTtt,
   isValidDate,
   type EligibilityMode,
+  type TttHospitalCell,
   type TttSyncCategory,
 } from './ttt-engagement.js';
 import {
@@ -69,7 +75,10 @@ import {
   type SyncOverride,
   type SyncDisposition,
 } from './sync-overrides.js';
-import { assertRedcapSource, assertSyncEnabled } from './sync-gate.js';
+import { assertSyncEnabled } from './sync-gate.js';
+import { tttCellsFromAssessments } from './cha-assessment.js';
+import { chaRunForSync } from './cha-snapshot.service.js';
+import { describeSource, type SyncDataSource } from './data-as-of.js';
 
 type TaskStatus = 'not_started' | 'current_activities' | 'complete' | 'needs_revision';
 type TaskOutcome = 'on_time' | 'late' | 'attended' | 'missed' | 'not_submitted' | null;
@@ -151,9 +160,14 @@ export interface TttSyncResult {
   programYear: number;
   eligibilityMode: EligibilityMode;
   periodsInScope: string[];
-  hospitalRecords: number;
-  patientRecords: number;
-  requiredFieldCount: number;
+  /** Rows read from REDCap — on the CHA path, at CHA. */
+  recordsFetched: number;
+  /** Where the grids came from, and on the CHA path how old the file is. */
+  dataSource: SyncDataSource;
+  /** REDCap path only; null on the CHA path, where CHA read them. */
+  hospitalRecords: number | null;
+  patientRecords: number | null;
+  requiredFieldCount: number | null;
   rows: TttSyncRow[];
   warnings: string[];
   notes: string[];
@@ -169,14 +183,6 @@ export interface TttSyncResult {
     unchanged: number;
     linkageGaps: number;
   };
-}
-
-interface HospitalCell {
-  positives: number;
-  complete: boolean;
-  missing: string[];
-  submissionDate: string | null;
-  nRecords: number;
 }
 
 async function updateTaskInstance(
@@ -216,28 +222,47 @@ export interface RunTttSyncOptions {
   actorUserId?: string | null;
   overrides?: Map<string, SyncOverride>;
   /** CPCQC's choice is 'derived' (catches forms with a substance but a blank
-   *  eligibility checkbox). Configurable for a strict-explicit cut. */
+   *  eligibility checkbox). Configurable for a strict-explicit cut, on the
+   *  REDCap path only. */
   eligibilityMode?: EligibilityMode;
+  /** Override the deployment's configured source. Parity tooling only. */
+  source?: 'redcap' | 'cha';
+  /**
+   * CHA path only: build from this file rather than the newest. An apply
+   * passes the snapshot its preview was built from, so what is applied is what
+   * was reviewed even if a newer file arrived in between.
+   */
+  snapshotId?: string;
 }
 
-export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSyncResult> {
-  // Paused by CPCQC — see sync-gate.ts. Checked here too, not only
-  // at the route, so no other caller can reach REDCap while paused.
-  assertSyncEnabled();
-  assertRedcapSource('TtT');
+/** What the sync decides from, whichever path read it. */
+interface TttGrids {
+  hospitalCells: Map<string, TttHospitalCell>;
+  patientCounts: Map<string, number>;
+  /** REDCap path only: what was read, for the preview. */
+  hospitalRecords: number | null;
+  patientRecords: number | null;
+  requiredFieldCount: number | null;
+  recordsFetched: number;
+}
+
+/**
+ * The REDCap path: read the hospital project (with its dictionary and log),
+ * the patient project and, for Denver Health, CHoSEN Dyadic, and build the
+ * grids. Warnings and notes are appended to the caller's lists.
+ */
+async function readFromRedcap(
+  programYear: number,
+  eligibilityMode: EligibilityMode,
+  warnings: string[],
+  notes: string[],
+): Promise<TttGrids> {
   if (!env.REDCAP_TTT_HOSPITAL_TOKEN || !env.REDCAP_TTT_PATIENT_TOKEN) {
     throw new HttpError(
       400,
       'REDCAP_TTT_HOSPITAL_TOKEN and REDCAP_TTT_PATIENT_TOKEN must both be configured (TtT spans two projects).',
     );
   }
-
-  const programYear = opts.programYear ?? 2026;
-  const eligibilityMode = opts.eligibilityMode ?? 'derived';
-  const today = new Date().toISOString().slice(0, 10);
-  const fetchedAt = new Date().toISOString();
-  const warnings: string[] = [];
-  const notes: string[] = [];
 
   // ---- 1. Pull both projects + the dictionary + the audit log --------------
   const hospitalRows = await exportRecords({
@@ -305,7 +330,7 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
   }
 
   // ---- 3. Hospital grid: (CHA_ID, period) -> aggregate --------------------
-  const hospitalCells = new Map<string, HospitalCell>();
+  const hospitalCells = new Map<string, TttHospitalCell>();
   for (const r of hospitalRows) {
     const chaId = DAG_TO_CHA_ID.get(String(r[F_DAG] ?? '').trim());
     if (chaId === undefined) continue;
@@ -384,6 +409,78 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
       );
     }
   }
+
+  return {
+    hospitalCells,
+    patientCounts,
+    hospitalRecords: hospitalRows.length,
+    patientRecords: patientRows.length,
+    requiredFieldCount: requiredFields.length,
+    recordsFetched: hospitalRows.length + patientRows.length,
+  };
+}
+
+export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSyncResult> {
+  // Paused by CPCQC — see sync-gate.ts. Checked here too, not only
+  // at the route, so no other caller can reach REDCap while paused.
+  assertSyncEnabled();
+  const source = opts.source ?? env.SYNC_SOURCE;
+  const programYear = opts.programYear ?? 2026;
+  const eligibilityMode = opts.eligibilityMode ?? 'derived';
+  if (source === 'cha' && eligibilityMode !== 'derived') {
+    // CHA counts patient forms; it applies CPCQC's rule and no other.
+    throw new HttpError(400, "CHA's file counts patient forms by the derived eligibility rule only.");
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const fetchedAt = new Date().toISOString();
+  const warnings: string[] = [];
+  const notes: string[] = [];
+
+  let grids: TttGrids;
+  let dataSource: SyncDataSource;
+  if (source === 'cha') {
+    const { run, warnings: runWarnings } = await chaRunForSync('TTT', programYear, opts.snapshotId);
+    grids = {
+      ...tttCellsFromAssessments(run.assessments),
+      hospitalRecords: null,
+      patientRecords: null,
+      requiredFieldCount: null,
+      recordsFetched: run.recordsRead ?? 0,
+    };
+    dataSource = describeSource('cha', run.generatedAt, {
+      snapshotId: run.snapshotId,
+      generatorVersion: run.generatorVersion,
+      methodologyVersion: run.methodologyVersion,
+    });
+    if (dataSource.stale) {
+      warnings.push(
+        `CHA's newest TtT ${programYear} file is ${Math.floor(dataSource.ageHours)} hours old — at least one ` +
+          `nightly run is missing. Check with CHA before applying.`,
+      );
+    }
+    warnings.push(...runWarnings, ...run.warnings.map((w) => `CHA: ${w}`));
+    // CHA lists every hospital its crosswalk knows; the tracker's enrollment
+    // decides who is scored. A CHA id the tracker's crosswalk lacks entirely
+    // needs looking into.
+    const known = new Set(TTT_HOSPITALS.map((h) => String(h.chaId)));
+    for (const chaId of [...new Set(run.assessments.map((a) => a.cha_id))].sort()) {
+      if (!known.has(chaId)) {
+        warnings.push(
+          `CHA's file has TtT data for CHA ID ${chaId}, which the tracker's TtT crosswalk does not list — its rows were skipped.`,
+        );
+      }
+    }
+    notes.push(
+      `Built from CHA's assessment file of ${run.generatedAt} (script ${run.generatorVersion}, methodology ` +
+        `${run.methodologyVersion}, ${grids.recordsFetched} REDCap records read at CHA). Patient forms are ` +
+        `counted at CHA; none are read here.`,
+    );
+  } else {
+    grids = await readFromRedcap(programYear, eligibilityMode, warnings, notes);
+    // fetchedAt is taken before the reads, so it is a safe "as of".
+    dataSource = describeSource('redcap', fetchedAt);
+  }
+  const { hospitalCells, patientCounts } = grids;
 
   // ---- 5. Tracker: initiative, enrollments, due dates ---------------------
   const ttt = await db.query.initiatives.findFirst({ where: eq(schema.initiatives.code, 'TTT') });
@@ -482,6 +579,9 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
         }
         continue;
       }
+
+      // CHA's per-hospital diagnostics are counts; shown with the hospital.
+      for (const note of cell?.notes ?? []) warnings.push(`${xw.trackerName} ${period}: ${note}`);
 
       const deadline = deadlineFor(period, ti.dueOn);
       const submitted = !!cell;
@@ -616,6 +716,12 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
               submissionDate,
               deadline,
               syncedAt: fetchedAt,
+              // Which data this state came from — on the CHA path, which file.
+              dataSource: {
+                kind: dataSource.kind,
+                snapshotId: dataSource.snapshotId,
+                generatedAt: dataSource.generatedAt,
+              },
               ...(override
                 ? {
                     override: {
@@ -632,6 +738,38 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
         );
       }
     }
+  }
+
+  // One record per month an apply covered, saying what data it rested on, for
+  // finalize's check that the data could not have missed a deadline-day
+  // submission. As in the other syncs.
+  if (!opts.dryRun && periodsInScope.length > 0) {
+    await db.insert(schema.auditLog).values(
+      periodsInScope.map((period) => {
+        const changed = rows.filter((r) => r.period === period && r.willChange).length;
+        return {
+          id: uuid(),
+          actorUserId: opts.actorUserId ?? null,
+          actorRole: 'cpcqc_staff',
+          action: 'redcap.sync_applied',
+          entityType: 'task_period',
+          entityId: `TTT:${period}`,
+          diff: {
+            dataSource: {
+              kind: dataSource.kind,
+              snapshotId: dataSource.snapshotId,
+              generatedAt: dataSource.generatedAt,
+            },
+            deadline: deadlineFor(period, periodDueOn.get(period) ?? null),
+            changed,
+          },
+          note:
+            `Applied TtT ${period} from ` +
+            (dataSource.kind === 'cha' ? `CHA's file of ${dataSource.generatedAt}` : `REDCap, read ${dataSource.generatedAt}`) +
+            ` (${changed} task${changed === 1 ? '' : 's'} changed).`,
+        };
+      }),
+    );
   }
 
   const preCriteriaCount = rows.filter((r) => r.category === 'pre_criteria').length;
@@ -658,9 +796,9 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
     {
       dryRun: opts.dryRun,
       programYear,
-      hospitalRecords: hospitalRows.length,
-      patientRecords: patientRows.length,
-      requiredFields: requiredFields.length,
+      source,
+      recordsFetched: grids.recordsFetched,
+      requiredFields: grids.requiredFieldCount,
       ...counts,
     },
     'TtT REDCap sync complete',
@@ -672,9 +810,11 @@ export async function runTttRedcapSync(opts: RunTttSyncOptions): Promise<TttSync
     programYear,
     eligibilityMode,
     periodsInScope,
-    hospitalRecords: hospitalRows.length,
-    patientRecords: patientRows.length,
-    requiredFieldCount: requiredFields.length,
+    recordsFetched: grids.recordsFetched,
+    dataSource,
+    hospitalRecords: grids.hospitalRecords,
+    patientRecords: grids.patientRecords,
+    requiredFieldCount: grids.requiredFieldCount,
     rows,
     warnings,
     notes,

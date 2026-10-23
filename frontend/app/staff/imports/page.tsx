@@ -122,15 +122,6 @@ function DataAsOf({
   );
 }
 
-/** On a deployment that reads CHA's file: a program CHA's script does not cover yet. */
-function NotFromChaYet({ program }: { program: string }) {
-  return (
-    <span className="text-sm text-cpcqc-purple-dark/70">
-      {program} isn’t available from CHA’s assessment file yet. This deployment never queries REDCap.
-    </span>
-  );
-}
-
 export default function StaffImportsPage() {
   const [file, setFile] = useState<File | null>(null);
   const [dryRun, setDryRun] = useState(true);
@@ -1799,7 +1790,11 @@ function TttRedcapSync() {
         headers: { 'Content-Type': 'application/json' },
         body: dryRun
           ? undefined
-          : JSON.stringify({ overrides: buildOverridesPayload(result?.rows ?? [], overrides) }),
+          : JSON.stringify({
+              overrides: buildOverridesPayload(result?.rows ?? [], overrides),
+              // Apply the CHA file that was previewed, not whichever is newest now.
+              snapshotId: result?.dataSource?.snapshotId ?? undefined,
+            }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
@@ -1833,14 +1828,16 @@ function TttRedcapSync() {
     <section className="mt-10 border-t border-cpcqc-purple-dark/10 pt-8">
       <header className="mb-4">
         <h1 className="inline-flex items-center gap-2 font-rounded text-3xl font-extrabold text-cpcqc-purple-dark">
-          <Database size={26} aria-hidden /> TtT · REDCap sync
+          <Database size={26} aria-hidden /> TtT · {fromCha ? 'sync from CHA' : 'REDCap sync'}
         </h1>
         <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
-          Turning the Tide spans <strong>two REDCap projects</strong> — the monthly hospital form and
-          the patient-level form — joined on CHA_ID. A month counts when the report is complete, on
-          time, and <strong>each positive SUD screen has a patient form</strong> (the floor is at
-          least one; falling short of one-per-positive is flagged but still counts). Override any
-          status with a rationale before applying; nothing is written until you apply.
+          {fromCha
+            ? "Build TtT's monthly status from the assessment file CHA produces each night from the monthly hospital form and the patient-level forms, which CHA counts — none are read here. "
+            : 'Turning the Tide spans two REDCap projects — the monthly hospital form and the patient-level form — joined on CHA_ID. '}
+          A month counts when the report is complete, on time, and{' '}
+          <strong>each positive SUD screen has a patient form</strong> (the floor is at least one;
+          falling short of one-per-positive is flagged but still counts). Override any status with a
+          rationale before applying; nothing is written until you apply.
         </p>
       </header>
 
@@ -1848,14 +1845,19 @@ function TttRedcapSync() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            disabled={loading !== false || fromCha}
+            disabled={loading !== false}
             onClick={() => void run(true)}
             className="inline-flex items-center gap-2 rounded-full bg-cpcqc-purple px-5 py-2.5 font-rounded text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-cpcqc-purple/90 disabled:opacity-50"
           >
             <RefreshCw size={16} aria-hidden className={loading === 'preview' ? 'animate-spin' : ''} />
-            {loading === 'preview' ? 'Pulling both projects…' : 'Preview from REDCap'}
+            {fromCha
+              ? loading === 'preview'
+                ? 'Reading CHA’s file…'
+                : 'Preview from CHA’s file'
+              : loading === 'preview'
+                ? 'Pulling both projects…'
+                : 'Preview from REDCap'}
           </button>
-          {fromCha && <NotFromChaYet program="TtT" />}
 
           {result && !result.dryRun ? (
             <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
@@ -1893,11 +1895,15 @@ function TttRedcapSync() {
             <h2 className="font-rounded text-lg font-extrabold text-cpcqc-purple-dark">
               {result.dryRun ? 'Dry-run preview' : 'Applied'} · {result.programYear}
             </h2>
-            <span className="text-xs text-cpcqc-purple-dark/60">
-              {result.hospitalRecords} hospital · {result.patientRecords} patient rows ·{' '}
-              {result.requiredFieldCount} required fields · eligibility={result.eligibilityMode} · pulled{' '}
-              {new Date(result.fetchedAt).toLocaleString()}
-            </span>
+            {result.dataSource?.kind === 'cha' ? (
+              <DataAsOf source={result.dataSource} recordsFetched={result.recordsFetched} fetchedAt={result.fetchedAt} />
+            ) : (
+              <span className="text-xs text-cpcqc-purple-dark/60">
+                {result.hospitalRecords} hospital · {result.patientRecords} patient rows ·{' '}
+                {result.requiredFieldCount} required fields · eligibility={result.eligibilityMode} · pulled{' '}
+                {new Date(result.fetchedAt).toLocaleString()}
+              </span>
+            )}
           </div>
 
           <div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-7">

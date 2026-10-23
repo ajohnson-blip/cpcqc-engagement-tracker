@@ -139,6 +139,48 @@ describe('parseSnapshotFile', () => {
     expect(found).toContain('runs[1].assessments[0].earliest_submission_date: required');
   });
 
+  describe('TtT linkage', () => {
+    const asTtt = (linkage: Record<string, unknown> | undefined) =>
+      edited((f) => {
+        f.runs[2] = {
+          ...f.runs[1],
+          program: 'TTT',
+          assessments: [{ ...f.runs[1].assessments[0], ...(linkage ? { linkage } : {}) }],
+        };
+      });
+    const linkage = (over: Record<string, unknown> = {}) => ({
+      positive_screens: 4,
+      patient_forms: 1,
+      shortfall: 3,
+      floor_met: true,
+      ideal_met: false,
+      ...over,
+    });
+
+    it('is required on TtT', () => {
+      expect(problems(asTtt(undefined))).toContain('runs[2].assessments[0].linkage: required for TTT');
+    });
+
+    it('accepts flags that follow from the counts, including a month with nothing to link', () => {
+      expect(() => parseSnapshotFile(asTtt(linkage()), RECEIVED)).not.toThrow();
+      const none = linkage({ positive_screens: 0, patient_forms: 2, shortfall: 0, floor_met: true, ideal_met: true });
+      expect(() => parseSnapshotFile(asTtt(none), RECEIVED)).not.toThrow();
+    });
+
+    it('refuses flags that contradict the counts', () => {
+      expect(problems(asTtt(linkage({ floor_met: false })))).toEqual([
+        'runs[2].assessments[0].linkage.floor_met: does not follow from positive_screens and patient_forms',
+      ]);
+      expect(problems(asTtt(linkage({ patient_forms: 0, shortfall: 4 })))).toEqual([
+        'runs[2].assessments[0].linkage.floor_met: does not follow from positive_screens and patient_forms',
+      ]);
+      expect(problems(asTtt(linkage({ shortfall: 2, ideal_met: true })))).toEqual([
+        'runs[2].assessments[0].linkage.shortfall: does not follow from positive_screens and patient_forms',
+        'runs[2].assessments[0].linkage.ideal_met: does not follow from positive_screens and patient_forms',
+      ]);
+    });
+  });
+
   it('allows linkage on TtT only', () => {
     const linkage = { positive_screens: 4, patient_forms: 3, shortfall: 1, floor_met: true, ideal_met: false };
     expect(problems(edited((f) => (f.runs[1].assessments[0].linkage = linkage)))).toContain(

@@ -50,6 +50,8 @@ class Config:
     # Not errors, but worth a line in the log: a program skipped for want of a
     # token, a delivery token with nowhere to deliver.
     notices: tuple[str, ...]
+    # TtT's CHoSEN Dyadic project, when it is on another REDCap instance.
+    ttt_dyadic_api_url: str | None = None
 
     def __repr__(self) -> str:
         # Never let a token reach a log through a stray print(config).
@@ -130,6 +132,12 @@ def load_config(environ: Mapping[str, str], today: date) -> Config:
         if not 1 <= timeout <= 3600:
             problems.append("REDCAP_TIMEOUT must be a number of seconds from 1 to 3600.")
 
+    dyadic_api_url = get("REDCAP_TTT_DYADIC_API_URL") or None
+    if dyadic_api_url:
+        problem = _url_problem("REDCAP_TTT_DYADIC_API_URL", dyadic_api_url, allow_local_http=False)
+        if problem:
+            problems.append(problem)
+
     # --- Programs ---
     raw = get("PROGRAMS")
     explicit = bool(raw)
@@ -158,6 +166,9 @@ def load_config(environ: Mapping[str, str], today: date) -> Config:
         if module is None:
             continue
         missing = []
+        # Held only once the program is known to run, so a partly configured
+        # TtT holds none of its three tokens.
+        found: dict[str, str] = {}
         for setting in module.TOKEN_SETTINGS:
             value = get(setting)
             if not value:
@@ -165,16 +176,18 @@ def load_config(environ: Mapping[str, str], today: date) -> Config:
             elif not _TOKEN.fullmatch(value):
                 problems.append(f"{setting} is not a 32-character REDCap API token.")
             else:
-                tokens[setting] = value
+                found[setting] = value
         if missing:
+            unset = f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} not set"
             # Asked for by name, a missing token is a mistake; by default, it
             # just means the program has not been set up here yet.
             if explicit:
-                problems.append(f"PROGRAMS includes {name}, but {', '.join(missing)} is not set.")
+                problems.append(f"PROGRAMS includes {name}, but {unset}.")
             else:
-                notices.append(f"{name} skipped: {', '.join(missing)} is not set.")
+                notices.append(f"{name} skipped: {unset}.")
         else:
             programs.append(name)
+            tokens.update(found)
     if not programs and not problems:
         problems.append("No program has its REDCap token configured, so there is nothing to run.")
 
@@ -211,4 +224,5 @@ def load_config(environ: Mapping[str, str], today: date) -> Config:
         programs=tuple(programs),
         program_years=program_years,
         notices=tuple(notices),
+        ttt_dyadic_api_url=dyadic_api_url,
     )

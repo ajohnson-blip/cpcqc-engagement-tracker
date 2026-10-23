@@ -19,11 +19,15 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
+from typing import TYPE_CHECKING
 
 from ..crosswalk import Crosswalk
 from ..models import Assessment, FormCounts, RecordCounts
 from ..redcap import RedcapClient
 from .common import checkbox_filled, group_missing, is_filled, is_valid_date, plural
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 PROGRAM = "NEST"
 TOKEN_SETTINGS = ("REDCAP_NEST_TOKEN",)
@@ -107,8 +111,8 @@ class Fetched:
         return len(self.records)
 
 
-def fetch(client: RedcapClient, tokens: dict[str, str]) -> Fetched:
-    token = tokens["REDCAP_NEST_TOKEN"]
+def fetch(client: RedcapClient, config: Config, crosswalk: Crosswalk) -> Fetched:
+    token = config.tokens["REDCAP_NEST_TOKEN"]
     records = client.export_records(token, MINIMUM_FIELDS)
     # Labels are a convenience: a variable name still identifies the field.
     labels = client.export_field_labels(token)

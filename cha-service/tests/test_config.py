@@ -4,7 +4,9 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from unittest import mock
 
+from app import config as config_module
 from app.config import ConfigError, default_program_years, load_config
 from tests.fakes import FAKE_TOKEN
 
@@ -120,18 +122,42 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(any("not a program" in p for p in self.problems(self.env(PROGRAMS="SOAR,SAOR"))))
 
     def test_an_unimplemented_program_is_refused_by_name(self):
-        problems = self.problems(self.env(PROGRAMS="SOAR,TTT"))
+        # Every program is implemented now; the check stays for the next one.
+        implemented = {k: v for k, v in config_module.IMPLEMENTED.items() if k != "TTT"}
+        with mock.patch.object(config_module, "IMPLEMENTED", implemented):
+            problems = self.problems(self.env(PROGRAMS="SOAR,TTT"))
         self.assertTrue(any("TTT, which this version does not implement" in p for p in problems))
 
     def test_program_names_are_case_insensitive_and_deduplicated(self):
         self.assertEqual(load_config(self.env(PROGRAMS="soar, SOAR"), OCTOBER).programs, ("SOAR",))
 
     def test_only_tokens_in_scope_are_held(self):
-        # TtT is not implemented yet; NEST is, but PROGRAMS leaves it out.
-        c = load_config(self.env(REDCAP_TTT_HOSPITAL_TOKEN=FAKE_TOKEN), OCTOBER)
-        self.assertNotIn("REDCAP_TTT_HOSPITAL_TOKEN", c.tokens)
+        # NEST is implemented, but PROGRAMS leaves it out.
         c = load_config(self.env(PROGRAMS="SOAR", REDCAP_NEST_TOKEN=FAKE_TOKEN), OCTOBER)
         self.assertNotIn("REDCAP_NEST_TOKEN", c.tokens)
+
+    def test_a_partly_configured_program_holds_none_of_its_tokens(self):
+        c = load_config(self.env(REDCAP_TTT_HOSPITAL_TOKEN=FAKE_TOKEN, REDCAP_TTT_PATIENT_TOKEN=FAKE_TOKEN), OCTOBER)
+        self.assertEqual(c.programs, ("SOAR",))
+        self.assertEqual(set(c.tokens), {"REDCAP_SOAR_TOKEN"})
+        self.assertTrue(any("TTT skipped: REDCAP_TTT_DYADIC_TOKEN is not set" in n for n in c.notices))
+
+    def test_ttt_needs_all_three_tokens(self):
+        problems = self.problems(self.env(PROGRAMS="TTT", REDCAP_TTT_HOSPITAL_TOKEN=FAKE_TOKEN))
+        self.assertTrue(any(
+            "PROGRAMS includes TTT, but REDCAP_TTT_PATIENT_TOKEN, REDCAP_TTT_DYADIC_TOKEN are not set" in p
+            for p in problems
+        ))
+        ttt = {f"REDCAP_TTT_{p}_TOKEN": FAKE_TOKEN for p in ("HOSPITAL", "PATIENT", "DYADIC")}
+        c = load_config(self.env(PROGRAMS="TTT", **ttt), OCTOBER)
+        self.assertEqual((c.programs, set(c.tokens)), (("TTT",), set(ttt)))
+        self.assertIsNone(c.ttt_dyadic_api_url)
+
+    def test_the_dyadic_instance_must_be_https(self):
+        c = load_config(self.env(REDCAP_TTT_DYADIC_API_URL="https://redcap.other.example/api/"), OCTOBER)
+        self.assertEqual(c.ttt_dyadic_api_url, "https://redcap.other.example/api/")
+        problems = self.problems(self.env(REDCAP_TTT_DYADIC_API_URL="http://localhost/api/"))
+        self.assertTrue(any("REDCAP_TTT_DYADIC_API_URL must be an https:// URL" in p for p in problems))
 
     def test_every_implemented_program_with_a_token_runs_by_default(self):
         c = load_config(self.env(REDCAP_NEST_TOKEN=FAKE_TOKEN), OCTOBER)

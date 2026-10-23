@@ -115,6 +115,19 @@ class RedcapClient:
             data[f"fields[{i}]"] = name
         return self._post(token, data)
 
+    def export_log(self, token: str, begin_time: str) -> list[dict]:
+        """Record-activity log entries since `begin_time` ('YYYY-MM-DD HH:MM').
+
+        Needs the project's Logging user right as well as Export. Entries
+        describe changes to records, so they are reduced by the caller as soon
+        as they are read and never written.
+        """
+        return self._post(token, {"content": "log", "logtype": "record", "beginTime": begin_time})
+
+    def at(self, api_url: str) -> RedcapClient:
+        """The same client for a project on another REDCap instance."""
+        return RedcapClient(api_url, self.timeout, self._session)
+
     def export_metadata(self, token: str) -> list[dict]:
         """The project's data dictionary. Raises RedcapError if it cannot be read."""
         return self._post(token, {"content": "metadata"})

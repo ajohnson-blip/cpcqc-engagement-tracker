@@ -1,9 +1,9 @@
 # Engagement assessment — file contract
 
-**Status:** for review by Luis Montes (CHA) and CPCQC. SOAR, NEST and SPARK
-are implemented on both sides; TtT follows.
+**Status:** for review by Luis Montes (CHA) and CPCQC. All four programs —
+SOAR, NEST, SPARK and TtT — are implemented on both sides.
 **Version:** `v2`
-**Date:** 20 October 2026
+**Date:** 22 October 2026
 
 See `docs/partition-plan.md` for the overall plan, decisions and open questions.
 
@@ -162,11 +162,12 @@ Error codes:
 | `forms` | array | NEST only — see below. |
 | `fields_required` | int | SPARK only — see below. |
 | `linkage` | object | TtT only — see below. |
-| `notes` | string[] | Per-hospital diagnostics, as counts. For SOAR: NTSV cases whose delivery date is after the run date, and records whose submission date is not a valid date. For NEST: records whose data-entry date is not a valid date. Never the values themselves. |
+| `notes` | string[] | Per-hospital diagnostics, as counts. For SOAR: NTSV cases whose delivery date is after the run date, and records whose submission date is not a valid date. For NEST: records whose data-entry date is not a valid date. For TtT: see "TtT additions". Never the values themselves. |
 
 Every field above is present in every assessment, except `forms`, which
 appears on NEST assessments only, `fields_required`, on SPARK assessments
-only, and `linkage`, on TtT assessments only.
+only, and `linkage`, on TtT assessments only — each required on its own
+program's assessments.
 `earliest_submission_date` may be `null`; nothing else may.
 
 ### Why `missing_field_groups` is grouped, not a flat list
@@ -256,9 +257,43 @@ project — or, for Denver Health, from the Dyadic project.
 }
 ```
 
-The tracker treats `floor_met: false` as making the month incomplete. The
-counts are derived from patient-level records, which is why they are computed
-by CHA. The plan sets out how the three projects differ.
+- `positive_screens` is the month's positive SUD screens from the hospital
+  report, summed if more than one report was entered.
+- `patient_forms` is the month's eligible patient forms — from the patient
+  project, or for Denver Health from the Dyadic project — by delivery month.
+  Eligible: a qualifying substance is checked and the form is not marked
+  ineligible.
+- `shortfall` is `positive_screens − patient_forms`, not below 0; 0 when there
+  are no positives.
+- `floor_met`: no positives, or at least one form. `ideal_met`: no positives,
+  or at least one form per positive.
+
+The tracker treats `floor_met: false` as making the month incomplete;
+`ideal_met: false` is reported and never blocks. The counts are derived from
+patient-level records, which is why they are computed by CHA. The plan sets
+out how the three projects differ.
+
+For TtT, too:
+
+- `period` comes from the report's `month_reporting` code, counted from
+  January 2025 = 1.
+- `complete` describes the hospital report alone: a month is complete when
+  **any** of its reports passes the required-field check (CHA's rule). The
+  required fields come from the hospital project's data dictionary. The
+  tracker combines `complete` with `floor_met`.
+- `records.total` is the month's reports and `records.complete` how many of
+  them pass; `records.attestation` is `0`.
+- `earliest_submission_date` is the earliest REDCap log "create" entry among
+  the month's reports, since the form has no date field. Null when the log
+  could not be read — the run's `warnings` say so.
+- A month with eligible patient forms but no report is listed with
+  `submitted: false`, `complete: false`, zero records and its forms in
+  `patient_forms`, so the tracker sees every month with data.
+- `notes`: more than one report entered for the month, a positive-screen count
+  that is not a whole number, a report with no creation entry in the log.
+- The run's `warnings` also count, per hospital, reports with data but no
+  reporting month and eligible patient forms with no valid delivery date —
+  neither can be placed in a month.
 
 ## Hard constraints on the output
 
@@ -319,7 +354,9 @@ A failed delivery does not affect the file already written at CHA.
   records; `linkage` outside TtT; `forms` outside NEST, a NEST assessment
   without an entry for each of its forms, a form NEST does not have, or more
   complete rows than rows in a form; `fields_required` outside SPARK, missing
-  from a SPARK assessment, or fewer than the fields reported missing; a
+  from a SPARK assessment, or fewer than the fields reported missing; `linkage`
+  missing from a TtT assessment, or a `shortfall`, `floor_met` or `ideal_met`
+  that does not follow from `positive_screens` and `patient_forms`; a
   `generated_at` later than the file's arrival.
 - **Per-run status is respected.** A run with `status: "error"` is recorded and
   shown on that program's sync page; the other runs in the file are used.

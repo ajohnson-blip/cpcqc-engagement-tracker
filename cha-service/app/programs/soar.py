@@ -13,6 +13,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
+from typing import TYPE_CHECKING
 
 from ..crosswalk import Crosswalk
 from ..errors import ProjectConfigurationError
@@ -26,6 +27,9 @@ from .common import (
     is_valid_date,
     plural,
 )
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 PROGRAM = "SOAR"
 TOKEN_SETTINGS = ("REDCAP_SOAR_TOKEN",)
@@ -93,13 +97,13 @@ class Fetched:
         return len(self.records)
 
 
-def fetch(client: RedcapClient, tokens: dict[str, str]) -> Fetched:
+def fetch(client: RedcapClient, config: Config, crosswalk: Crosswalk) -> Fetched:
     """Records and the data dictionary.
 
     The dictionary is required, not best effort: besides labels, it defines
     which month and year each attestation code means.
     """
-    token = tokens["REDCAP_SOAR_TOKEN"]
+    token = config.tokens["REDCAP_SOAR_TOKEN"]
     meta = client.export_metadata(token)
     periods = attestation_periods_from_dictionary(meta)
     records = client.export_records(token, MINIMUM_FIELDS)

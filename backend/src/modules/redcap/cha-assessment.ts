@@ -1,6 +1,6 @@
 /**
  * The adapters from CHA's assessments onto the tracker's own grids — SOAR's,
- * NEST's and SPARK's.
+ * NEST's, SPARK's and TtT's.
  *
  * Pure — no network, no database, no `@/` imports — so it is unit testable.
  * The file format and its validation live in cha-snapshot.ts.
@@ -14,6 +14,7 @@ import type { ChaAssessment } from './cha-snapshot.js';
 import { monthDeadline, dayDiff, type FormRollup, type SoarCell } from './soar-engagement.js';
 import { monthDeadline as nestMonthDeadline, type NestCell } from './nest-engagement.js';
 import { ALWAYS_REQUIRED, bucketMissing, checkTimeliness, type SparkCell } from './spark-engagement.js';
+import type { TttHospitalCell } from './ttt-engagement.js';
 
 /**
  * CHA reports missing fields by REDCap instrument name; the REDCap path labels
@@ -215,4 +216,42 @@ export function sparkCellsFromAssessments(
   }
 
   return { cells, unmappedChaIds: [...unmapped].sort() };
+}
+
+/**
+ * Assessments → the TtT sync's two grids, keyed `${chaId}::${period}` as the
+ * REDCap path keys them: each month's report, and its eligible patient forms.
+ * TtT's sync keys by CHA ID already, so no translation to DAGs is needed.
+ *
+ * CHA counts the patient forms, since they come from patient-level records.
+ * The floor and the ideal are judged from those counts by the sync, as on the
+ * REDCap path; the file's own flags were checked against them on receipt.
+ */
+export function tttCellsFromAssessments(assessments: ChaAssessment[]): {
+  hospitalCells: Map<string, TttHospitalCell>;
+  patientCounts: Map<string, number>;
+} {
+  const hospitalCells = new Map<string, TttHospitalCell>();
+  const patientCounts = new Map<string, number>();
+
+  for (const a of assessments) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(a.period)) continue;
+    const key = `${a.cha_id}::${a.period}`;
+    // A month with patient forms but no report arrives unsubmitted; the
+    // REDCap path has no report cell for it either.
+    if (a.submitted) {
+      hospitalCells.set(key, {
+        positives: a.linkage?.positive_screens ?? 0,
+        complete: a.complete,
+        missing: [...new Set(a.missing_field_groups.flatMap((g) => g.fields.map((f) => f.field)))],
+        submissionDate: a.earliest_submission_date ?? null,
+        nRecords: a.records.total,
+        notes: a.notes,
+      });
+    }
+    const forms = a.linkage?.patient_forms ?? 0;
+    if (forms > 0) patientCounts.set(key, forms);
+  }
+
+  return { hospitalCells, patientCounts };
 }

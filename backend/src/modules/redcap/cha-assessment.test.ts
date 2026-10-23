@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { nestCellsFromAssessments, soarCellsFromAssessments, sparkCellsFromAssessments } from './cha-assessment.js';
+import {
+  nestCellsFromAssessments,
+  soarCellsFromAssessments,
+  sparkCellsFromAssessments,
+  tttCellsFromAssessments,
+} from './cha-assessment.js';
 import type { ChaAssessment } from './cha-snapshot.js';
 import { monthDeadline } from './soar-engagement.js';
 import { monthDeadline as nestMonthDeadline } from './nest-engagement.js';
@@ -257,5 +262,68 @@ describe('sparkCellsFromAssessments', () => {
 
   it('ignores a period that is not a quarter', () => {
     expect(sparkCellsFromAssessments([spark({ period: '2026-07' })], CHA_TO_DAG).cells.size).toBe(0);
+  });
+});
+
+describe('tttCellsFromAssessments', () => {
+  const ttt = (over: Partial<ChaAssessment> = {}): ChaAssessment =>
+    assessment({
+      period: '2026-06',
+      earliest_submission_date: '2026-07-14',
+      records: { total: 2, complete: 1, attestation: 0 },
+      linkage: { positive_screens: 4, patient_forms: 1, shortfall: 3, floor_met: true, ideal_met: false },
+      ...over,
+    });
+
+  it('builds the report cell and patient count keyed by CHA id, as the REDCap path does', () => {
+    const { hospitalCells, patientCounts } = tttCellsFromAssessments([
+      ttt({ notes: ['2 reports were entered for this month; their positive screens are added together.'] }),
+    ]);
+    expect(hospitalCells.get('EX-001::2026-06')).toEqual({
+      positives: 4,
+      complete: true,
+      missing: [],
+      submissionDate: '2026-07-14',
+      nRecords: 2,
+      notes: ['2 reports were entered for this month; their positive screens are added together.'],
+    });
+    expect(patientCounts.get('EX-001::2026-06')).toBe(1);
+  });
+
+  it('flattens missing-field groups into one list of fields', () => {
+    const cell = tttCellsFromAssessments([
+      ttt({
+        complete: false,
+        missing_field_groups: [
+          { form: 'monthly', records: 1, fields: [{ field: 'a', label: 'A' }, { field: 'b', label: 'B' }] },
+          { form: 'monthly', records: 2, fields: [{ field: 'b', label: 'B' }] },
+        ],
+      }),
+    ]).hospitalCells.get('EX-001::2026-06')!;
+    expect(cell.missing).toEqual(['a', 'b']);
+    expect(cell.complete).toBe(false);
+  });
+
+  it('keeps patient forms for a month with no report, without inventing a report', () => {
+    const { hospitalCells, patientCounts } = tttCellsFromAssessments([
+      ttt({
+        submitted: false,
+        complete: false,
+        earliest_submission_date: null,
+        records: { total: 0, complete: 0, attestation: 0 },
+        linkage: { positive_screens: 0, patient_forms: 2, shortfall: 0, floor_met: true, ideal_met: true },
+      }),
+    ]);
+    expect(hospitalCells.size).toBe(0);
+    expect(patientCounts.get('EX-001::2026-06')).toBe(2);
+  });
+
+  it('records no patient count where there are none, as the REDCap path does', () => {
+    const none = ttt({ linkage: { positive_screens: 3, patient_forms: 0, shortfall: 3, floor_met: false, ideal_met: false } });
+    expect(tttCellsFromAssessments([none]).patientCounts.size).toBe(0);
+  });
+
+  it('ignores a period that is not a month', () => {
+    expect(tttCellsFromAssessments([ttt({ period: '2026-Q2' })]).hospitalCells.size).toBe(0);
   });
 });

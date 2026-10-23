@@ -8,8 +8,9 @@ previews from that file.
 - **Plan, decisions and open questions:** `docs/partition-plan.md`
 - **File format:** `docs/cha-sync-contract.md` — this script implements **v2**
 
-**Status:** SOAR, NEST and SPARK are implemented. TtT follows. Each program
-moves over once it has been shown to agree with the tracker's current results.
+**Status:** all four programs — SOAR, NEST, SPARK and TtT — are implemented.
+Each program moves over once it has been shown to agree with the tracker's
+current results.
 
 ---
 
@@ -121,15 +122,18 @@ Both delivery values are supplied by CPCQC.
 | `REDCAP_SOAR_TOKEN` | SOAR | Needs the Export right — the script reads records and the data dictionary |
 | `REDCAP_NEST_TOKEN` | NEST | Needs the Export right |
 | `REDCAP_SPARK_TOKEN` | SPARK | Needs the Export right |
-| `REDCAP_TTT_HOSPITAL_TOKEN` | TtT | Not yet used. Will need the **Logging** user right as well as Export — see below |
-| `REDCAP_TTT_PATIENT_TOKEN` | TtT | Not yet used |
-| `REDCAP_TTT_DYADIC_TOKEN` | TtT | Not yet used. CHoSEN Dyadic project, Denver Health only |
-| `REDCAP_TTT_DYADIC_API_URL` | TtT | Only if the Dyadic project is on a different REDCap instance |
-| `REDCAP_TTT_DYADIC_DH_DAG` | TtT | Denver Health's data access group in the Dyadic project. Defaults to `denver_health_medi` |
+| `REDCAP_TTT_HOSPITAL_TOKEN` | TtT | Needs the **Logging** user right as well as Export — see below |
+| `REDCAP_TTT_PATIENT_TOKEN` | TtT | Needs the Export right |
+| `REDCAP_TTT_DYADIC_TOKEN` | TtT | CHoSEN Dyadic project, for Denver Health's patient forms. Needs the Export right |
+| `REDCAP_TTT_DYADIC_API_URL` | TtT | Only if the Dyadic project is on a different REDCap instance. Must be `https://` |
 | `REDCAP_TIMEOUT` | all | Seconds per REDCap call, 1–3600. Defaults to 90 |
 
 A token is checked for shape — 32 hexadecimal characters — but never echoed,
-not even in an error message.
+not even in an error message. TtT runs only when all three of its tokens are
+set; until then none of them is held.
+
+Denver Health's data access group in the Dyadic project, `denver_health_medi`,
+is in `crosswalk.ttt.json` (`dyadic_dag`) with every other group mapping.
 
 ### Scope
 
@@ -210,6 +214,40 @@ IDs from the tracker's hospital records. The first live NEST run will list any
 other data access group in the project in its warnings; add those as
 `"tracked": false`.
 
+### TtT's crosswalk
+
+TtT's projects spell some hospitals' groups differently — Littleton is
+`advent_health_litt` in the hospital project and `littleton_adventis` in the
+patient project — so `crosswalk.ttt.json` is keyed by hospital, with each
+project's groups:
+
+```json
+{
+  "hospitals": [
+    { "cha_id": "EX-001", "hospital": "Some Hospital",
+      "hospital_dag": "some_hosp", "patient_dags": ["some_hospital_pt"] },
+    { "cha_id": "EX-002", "hospital": "Other Hospital",
+      "hospital_dag": "other", "patient_dags": ["other"], "dyadic_dag": "other_dyad" }
+  ],
+  "not_hospitals": ["another_collaborative", "test"]
+}
+```
+
+- `hospital_dag` is the group in the hospital project, or `null` if there is
+  none. `patient_dags` lists the groups in the patient project — two for CHA ID
+  632, which covers UCHealth Memorial Central and North through 2026.
+- `dyadic_dag` names the group in the CHoSEN Dyadic project, for a hospital
+  that enters its patient forms there: Denver Health.
+- `not_hospitals` lists groups in the shared projects that are not TtT
+  hospitals — other collaboratives, REDCap's test group — so they are skipped
+  without a warning.
+- Every listed hospital is assessed; which are in this year's cohort is the
+  tracker's decision. A group listed for two hospitals, a CHA ID listed twice,
+  or a key the file does not define is refused.
+
+The file lists the 30 hospitals with a CHA ID that appear in either project,
+from CPCQC's TtT crosswalk.
+
 ---
 
 ## Programs
@@ -219,7 +257,7 @@ other data access group in the project in its warnings; add those as
 | SOAR | implemented | SOAR |
 | NEST | implemented | NEST |
 | SPARK | implemented | SPARK |
-| TtT | to port, last | Hospital, Patient, CHoSEN Dyadic |
+| TtT | implemented | Hospital, Patient, CHoSEN Dyadic |
 
 ### SOAR
 
@@ -305,17 +343,47 @@ so codes added later need no change here. Three safeguards:
   `substances_used_2___N` in both projects but the codes mean different things;
   in Dyadic, 7 is alcohol, 8 nicotine and 9 cannabis, all excluded.
 - **Dyadic is shared with other collaboratives** — only Denver Health's data
-  access group is used.
+  access group is used; other groups' rows are dropped as they are read.
 - **Dyadic's record-ID field may not be named `record_id`**, so it is not
   requested by name.
 - **Submission dates come from REDCap's logging API** — the earliest
-  "Create Record" entry per record on the hospital project. The hospital-project
-  token needs the *Logging* user right as well as Export, granted by the REDCap
-  project administrator. If the log is unavailable, timeliness for that run is
-  reported as unknown rather than failing TtT.
+  "Create Record" entry per record on the hospital project, read from January 1
+  of the earliest year assessed. The hospital-project token needs the
+  *Logging* user right as well as Export, granted by the REDCap project
+  administrator. If the log is unavailable, the run's warnings say so and
+  every submission date is unknown, rather than TtT failing.
 - **Required fields come from the live data dictionary** — fields marked
   required on the monthly hospital form, excluding `@HIDDEN` fields and
-  `tot_anx_scrnd`.
+  `tot_anx_scrnd`. Only those, the reporting month and the positive-screen
+  count are requested. A dictionary with no required field fails TtT as a
+  `configuration` error.
+
+How a TtT month is assessed:
+
+- **The month comes from `month_reporting`**, a code counted from January 2025
+  = 1, so January 2026 is 13.
+- **Complete:** any of the month's reports passes the required-field check —
+  CHA's rule. `records` counts the month's reports; more than one is noted,
+  since their positive screens are added together.
+- **Patient forms are only counted.** Each patient-level row is reduced to its
+  group, the month of its delivery date and whether it is eligible as soon as
+  it is read; nothing else is kept. Eligible means a qualifying substance is
+  checked and the form is not marked ineligible (`2`) — CPCQC's "derived"
+  rule, which counts real forms whose eligibility field was left blank.
+- **Linkage**, in `linkage`: positive screens against eligible patient forms.
+  The floor — at least one form when there are positives — is pass/fail at the
+  tracker; the ideal, one form per positive, is reported and never blocks.
+- **A month with patient forms but no report** is still listed, as not
+  submitted, so the tracker sees every month with data.
+- **Warnings**, as counts per hospital: reports with data but no reporting
+  month, and eligible patient forms with no valid delivery date, since neither
+  can be placed in a month. **Notes** per month: several reports entered, a
+  positive-screen count that is not a whole number, a report with no creation
+  entry in the log.
+- **If any of the three projects cannot be read, TtT fails** as
+  `redcap_unavailable`, naming the project. Linkage without the Dyadic forms
+  would read as Denver Health missing its patient forms. The log is the one
+  exception, above.
 
 ---
 

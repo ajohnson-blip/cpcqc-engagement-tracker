@@ -17,6 +17,7 @@
  * value found there: the value is exactly the thing that may not belong.
  */
 import { z, type ZodIssue } from 'zod';
+import { linkageFloorMet, linkageIdealMet } from './ttt-engagement.js';
 
 export const FORMAT_VERSION = 'v2';
 
@@ -184,6 +185,31 @@ export const snapshotFileSchema = z
           }
         } else if (a.fields_required !== undefined) {
           ctx.addIssue({ code: 'custom', path: [...at, 'fields_required'], message: 'fields_required is defined for SPARK only' });
+        }
+        // TtT's verdict rests on linkage. The sync judges the floor and the
+        // ideal from the counts with the tracker's own rule, so flags that
+        // disagree with the counts mean the two sides' rules have drifted.
+        if (run.program === 'TTT') {
+          const l = a.linkage;
+          if (l === undefined) {
+            ctx.addIssue({ code: 'custom', path: [...at, 'linkage'], message: 'required for TTT' });
+          } else {
+            const shortfall = l.positive_screens > 0 ? Math.max(l.positive_screens - l.patient_forms, 0) : 0;
+            const checks: Array<[keyof typeof l, boolean]> = [
+              ['shortfall', l.shortfall === shortfall],
+              ['floor_met', l.floor_met === linkageFloorMet(l.positive_screens, l.patient_forms)],
+              ['ideal_met', l.ideal_met === linkageIdealMet(l.positive_screens, l.patient_forms)],
+            ];
+            for (const [key, ok] of checks) {
+              if (!ok) {
+                ctx.addIssue({
+                  code: 'custom',
+                  path: [...at, 'linkage', key],
+                  message: 'does not follow from positive_screens and patient_forms',
+                });
+              }
+            }
+          }
         }
       });
     });

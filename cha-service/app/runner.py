@@ -58,7 +58,7 @@ def run_program(
         return failed("configuration", str(exc))
 
     try:
-        fetched = module.fetch(client, config.tokens)
+        fetched = module.fetch(client, config, crosswalk)
     except RedcapError as exc:
         return failed("redcap_unavailable", str(exc))
     except ProjectConfigurationError as exc:
