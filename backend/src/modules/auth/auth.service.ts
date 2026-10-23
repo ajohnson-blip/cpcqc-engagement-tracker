@@ -154,15 +154,25 @@ export async function requestPasswordReset(email: string): Promise<PasswordReset
   });
   if (!user) return null; // do not reveal whether the email exists
   if (user.deactivatedAt) return null; // deactivated accounts can't be reset back into
+  const token = await issuePasswordResetToken(user.id, PASSWORD_RESET_TTL_MINUTES);
+  return { token, user: { id: user.id, email: user.email, firstName: user.firstName ?? null } };
+}
+
+/**
+ * A one-time token that lets its holder choose the user's password, valid for
+ * `ttlMinutes`. Only the hash is stored. Used by self-service reset and by the
+ * staff setup link, which needs longer than an hour — a new starter may not
+ * open the email the day it is sent.
+ */
+export async function issuePasswordResetToken(userId: string, ttlMinutes: number): Promise<string> {
   const { token, hash } = newOpaqueToken();
-  const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000);
   await db.insert(schema.passwordResets).values({
     id: uuid(),
-    userId: user.id,
+    userId,
     tokenHash: hash,
-    expiresAt,
+    expiresAt: new Date(Date.now() + ttlMinutes * 60 * 1000),
   });
-  return { token, user: { id: user.id, email: user.email, firstName: user.firstName ?? null } };
+  return token;
 }
 
 /**

@@ -1064,3 +1064,30 @@ export interface EngagementResponse {
   /** Ready to paste into a grant report. */
   narrative: string;
 }
+
+// ---- CPCQC staff accounts (admin only) ----
+
+export type StaffInitiativeCode = 'TTT' | 'SPARK' | 'SOAR' | 'NEST';
+export type StaffAssignmentRole = 'program_manager' | 'qi_advisor';
+
+export interface StaffAccount {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string;
+  role: 'cpcqc_staff' | 'cpcqc_admin';
+  active: boolean;
+  assignments: Array<{ initiativeCode: StaffInitiativeCode; role: StaffAssignmentRole }>;
+  createdAt: string;
+}
+
+export interface StaffSetupLinkResponse {
+  emailed: boolean;
+  /** Only when the email could not be sent — shown once for the admin to pass on. */
+  setupUrl: string | null;
+  expiresInDays: number;
+}
+
+export interface CreateStaffAccountResponse extends StaffSetupLinkResponse {
+  account: StaffAccount;
+}

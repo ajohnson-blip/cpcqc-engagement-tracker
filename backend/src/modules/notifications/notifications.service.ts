@@ -35,6 +35,18 @@ export interface SendEmailInput {
    *  authenticated in SendGrid, or DMARC fails and it is quarantined.
    *  Defaults to EMAIL_FROM. */
   fromEmail?: string;
+  /**
+   * Values to keep out of the stored copy and the log — a one-time link or a
+   * credential. The email itself is sent intact; the `notifications` row and
+   * the dev log preview show a placeholder instead.
+   */
+  redact?: string[];
+}
+
+function redacted(text: string, values: string[] | undefined): string {
+  let out = text;
+  for (const v of values ?? []) if (v) out = out.split(v).join('[removed from the log]');
+  return out;
 }
 
 export async function sendEmail(
@@ -43,13 +55,15 @@ export async function sendEmail(
   const id = uuid();
   const now = new Date();
 
+  const storedBody = redacted(input.body, input.redact);
+
   await db.insert(schema.notifications).values({
     id,
     userId: input.userId ?? null,
     toEmail: input.toEmail,
     kind: input.kind,
     subject: input.subject,
-    body: input.body,
+    body: storedBody,
     relatedTaskId: input.relatedTaskId ?? null,
     createdAt: now,
     updatedAt: now,
@@ -63,7 +77,7 @@ export async function sendEmail(
           to: input.toEmail,
           subject: input.subject,
           kind: input.kind,
-          previewBody: input.body.length > 500 ? input.body.slice(0, 500) + '…' : input.body,
+          previewBody: storedBody.length > 500 ? storedBody.slice(0, 500) + '…' : storedBody,
         },
       },
       'Email send skipped (no SENDGRID_API_KEY); logged only',

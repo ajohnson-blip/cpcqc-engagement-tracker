@@ -13,6 +13,7 @@ import hospitalsRoutes from '@/modules/hospitals/hospitals.routes.js';
 import tasksRoutes from '@/modules/tasks/tasks.routes.js';
 import meRoutes from '@/modules/me/me.routes.js';
 import staffRoutes from '@/modules/staff/staff.routes.js';
+import staffAccountsRoutes from '@/modules/staff/staff-accounts.routes.js';
 import importsRoutes from '@/modules/imports/imports.routes.js';
 import ceRoutes from '@/modules/ce/ce.routes.js';
 import publicInterestRouter from '@/modules/annual-interest-forms/public-interest.routes.js';
@@ -62,6 +63,8 @@ export function createApp() {
   app.use('/hospitals', hospitalsRoutes);
   app.use('/tasks', tasksRoutes);
   app.use('/me', meRoutes);
+  // CPCQC staff accounts, admin only. Ahead of /staff so nothing there shadows it.
+  app.use('/staff/team', staffAccountsRoutes);
   app.use('/staff', staffRoutes);
   // /staff/imports handles xlsx uploads with a route-scoped raw body parser;
   // the global json() parser above ignores non-JSON content types so they
