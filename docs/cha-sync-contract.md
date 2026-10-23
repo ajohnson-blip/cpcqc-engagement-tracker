@@ -1,7 +1,7 @@
 # Engagement assessment — file contract
 
-**Status:** for review by Luis Montes (CHA) and CPCQC. SOAR is implemented on
-both sides; the other programs follow.
+**Status:** for review by Luis Montes (CHA) and CPCQC. SOAR and NEST are
+implemented on both sides; SPARK and TtT follow.
 **Version:** `v2`
 **Date:** 20 October 2026
 
@@ -159,12 +159,13 @@ Error codes:
 | `records.attestation` | int | Zero-case attestations (SOAR). |
 | `attestation_only` | bool | The only submission is a valid zero-case attestation. |
 | `missing_field_groups` | array | Distinct patterns of missing required fields — see below. Field **names and labels only**, never values. |
+| `forms` | array | NEST only — see below. |
 | `linkage` | object | TtT only — see below. |
-| `notes` | string[] | Per-hospital diagnostics, as counts. For SOAR: NTSV cases whose delivery date is after the run date, and records whose submission date is not a valid date. Never the values themselves. |
+| `notes` | string[] | Per-hospital diagnostics, as counts. For SOAR: NTSV cases whose delivery date is after the run date, and records whose submission date is not a valid date. For NEST: records whose data-entry date is not a valid date. Never the values themselves. |
 
-Every field above is present in every assessment, except `linkage`, which
-appears on TtT assessments only. `earliest_submission_date` may be `null`;
-nothing else may.
+Every field above is present in every assessment, except `forms`, which
+appears on NEST assessments only, and `linkage`, on TtT assessments only.
+`earliest_submission_date` may be `null`; nothing else may.
 
 ### Why `missing_field_groups` is grouped, not a flat list
 
@@ -191,6 +192,24 @@ Order groups by field count descending, then by record count descending.
 **Labels come from REDCap's own data dictionary** (`field_label`, with any HTML
 stripped). If the dictionary cannot be read, use the variable name as the label
 rather than failing the run.
+
+### NEST additions
+
+A NEST month is complete only when both of its forms were submitted and every
+row of both passes, and the tracker reports which form is missing when only
+one arrived. Each NEST assessment therefore lists both forms, by REDCap
+instrument name, with each one's rows:
+
+```json
+"forms": [
+  { "form": "safe_sleep_audit", "total": 4, "complete": 4 },
+  { "form": "chart_reviews", "total": 0, "complete": 0 }
+]
+```
+
+`records.total` and `records.complete` are the sums across the two forms;
+`records.attestation` is `0`. A NEST month's reporting period comes from its
+REDCap event (`march_2026_arm_1` is `2026-03`).
 
 ### TtT additions
 
@@ -270,7 +289,9 @@ A failed delivery does not affect the file already written at CHA.
 - **Consistently.** Also refused: a period that is not in the program's
   cadence or not in the run's program year; two runs for one program year, or
   two assessments for one hospital and period; more complete records than
-  records; `linkage` outside TtT; a `generated_at` later than the file's
+  records; `linkage` outside TtT; `forms` outside NEST, a NEST assessment
+  without an entry for each of its forms, a form NEST does not have, or more
+  complete rows than rows in a form; a `generated_at` later than the file's
   arrival.
 - **Per-run status is respected.** A run with `status: "error"` is recorded and
   shown on that program's sync page; the other runs in the file are used.

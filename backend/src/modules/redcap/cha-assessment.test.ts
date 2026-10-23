@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { soarCellsFromAssessments } from './cha-assessment.js';
+import { nestCellsFromAssessments, soarCellsFromAssessments } from './cha-assessment.js';
 import type { ChaAssessment } from './cha-snapshot.js';
 import { monthDeadline } from './soar-engagement.js';
+import { monthDeadline as nestMonthDeadline } from './nest-engagement.js';
 
 const CHA_TO_DAG = new Map([['EX-001', 'example_hospital_a'], ['EX-002', 'example_hospital_b']]);
 
@@ -123,5 +124,69 @@ describe('soarCellsFromAssessments', () => {
   it('ignores a period it cannot parse instead of inventing one', () => {
     const { cells } = soarCellsFromAssessments([assessment({ period: '2026-Q3' })], CHA_TO_DAG);
     expect(cells.size).toBe(0);
+  });
+});
+
+describe('nestCellsFromAssessments', () => {
+  const nest = (over: Partial<ChaAssessment> = {}): ChaAssessment =>
+    assessment({
+      period: '2026-03',
+      earliest_submission_date: '2026-04-05',
+      records: { total: 3, complete: 3, attestation: 0 },
+      forms: [
+        { form: 'safe_sleep_audit', total: 2, complete: 2 },
+        { form: 'chart_reviews', total: 1, complete: 1 },
+      ],
+      ...over,
+    });
+
+  it('builds the per-form rollups the NEST sync decides from', () => {
+    const cell = nestCellsFromAssessments([nest()], CHA_TO_DAG).cells.get('example_hospital_a::2026-03')!;
+    expect(cell.bothSubmitted).toBe(true);
+    expect(cell.dataComplete).toBe(true);
+    expect([cell.ssp.nRows, cell.ssp.nComplete, cell.chart.nRows, cell.chart.nComplete]).toEqual([2, 2, 1, 1]);
+    expect(cell.deadline).toBe(nestMonthDeadline(2026, 3));
+    expect(cell.onTime).toBe(true);
+  });
+
+  it('knows when only one form arrived', () => {
+    const cell = nestCellsFromAssessments(
+      [
+        nest({
+          complete: false,
+          forms: [
+            { form: 'safe_sleep_audit', total: 2, complete: 2 },
+            { form: 'chart_reviews', total: 0, complete: 0 },
+          ],
+        }),
+      ],
+      CHA_TO_DAG,
+    ).cells.get('example_hospital_a::2026-03')!;
+    expect(cell.ssp.submitted).toBe(true);
+    expect(cell.chart.submitted).toBe(false);
+    expect(cell.bothSubmitted).toBe(false);
+    expect(cell.dataComplete).toBe(false);
+  });
+
+  it('labels missing-field groups as the REDCap path does, and carries notes', () => {
+    const cell = nestCellsFromAssessments(
+      [
+        nest({
+          complete: false,
+          missing_field_groups: [
+            { form: 'chart_reviews', records: 1, fields: [{ field: 'language', label: 'Primary language' }] },
+            { form: 'safe_sleep_audit', records: 2, fields: [{ field: 'compliant_ssp', label: 'Compliant' }] },
+          ],
+          notes: ['1 record has a data-entry date that is not a valid date — timeliness may be affected.'],
+        }),
+      ],
+      CHA_TO_DAG,
+    ).cells.get('example_hospital_a::2026-03')!;
+    expect(cell.missingFieldGroups!.map((g) => g.form)).toEqual(['Chart audit', 'Safe Sleep Practices']);
+    expect(cell.notes).toHaveLength(1);
+  });
+
+  it('surfaces a CHA id it cannot map', () => {
+    expect(nestCellsFromAssessments([nest({ cha_id: 'EX-999' })], CHA_TO_DAG).unmappedChaIds).toEqual(['EX-999']);
   });
 });

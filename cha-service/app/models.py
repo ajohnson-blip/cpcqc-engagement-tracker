@@ -58,6 +58,18 @@ class RecordCounts:
 
 
 @dataclass(frozen=True)
+class FormCounts:
+    """One instrument's rows for a hospital-period — NEST, which needs both its
+    forms submitted, and reports which was missing when only one was."""
+    form: str
+    total: int = 0
+    complete: int = 0
+
+    def to_dict(self) -> dict:
+        return {"form": self.form, "total": self.total, "complete": self.complete}
+
+
+@dataclass(frozen=True)
 class Linkage:
     """TtT only. Derived from patient-level records, so it must be computed here."""
     positive_screens: int = 0
@@ -89,6 +101,8 @@ class Assessment:
     records: RecordCounts = dataclasses.field(default_factory=RecordCounts)
     attestation_only: bool = False
     missing_field_groups: tuple[MissingFieldGroup, ...] = ()
+    # NEST only: per-form counts. None elsewhere.
+    forms: tuple[FormCounts, ...] | None = None
     linkage: Linkage | None = None
     notes: tuple[str, ...] = ()
 
@@ -104,7 +118,9 @@ class Assessment:
             "missing_field_groups": [g.to_dict() for g in self.missing_field_groups],
             "notes": list(self.notes),
         }
-        # TtT only; omitted rather than null elsewhere, as the contract shows.
+        # Program-specific; omitted rather than null elsewhere, as the contract shows.
+        if self.forms is not None:
+            out["forms"] = [f.to_dict() for f in self.forms]
         if self.linkage is not None:
             out["linkage"] = self.linkage.to_dict()
         return out

@@ -1,0 +1,38 @@
+{
+  "community_hospital": {
+    "cha_id": "716",
+    "hospital": "Community Hospital"
+  },
+  "denver_health": {
+    "cha_id": "428",
+    "hospital": "Denver Health Medical Center"
+  },
+  "good_samaritan_med": {
+    "cha_id": "308",
+    "hospital": "Intermountain Health Good Samaritan Hospital"
+  },
+  "montrose_regional": {
+    "cha_id": "752",
+    "hospital": "Montrose Regional Health"
+  },
+  "platte_valley_medi": {
+    "cha_id": "552",
+    "hospital": "Intermountain Health Platte Valley Hospital"
+  },
+  "saint_marys_hospit": {
+    "cha_id": "768",
+    "hospital": "Intermountain Health St. Mary's Regional Hospital"
+  },
+  "st_francis_hospita": {
+    "cha_id": "327",
+    "hospital": "CommonSpirit - St. Francis Hospital - Interquest"
+  },
+  "valley_view_hospit": {
+    "cha_id": "868",
+    "hospital": "Valley View Hospital"
+  },
+  "wray_community_dis": {
+    "cha_id": "604",
+    "hospital": "Wray Community District Hospital"
+  }
+}

@@ -13,12 +13,19 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
-from typing import Iterable
 
 from ..crosswalk import Crosswalk
 from ..errors import ProjectConfigurationError
-from ..models import Assessment, MissingField, MissingFieldGroup, RecordCounts
+from ..models import Assessment, RecordCounts
 from ..redcap import RedcapClient, labels_from_metadata
+from .common import (
+    checkbox_filled,
+    checkbox_includes,
+    group_missing,
+    is_filled,
+    is_valid_date,
+    plural,
+)
 
 PROGRAM = "SOAR"
 TOKEN_SETTINGS = ("REDCAP_SOAR_TOKEN",)
@@ -73,8 +80,6 @@ MINIMUM_FIELDS = [
     NO_NTSV_CHECKBOX,
 ]
 
-_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
-
 
 @dataclass(frozen=True)
 class Fetched:
@@ -113,42 +118,6 @@ def assess_year(
         fetched.attestation_periods,
         crosswalk.untracked,
     )
-
-
-def is_filled(value) -> bool:
-    return value is not None and str(value).strip() != ""
-
-
-def is_valid_date(value) -> bool:
-    """A submission date is usable only when it is a real ISO calendar date.
-
-    Junk typed into the field must not be treated as a submission date. One
-    deliberate difference from the tracker: its JavaScript date parser rolls
-    an impossible day like 2026-02-30 over into March and accepts it; this
-    rejects it. @TODAY cannot produce such a value, so the two can only
-    disagree on a corrupted entry.
-    """
-    if not is_filled(value):
-        return False
-    s = str(value).strip()[:10]
-    if not _ISO_DATE.fullmatch(s):
-        return False
-    try:
-        date.fromisoformat(s)
-    except ValueError:
-        return False
-    return True
-
-
-def checkbox_filled(row: dict, prefix: str) -> bool:
-    """REDCap exports checkboxes as `field___1`, `field___2`… Filled = any checked."""
-    return any(
-        k.startswith(f"{prefix}___") and str(v).strip() == "1" for k, v in row.items()
-    )
-
-
-def checkbox_includes(row: dict, prefix: str, option: str) -> bool:
-    return str(row.get(f"{prefix}___{option}", "")).strip() == "1"
 
 
 def classify_row(row: dict) -> str:
@@ -291,37 +260,6 @@ def missing_no_ntsv_fields(row: dict) -> list[str]:
     return missing
 
 
-def _group_missing(
-    entries: Iterable[tuple[str, list[str]]], labels: dict[str, str]
-) -> tuple[MissingFieldGroup, ...]:
-    """Group by (form, exact field set), counting records per pattern.
-
-    One record missing eight fields is an abandoned entry; eight records each
-    missing one is a systematic gap. Those warrant different conversations, and
-    a flat per-field tally cannot tell them apart because both produce the same
-    totals. Grouping preserves the distinction without naming any record.
-    """
-    buckets: dict[tuple[str, tuple[str, ...]], int] = defaultdict(int)
-    for form, fields in entries:
-        if fields:
-            buckets[(form, tuple(sorted(fields)))] += 1
-    # Most-incomplete pattern first, then the most widespread — as the
-    # tracker orders them. Form and fields break ties so output is stable.
-    ordered = sorted(buckets.items(), key=lambda kv: (-len(kv[0][1]), -kv[1], kv[0]))
-    return tuple(
-        MissingFieldGroup(
-            form=form,
-            records=count,
-            fields=tuple(MissingField(field=f, label=labels.get(f, f)) for f in fields),
-        )
-        for (form, fields), count in ordered
-    )
-
-
-def _plural(n: int, one: str, many: str) -> str:
-    return f"{n} {one if n == 1 else many}"
-
-
 def assess(
     records: list[dict],
     program_year: int,
@@ -416,7 +354,7 @@ def assess(
     for dag, n in sorted(undefined_codes.items()):
         counted = "it was" if n == 1 else "they were"
         warnings.append(
-            f'REDCap DAG "{dag}": {_plural(n, "No-NTSV attestation uses", "No-NTSV attestations use")} '
+            f'REDCap DAG "{dag}": {plural(n, "No-NTSV attestation uses", "No-NTSV attestations use")} '
             f"a month code the data dictionary does not define, so {counted} not counted."
         )
 
@@ -437,12 +375,12 @@ def assess(
         notes: list[str] = []
         if cell["future_dated"]:
             notes.append(
-                f"{_plural(cell['future_dated'], 'NTSV record has', 'NTSV records have')} "
+                f"{plural(cell['future_dated'], 'NTSV record has', 'NTSV records have')} "
                 "a delivery date in the future — possible data-entry error."
             )
         if cell["invalid_dates"]:
             notes.append(
-                f"{_plural(cell['invalid_dates'], 'record has', 'records have')} a submission "
+                f"{plural(cell['invalid_dates'], 'record has', 'records have')} a submission "
                 "date that is not a valid date — timeliness may be affected."
             )
 
@@ -459,7 +397,7 @@ def assess(
                     attestation=cell["attestations"],
                 ),
                 attestation_only=attestation_submitted and not ntsv_submitted,
-                missing_field_groups=_group_missing(cell["missing"], labels),
+                missing_field_groups=group_missing(cell["missing"], labels),
                 notes=tuple(notes),
             )
         )

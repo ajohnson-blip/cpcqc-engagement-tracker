@@ -8,8 +8,8 @@ previews from that file.
 - **Plan, decisions and open questions:** `docs/partition-plan.md`
 - **File format:** `docs/cha-sync-contract.md` — this script implements **v2**
 
-**Status:** SOAR is implemented. NEST, SPARK and TtT follow, each after SOAR
-has been shown to agree with the tracker's current results.
+**Status:** SOAR and NEST are implemented. SPARK and TtT follow. Each program
+moves over once it has been shown to agree with the tracker's current results.
 
 ---
 
@@ -119,7 +119,7 @@ Both delivery values are supplied by CPCQC.
 |---|---|---|
 | `REDCAP_API_URL` | all | Defaults to `https://redcap.vumc.org/api/`. Must be `https://`. |
 | `REDCAP_SOAR_TOKEN` | SOAR | Needs the Export right — the script reads records and the data dictionary |
-| `REDCAP_NEST_TOKEN` | NEST | Not yet used |
+| `REDCAP_NEST_TOKEN` | NEST | Needs the Export right |
 | `REDCAP_SPARK_TOKEN` | SPARK | Not yet used |
 | `REDCAP_TTT_HOSPITAL_TOKEN` | TtT | Not yet used. Will need the **Logging** user right as well as Export — see below |
 | `REDCAP_TTT_PATIENT_TOKEN` | TtT | Not yet used |
@@ -201,6 +201,11 @@ silently dropping a hospital would read as that hospital not submitting.
 tracked, and the other 21 in the project — sustainability-track and not
 enrolled, per CHA's master hospital list — are known but not tracked.
 
+`crosswalk.nest.json` lists the 9 hospitals in NEST's active cohort, with CHA
+IDs from the tracker's hospital records. The first live NEST run will list any
+other data access group in the project in its warnings; add those as
+`"tracked": false`.
+
 ---
 
 ## Programs
@@ -208,7 +213,7 @@ enrolled, per CHA's master hospital list — are known but not tracked.
 | Program | Status | Projects |
 |---|---|---|
 | SOAR | implemented | SOAR |
-| NEST | to port | NEST |
+| NEST | implemented | NEST |
 | SPARK | to port | SPARK |
 | TtT | to port, last | Hospital, Patient, CHoSEN Dyadic |
 
@@ -238,6 +243,30 @@ so codes added later need no change here. Three safeguards:
   the run's warnings say how many, per data access group.
 - The data dictionary is required. If it cannot be read, SOAR fails as
   `redcap_unavailable`.
+
+### NEST
+
+- **Two forms per hospital-month**, one row per infant or chart: the Safe
+  Sleep Practices audit (`safe_sleep_audit`) and the chart review
+  (`chart_reviews`). Each assessment reports both forms' row counts in
+  `forms`.
+- **Submitted:** at least one row on either form. **Complete:** both forms
+  submitted and every row of both passes the required-field rules — a
+  non-compliant audit needs its reasons and whether it was addressed; a chart
+  needs race, ethnicity, language, payor and the three safe-sleep
+  documentation fields, plus home needs when screening was documented and a
+  referral when home needs were.
+- **The month comes from the REDCap event** (`march_2026_arm_1` is
+  `2026-03`). The 2026 events are listed in `app/programs/nest.py`. An event
+  carrying data on either form that is not listed is reported in the run's
+  warnings and its rows are skipped — never guessed. **When the 2027 monthly
+  events are created, their names are added here and in the tracker
+  together.**
+- **Earliest submission date:** the earliest data-entry date across both
+  forms (`data_entry_date_ssp`, `data_entry_date`). An unusable value is
+  ignored and counted in `notes`.
+- Race, ethnicity, language and payor are retrieved only to test that they
+  are filled in; their free-text companions are never requested.
 
 ### TtT spans three REDCap projects
 

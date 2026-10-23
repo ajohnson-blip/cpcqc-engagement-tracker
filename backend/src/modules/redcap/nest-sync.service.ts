@@ -15,6 +15,10 @@
  *   - Nothing yet, deadline not passed → left untouched (pending).
  *
  * Dry-run previews; re-running is idempotent (recomputed from REDCap each time).
+ *
+ * On a deployment with SYNC_SOURCE=cha the grid comes from CHA's nightly
+ * assessment file instead, and REDCap is never contacted — see the SOAR sync,
+ * which this follows.
  */
 import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
@@ -33,7 +37,11 @@ import {
   F_EVENT,
   F_REPEAT_INSTRUMENT,
   type NestCell,
+  type RedcapRow,
 } from './nest-engagement.js';
+import { nestCellsFromAssessments } from './cha-assessment.js';
+import { chaRunForSync } from './cha-snapshot.service.js';
+import { describeSource, type SyncDataSource } from './data-as-of.js';
 import {
   dispositionToTask,
   isHumanEdit,
@@ -45,7 +53,7 @@ import {
   type SyncOverride,
   type SyncDisposition,
 } from './sync-overrides.js';
-import { assertRedcapSource, assertSyncEnabled } from './sync-gate.js';
+import { assertSyncEnabled } from './sync-gate.js';
 
 /** A prior PM override recorded in a task's payload, if any. */
 function readPriorOverride(
@@ -138,8 +146,13 @@ export interface NestSyncResult {
   programYear: number;
   periodsInScope: string[];
   recordsFetched: number;
+  /** Where the grid came from and how old it is. Always shown on the preview. */
+  dataSource: SyncDataSource;
   rows: NestSyncRow[];
+  /** Actionable items (unexpected DAGs or events, unusable dates, etc.). */
   warnings: string[];
+  /** Expected/informational notes (e.g. which CHA file the grid came from). */
+  notes: string[];
   counts: {
     willChange: number;
     counting: number;
@@ -320,14 +333,22 @@ export interface RunNestSyncOptions {
   actorUserId?: string | null;
   /** PM overrides keyed by task instance id (apply only). */
   overrides?: Map<string, SyncOverride>;
+  /** Override the deployment's configured source. Parity tooling only. */
+  source?: 'redcap' | 'cha';
+  /**
+   * CHA path only: build from this file rather than the newest. An apply
+   * passes the snapshot its preview was built from, so what is applied is what
+   * was reviewed even if a newer file arrived in between.
+   */
+  snapshotId?: string;
 }
 
 export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestSyncResult> {
   // Paused by CPCQC — see sync-gate.ts. Checked here too, not only
   // at the route, so no other caller can reach REDCap while paused.
   assertSyncEnabled();
-  assertRedcapSource('NEST');
-  if (!env.REDCAP_NEST_TOKEN) {
+  const source = opts.source ?? env.SYNC_SOURCE;
+  if (source === 'redcap' && !env.REDCAP_NEST_TOKEN) {
     throw new HttpError(
       400,
       'REDCAP_NEST_TOKEN is not configured on the server. Add it as a Render environment variable.',
@@ -339,25 +360,89 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
   const fetchedAt = new Date().toISOString();
 
   // Field labels from the live data dictionary; best-effort, since a missing
-  // label only costs readability, not correctness.
+  // label only costs readability, not correctness. REDCap path only: CHA's file
+  // carries its own labels, and that path never contacts REDCap.
   const fieldLabels = new Map<string, string>();
-  try {
-    const meta = await exportMetadata({ token: env.REDCAP_NEST_TOKEN });
-    for (const m of meta) {
-      const name = String(m['field_name'] ?? '').trim();
-      const label = String(m['field_label'] ?? '').replace(/<[^>]*>/g, '').trim();
-      if (name && label) fieldLabels.set(name, label);
+  if (source === 'redcap' && env.REDCAP_NEST_TOKEN) {
+    try {
+      const meta = await exportMetadata({ token: env.REDCAP_NEST_TOKEN });
+      for (const m of meta) {
+        const name = String(m['field_name'] ?? '').trim();
+        const label = String(m['field_label'] ?? '').replace(/<[^>]*>/g, '').trim();
+        if (name && label) fieldLabels.set(name, label);
+      }
+    } catch {
+      /* labels are a convenience; variable names still identify the field */
     }
-  } catch {
-    /* labels are a convenience; variable names still identify the field */
   }
 
-  const records = await exportRecords({
-    token: env.REDCAP_NEST_TOKEN,
-    // Patient-level chart reviews: minimum necessary, not the whole form.
-    fields: NEST_MINIMUM_FIELDS,
-  });
-  const grid = buildNestGrid(records);
+  const warnings: string[] = [];
+  const notes: string[] = [];
+  let grid: Map<string, NestCell>;
+  let recordsRead = 0;
+  // Only the REDCap path has raw records; the event and DAG scans below are
+  // skipped on the CHA path, where CHA's file reports both in its warnings.
+  let records: RedcapRow[] = [];
+  let dataSource: SyncDataSource;
+  if (source === 'cha') {
+    // CHA keys by CHA id; the grid and the sync key by DAG.
+    const chaIdToDag = new Map<string, string>();
+    const allHospitals = await db.select().from(schema.hospitals);
+    const byNameLower = new Map(allHospitals.map((h) => [h.name.toLowerCase(), h]));
+    for (const [dag, name] of Object.entries(NEST_DAG_TO_HOSPITAL_NAME)) {
+      const cha = byNameLower.get(name.toLowerCase())?.chaHospitalId;
+      if (cha) chaIdToDag.set(String(cha), dag);
+    }
+    const { run, warnings: runWarnings } = await chaRunForSync('NEST', programYear, opts.snapshotId);
+    const adapted = nestCellsFromAssessments(run.assessments, chaIdToDag);
+    grid = adapted.cells;
+    recordsRead = run.recordsRead ?? 0;
+    dataSource = describeSource('cha', run.generatedAt, {
+      snapshotId: run.snapshotId,
+      generatorVersion: run.generatorVersion,
+      methodologyVersion: run.methodologyVersion,
+    });
+    if (dataSource.stale) {
+      warnings.push(
+        `CHA's newest NEST ${programYear} file is ${Math.floor(dataSource.ageHours)} hours old — at least one ` +
+          `nightly run is missing. Check with CHA before applying.`,
+      );
+    }
+    warnings.push(...runWarnings, ...run.warnings.map((w) => `CHA: ${w}`));
+    // A hospital the tracker knows but NEST does not track is an expected
+    // skip; a CHA id no hospital carries needs looking into.
+    const knownChaIds = new Set(allHospitals.map((h) => h.chaHospitalId).filter(Boolean).map(String));
+    let notActive = 0;
+    for (const chaId of adapted.unmappedChaIds) {
+      if (knownChaIds.has(chaId)) notActive += 1;
+      else
+        warnings.push(
+          `CHA's file has NEST data for CHA ID ${chaId}, which no tracker hospital carries — its rows were skipped.`,
+        );
+    }
+    if (notActive > 0) {
+      notes.push(
+        `Skipped ${notActive} hospital${notActive === 1 ? '' : 's'} in CHA's file not in NEST's active cohort — expected.`,
+      );
+    }
+    notes.push(
+      `Built from CHA's assessment file of ${run.generatedAt} (script ${run.generatorVersion}, methodology ` +
+        `${run.methodologyVersion}, ${recordsRead} REDCap records read at CHA).`,
+    );
+  } else {
+    // Guarded above, but narrow it here too: this deployment's whole reason for
+    // holding a REDCap token is this call.
+    if (!env.REDCAP_NEST_TOKEN) throw new HttpError(400, 'REDCAP_NEST_TOKEN must be configured.');
+    records = await exportRecords({
+      token: env.REDCAP_NEST_TOKEN,
+      // Patient-level chart reviews: minimum necessary, not the whole form.
+      fields: NEST_MINIMUM_FIELDS,
+    });
+    recordsRead = records.length;
+    grid = buildNestGrid(records);
+    // fetchedAt is taken before the read, so it is a safe "as of".
+    dataSource = describeSource('redcap', fetchedAt);
+  }
 
   const hospitals = await db.select().from(schema.hospitals);
   const hospitalsByName = new Map(hospitals.map((h) => [h.name.toLowerCase(), h]));
@@ -405,7 +490,6 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
   });
 
   const rows: NestSyncRow[] = [];
-  const warnings: string[] = [];
 
   // Safety net: a data row on either repeating form whose event maps to no month
   // is being SILENTLY DROPPED (the class of bug where SPARK's "aprjune" slug
@@ -495,6 +579,8 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
           `${hospitalName} ${period}: a submission-date field isn't a valid date — timeliness may be affected. Fix the date in REDCap.`,
         );
       }
+      // The CHA path reports the same check as a counted note.
+      for (const note of cell?.notes ?? []) warnings.push(`${hospitalName} ${period}: ${note}`);
 
       const decision = decide(effCell, deadline, today);
       const override = opts.overrides?.get(ti.id);
@@ -567,15 +653,18 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
         chartRows: cell?.chart.nRows ?? 0,
         chartComplete: cell?.chart.nComplete ?? 0,
         incompleteGroups:
-          decision.category === 'incomplete'
-            ? collectMissing(
+          decision.category !== 'incomplete'
+            ? []
+            : // CHA's file sends them already grouped; the REDCap path derives
+              // them from the records it read.
+              (cell?.missingFieldGroups ??
+              collectMissing(
                 [
                   { form: 'Safe Sleep Practices', rollup: cell?.ssp },
                   { form: 'Chart audit', rollup: cell?.chart },
                 ],
                 fieldLabels,
-              )
-            : [],
+              )),
         onTime: effCell?.onTime ?? null,
         daysFromDeadline: effCell?.daysFromDeadline ?? null,
         deadline,
@@ -608,6 +697,12 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
               daysFromDeadline: effCell?.daysFromDeadline ?? null,
               submissionDate: subDate,
               syncedAt: fetchedAt,
+              // Which data this state came from — on the CHA path, which file.
+              dataSource: {
+                kind: dataSource.kind,
+                snapshotId: dataSource.snapshotId,
+                generatedAt: dataSource.generatedAt,
+              },
               ...(override
                 ? {
                     override: {
@@ -626,6 +721,38 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
     }
   }
 
+  // One record per month an apply covered, saying what data it rested on, for
+  // finalize's check that the data could not have missed a deadline-day
+  // submission. As in the SOAR sync.
+  if (!opts.dryRun && periodsInScope.length > 0) {
+    await db.insert(schema.auditLog).values(
+      periodsInScope.map((period) => {
+        const changed = rows.filter((r) => r.period === period && r.willChange).length;
+        return {
+          id: uuid(),
+          actorUserId: opts.actorUserId ?? null,
+          actorRole: 'cpcqc_staff',
+          action: 'redcap.sync_applied',
+          entityType: 'task_period',
+          entityId: `NEST:${period}`,
+          diff: {
+            dataSource: {
+              kind: dataSource.kind,
+              snapshotId: dataSource.snapshotId,
+              generatedAt: dataSource.generatedAt,
+            },
+            deadline: deadlineFor(period, periodDueOn.get(period) ?? null),
+            changed,
+          },
+          note:
+            `Applied NEST ${period} from ` +
+            (dataSource.kind === 'cha' ? `CHA's file of ${dataSource.generatedAt}` : `REDCap, read ${dataSource.generatedAt}`) +
+            ` (${changed} task${changed === 1 ? '' : 's'} changed).`,
+        };
+      }),
+    );
+  }
+
   const counts = {
     willChange: rows.filter((r) => r.willChange).length,
     counting: rows.filter((r) => r.category === 'counting' || r.category === 'complete_nodate').length,
@@ -637,7 +764,7 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
   };
 
   logger.info(
-    { dryRun: opts.dryRun, programYear, recordsFetched: records.length, ...counts },
+    { dryRun: opts.dryRun, programYear, source, recordsFetched: recordsRead, ...counts },
     'NEST REDCap sync complete',
   );
 
@@ -646,9 +773,11 @@ export async function runNestRedcapSync(opts: RunNestSyncOptions): Promise<NestS
     fetchedAt,
     programYear,
     periodsInScope,
-    recordsFetched: records.length,
+    recordsFetched: recordsRead,
+    dataSource,
     rows,
     warnings,
+    notes,
     counts,
   };
 }

@@ -245,6 +245,18 @@ export interface NestCell {
   onTime: boolean | null;
   daysFromDeadline: number | null;
   deadline: string;
+  /**
+   * Set only when the cell came from CHA's assessment file, which sends
+   * missing fields already grouped; the REDCap path derives them from
+   * `incompleteRows` instead.
+   */
+  missingFieldGroups?: Array<{
+    form: string;
+    records: number;
+    fields: Array<{ field: string; label: string }>;
+  }>;
+  /** CHA's per-hospital diagnostics, as counts. The REDCap path uses `invalidDate`. */
+  notes?: string[];
 }
 
 function dayDiff(aIso: string, bIso: string): number {

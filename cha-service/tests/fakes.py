@@ -5,6 +5,8 @@ import json
 
 import requests
 
+from app.redcap import labels_from_metadata
+
 # Shaped like a REDCap token so configuration accepts it; not a real one.
 FAKE_TOKEN = "0123456789ABCDEF0123456789ABCDEF"
 
@@ -69,3 +71,9 @@ class FakeRedcapClient:
         if self.meta_error:
             raise self.meta_error
         return self.meta
+
+    def export_field_labels(self, token):
+        # As the real client: best effort, empty when the dictionary fails.
+        if self.meta_error:
+            return {}
+        return labels_from_metadata(self.meta)

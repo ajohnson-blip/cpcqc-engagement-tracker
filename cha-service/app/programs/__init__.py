@@ -1,6 +1,7 @@
 """Per-program assessors.
 
-SOAR is the reference implementation. Each program is a module here exposing:
+SOAR is the reference implementation; NEST follows it. Each program is a module
+here exposing:
 
     PROGRAM              "SOAR", "NEST", ...
     TOKEN_SETTINGS       the environment variables holding its REDCap token(s)
@@ -18,9 +19,9 @@ assessing so one export serves every program year in scope.
 
 Adding a program means adding it to IMPLEMENTED below.
 """
-from . import soar
+from . import nest, soar
 
-IMPLEMENTED = {soar.PROGRAM: soar}
+IMPLEMENTED = {soar.PROGRAM: soar, nest.PROGRAM: nest}
 
 # Every program the contract defines, implemented or not, so configuration can
 # tell a typo from a program that simply has not been ported yet.

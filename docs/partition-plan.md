@@ -1,7 +1,8 @@
 # REDCap partition — plan
 
 **Status:** SOAR's phase 1 checkpoint is passed; phase 2 is built and waits on
-the first delivered file — see "Build phases"
+the first delivered file. NEST is built on both sides and awaits its first
+live run — see "Build phases"
 **Date:** 22 October 2026
 **Supersedes:** the on-demand assessment service described in contract v1
 
@@ -315,6 +316,12 @@ Each phase ends at a checkpoint before the next starts.
    *Checkpoint:* they agree.
 
 4. **NEST, then SPARK**, each through the same parity check.
+   *NEST built:* the script assesses NEST (both forms, the event-based month,
+   the methodology's required fields), and the tracker's NEST sync reads it
+   from the file as SOAR's does. NEST assessments carry per-form counts
+   (`forms`), since the tracker reports which form is missing when only one
+   arrived. *Checkpoint:* Luis runs NEST against live REDCap and compares it
+   with his pipeline; then NEST parity.
 
 5. **TtT**, last — three projects, the logging API, the Dyadic differences.
 
@@ -339,3 +346,7 @@ Each phase ends at a checkpoint before the next starts.
    added, nothing else changes.
 5. **Memorial in SOAR from 2027** — whether Central and North get separate
    data access groups in the SOAR project, and if so their names.
+6. **NEST's 2027 events** — NEST's reporting month comes from the REDCap
+   event. When the project's 2027 monthly events are created, their names are
+   added to the script and the tracker together; until then, data entered
+   against them is reported, not counted.

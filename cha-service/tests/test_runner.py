@@ -180,6 +180,32 @@ class RunnerTests(unittest.TestCase):
                       "2025-12-28", "free text here", '"43"', '"29"', "record_id", FAKE_TOKEN):
             self.assertNotIn(value, blob)
 
+    def test_one_file_holds_every_program_each_in_its_own_shape(self):
+        (self.crosswalks / "crosswalk.nest.json").write_text(
+            json.dumps({"acme_general": {"cha_id": "EX-002", "hospital": "Acme General"}})
+        )
+        nest_rows = [
+            {"redcap_data_access_group": "acme_general", "redcap_event_name": "march_2026_arm_1",
+             "redcap_repeat_instrument": "safe_sleep_audit", "compliant_ssp": "1",
+             "data_entry_date_ssp": "2026-04-03"},
+        ]
+        cfg = config(self.out)
+        cfg = Config(**{**cfg.__dict__, "programs": ("SOAR", "NEST"),
+                        "tokens": {"REDCAP_SOAR_TOKEN": FAKE_TOKEN, "REDCAP_NEST_TOKEN": FAKE_TOKEN}})
+        snap = build_snapshot(cfg, FakeRedcapClient(records() + nest_rows), TODAY,
+                              clock=lambda: STARTED, new_id=lambda: SNAPSHOT_ID, crosswalk_dir=self.crosswalks)
+        doc = json.loads(serialize(snap))
+        self.assertEqual([(r["program"], r["status"]) for r in doc["runs"]], [("SOAR", "ok"), ("NEST", "ok")])
+        soar_run, nest_run = doc["runs"]
+        self.assertTrue(all("forms" not in a for a in soar_run["assessments"]))
+        a = nest_run["assessments"][0]
+        self.assertEqual(set(a), CONTRACT_KEYS["assessment"] | {"forms"})
+        self.assertEqual(a["forms"], [
+            {"form": "safe_sleep_audit", "total": 1, "complete": 1},
+            {"form": "chart_reviews", "total": 0, "complete": 0},
+        ])
+        self.assertFalse(a["complete"])  # the chart review is missing
+
     def test_writing_leaves_exactly_one_file(self):
         snap = self.snapshot(FakeRedcapClient(records()))
         path = write_file(serialize(snap), self.out, filename_for(snap))

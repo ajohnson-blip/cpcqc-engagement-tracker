@@ -145,10 +145,16 @@ router.post('/redcap/spark', requireAuth, requireStaff, express.json(), async (r
 router.post('/redcap/nest', requireAuth, requireStaff, express.json(), async (req, res) => {
   assertSyncEnabled();
   const dryRun = req.query.dryRun !== 'false';
+  // As for SOAR: an apply names the CHA file its preview was built from.
+  const { snapshotId } = z
+    .object({ snapshotId: z.string().uuid().optional() })
+    .passthrough()
+    .parse(req.body ?? {});
   const result = await runNestRedcapSync({
     dryRun,
     actorUserId: req.auth?.userId ?? null,
     overrides: dryRun ? undefined : parseOverrides(req.body),
+    snapshotId: dryRun ? undefined : snapshotId,
   });
   res.json(result);
 });

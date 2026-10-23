@@ -229,8 +229,10 @@ export interface NestSyncResult {
   programYear: number;
   periodsInScope: string[];
   recordsFetched: number;
+  dataSource: SyncDataSource;
   rows: NestSyncRow[];
   warnings: string[];
+  notes: string[];
   counts: {
     willChange: number;
     counting: number;

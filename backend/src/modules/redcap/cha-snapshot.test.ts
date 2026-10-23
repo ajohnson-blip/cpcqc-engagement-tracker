@@ -188,6 +188,53 @@ describe('parseSnapshotFile', () => {
     expect(() => parseSnapshotFile(skewed, RECEIVED)).not.toThrow();
   });
 
+  describe('NEST per-form counts', () => {
+    const nestForms = [
+      { form: 'safe_sleep_audit', total: 3, complete: 3 },
+      { form: 'chart_reviews', total: 0, complete: 0 },
+    ];
+    /** The sample with run 1 turned into NEST, every assessment carrying `forms`. */
+    const asNest = (change: (f: any) => void = () => {}) =>
+      edited((f) => {
+        f.runs[1].program = 'NEST';
+        f.runs[1].assessments.forEach((a: any) => (a.forms = nestForms.map((x) => ({ ...x }))));
+        change(f);
+      });
+
+    it('accepts them on NEST', () => {
+      expect(() => parseSnapshotFile(asNest(), RECEIVED)).not.toThrow();
+    });
+
+    it('requires an entry for each NEST form', () => {
+      expect(problems(asNest((f) => (f.runs[1].assessments[0].forms = [nestForms[0]])))).toContain(
+        'runs[1].assessments[0].forms: needs an entry for chart_reviews',
+      );
+      expect(problems(asNest((f) => delete f.runs[1].assessments[0].forms))).toContain(
+        'runs[1].assessments[0].forms: needs an entry for safe_sleep_audit',
+      );
+    });
+
+    it('refuses a form NEST does not have, and impossible counts', () => {
+      expect(problems(asNest((f) => (f.runs[1].assessments[0].forms[1].form = 'other_form')))).toContain(
+        'runs[1].assessments[0].forms[1].form: not a NEST form',
+      );
+      expect(problems(asNest((f) => (f.runs[1].assessments[0].forms[0].complete = 9)))).toContain(
+        'runs[1].assessments[0].forms[0]: more complete rows than rows',
+      );
+    });
+
+    it('refuses them anywhere but NEST', () => {
+      expect(problems(edited((f) => (f.runs[1].assessments[0].forms = nestForms)))).toContain(
+        'runs[1].assessments[0].forms: forms is defined for NEST only',
+      );
+    });
+
+    it('refuses a key the contract does not define inside forms', () => {
+      const found = problems(asNest((f) => (f.runs[1].assessments[0].forms[0].record_ids = ['1'])));
+      expect(found.some((p) => p.startsWith('runs[1].assessments[0].forms[0]: key the contract does not define'))).toBe(true);
+    });
+  });
+
   it('refuses an error code the contract does not list', () => {
     expect(problems(edited((f) => (f.runs[2].error.code = 'oops')))[0]).toMatch(
       /^runs\[2\]\.error\.code: expected one of "redcap_unavailable", "configuration", "internal"$/,

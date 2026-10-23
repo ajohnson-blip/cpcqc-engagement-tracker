@@ -5,4 +5,4 @@ file can be traced to the code that produced it. Bump it on any change to what
 the script reads or writes.
 """
 GENERATOR_NAME = "cpcqc-engagement-assessment"
-__version__ = "0.3.0"
+__version__ = "0.4.0"

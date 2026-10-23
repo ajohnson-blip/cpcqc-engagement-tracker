@@ -1194,7 +1194,11 @@ function NestRedcapSync() {
         headers: { 'Content-Type': 'application/json' },
         body: dryRun
           ? undefined
-          : JSON.stringify({ overrides: buildOverridesPayload(result?.rows ?? [], overrides) }),
+          : JSON.stringify({
+              overrides: buildOverridesPayload(result?.rows ?? [], overrides),
+              // Apply the CHA file that was previewed, not whichever is newest now.
+              snapshotId: result?.dataSource?.snapshotId ?? undefined,
+            }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
@@ -1228,11 +1232,13 @@ function NestRedcapSync() {
     <section className="mt-10 border-t border-cpcqc-purple-dark/10 pt-8">
       <header className="mb-4">
         <h1 className="inline-flex items-center gap-2 font-rounded text-3xl font-extrabold text-cpcqc-purple-dark">
-          <Database size={26} aria-hidden /> NEST · REDCap sync
+          <Database size={26} aria-hidden /> NEST · {fromCha ? 'sync from CHA' : 'REDCap sync'}
         </h1>
         <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
-          Pull NEST monthly data (safe-sleep audit + chart reviews) straight from REDCap. A month
-          counts only when <strong>both forms are submitted, every row is complete, and it&rsquo;s on
+          {fromCha
+            ? "Build NEST's monthly status (safe-sleep audit + chart reviews) from the assessment file CHA produces from REDCap each night."
+            : 'Pull NEST monthly data (safe-sleep audit + chart reviews) straight from REDCap.'}{' '}
+          A month counts only when <strong>both forms are submitted, every row is complete, and it&rsquo;s on
           time</strong>. In the preview you can <strong>override any status</strong> and add a
           rationale before applying; nothing is written until you apply.
         </p>
@@ -1242,14 +1248,19 @@ function NestRedcapSync() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            disabled={loading !== false || fromCha}
+            disabled={loading !== false}
             onClick={() => void run(true)}
             className="inline-flex items-center gap-2 rounded-full bg-cpcqc-purple px-5 py-2.5 font-rounded text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-cpcqc-purple/90 disabled:opacity-50"
           >
             <RefreshCw size={16} aria-hidden className={loading === 'preview' ? 'animate-spin' : ''} />
-            {loading === 'preview' ? 'Pulling from REDCap…' : 'Preview from REDCap'}
+            {fromCha
+              ? loading === 'preview'
+                ? 'Reading CHA’s file…'
+                : 'Preview from CHA’s file'
+              : loading === 'preview'
+                ? 'Pulling from REDCap…'
+                : 'Preview from REDCap'}
           </button>
-          {fromCha && <NotFromChaYet program="NEST" />}
 
           {result && !result.dryRun ? (
             <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
@@ -1289,9 +1300,7 @@ function NestRedcapSync() {
             <h2 className="font-rounded text-lg font-extrabold text-cpcqc-purple-dark">
               {result.dryRun ? 'Dry-run preview' : 'Applied'} · {result.programYear}
             </h2>
-            <span className="text-xs text-cpcqc-purple-dark/60">
-              {result.recordsFetched} REDCap rows · pulled {new Date(result.fetchedAt).toLocaleString()}
-            </span>
+            <DataAsOf source={result.dataSource} recordsFetched={result.recordsFetched} fetchedAt={result.fetchedAt} />
           </div>
 
           <div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -1316,6 +1325,19 @@ function NestRedcapSync() {
               <ul className="mt-2 space-y-1 text-xs text-amber-900/90">
                 {result.warnings.map((w, i) => (
                   <li key={i}>• {w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {(result.notes ?? []).length > 0 && (
+            <div className="mt-5 rounded-xl border border-cpcqc-purple-dark/10 bg-cpcqc-cream/40 p-4">
+              <h3 className="font-rounded text-sm font-extrabold text-cpcqc-purple-dark/70">
+                Expected / informational
+              </h3>
+              <ul className="mt-2 space-y-1 text-xs text-cpcqc-purple-dark/70">
+                {result.notes.map((n, i) => (
+                  <li key={i}>• {n}</li>
                 ))}
               </ul>
             </div>

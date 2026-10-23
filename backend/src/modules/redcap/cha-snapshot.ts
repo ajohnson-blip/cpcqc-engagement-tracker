@@ -34,6 +34,9 @@ const PERIOD_FORMAT: Record<ChaProgram, RegExp> = {
 };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The two monthly NEST instruments, as named in REDCap. */
+export const NEST_FORMS = ['safe_sleep_audit', 'chart_reviews'] as const;
 const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 
 /** generated_at may run slightly ahead of our clock, never far ahead. */
@@ -59,6 +62,12 @@ const assessmentSchema = z
         .object({ form: text(100), records: count.min(1), fields: z.array(missingFieldSchema).min(1) })
         .strict(),
     ),
+    // NEST only: each form's rows. Required there, refused elsewhere.
+    forms: z
+      .array(z.object({ form: text(100), total: count, complete: count }).strict())
+      .min(1)
+      .max(4)
+      .optional(),
     linkage: z
       .object({
         positive_screens: count,
@@ -137,6 +146,25 @@ export const snapshotFileSchema = z
         // nothing elsewhere; on another program it is a field out of place.
         if (a.linkage !== undefined && run.program !== 'TTT') {
           ctx.addIssue({ code: 'custom', path: [...at, 'linkage'], message: 'linkage is defined for TTT only' });
+        }
+        // NEST's verdict depends on which of its two forms arrived.
+        if (run.program === 'NEST') {
+          const forms = a.forms ?? [];
+          for (const form of NEST_FORMS) {
+            if (!forms.some((f) => f.form === form)) {
+              ctx.addIssue({ code: 'custom', path: [...at, 'forms'], message: `needs an entry for ${form}` });
+            }
+          }
+          forms.forEach((f, j) => {
+            if (!(NEST_FORMS as readonly string[]).includes(f.form)) {
+              ctx.addIssue({ code: 'custom', path: [...at, 'forms', j, 'form'], message: 'not a NEST form' });
+            }
+            if (f.complete > f.total) {
+              ctx.addIssue({ code: 'custom', path: [...at, 'forms', j], message: 'more complete rows than rows' });
+            }
+          });
+        } else if (a.forms !== undefined) {
+          ctx.addIssue({ code: 'custom', path: [...at, 'forms'], message: 'forms is defined for NEST only' });
         }
       });
     });

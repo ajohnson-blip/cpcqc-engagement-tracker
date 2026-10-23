@@ -1,5 +1,6 @@
 /**
- * The adapter from CHA's assessments onto the tracker's own SOAR grid.
+ * The adapters from CHA's assessments onto the tracker's own grids — SOAR's and
+ * NEST's.
  *
  * Pure — no network, no database, no `@/` imports — so it is unit testable.
  * The file format and its validation live in cha-snapshot.ts.
@@ -11,6 +12,7 @@
  */
 import type { ChaAssessment } from './cha-snapshot.js';
 import { monthDeadline, dayDiff, type FormRollup, type SoarCell } from './soar-engagement.js';
+import { monthDeadline as nestMonthDeadline, type NestCell } from './nest-engagement.js';
 
 /**
  * CHA reports missing fields by REDCap instrument name; the REDCap path labels
@@ -96,6 +98,64 @@ export function soarCellsFromAssessments(
       missingFieldGroups: a.missing_field_groups.map((g) => ({
         ...g,
         form: SOAR_FORM_LABELS[g.form] ?? g.form,
+      })),
+      notes: a.notes,
+    });
+  }
+
+  return { cells, unmappedChaIds: [...unmapped].sort() };
+}
+
+/** NEST's instruments, labelled as the REDCap path labels them in a preview. */
+const NEST_FORM_LABELS: Record<string, string> = {
+  safe_sleep_audit: 'Safe Sleep Practices',
+  chart_reviews: 'Chart audit',
+};
+
+/**
+ * Assessments → the same `Map<dag::period, NestCell>` the REDCap path builds.
+ * Per-form counts come from the assessment's `forms`, which the file contract
+ * requires for NEST; the month's verdict comes from `complete`.
+ */
+export function nestCellsFromAssessments(
+  assessments: ChaAssessment[],
+  chaIdToDag: Map<string, string>,
+): { cells: Map<string, NestCell>; unmappedChaIds: string[] } {
+  const cells = new Map<string, NestCell>();
+  const unmapped = new Set<string>();
+
+  for (const a of assessments) {
+    const dag = chaIdToDag.get(a.cha_id);
+    if (!dag) {
+      unmapped.add(a.cha_id);
+      continue;
+    }
+    const m = /^(\d{4})-(\d{2})$/.exec(a.period);
+    if (!m) continue;
+
+    const counts = (form: string) => a.forms?.find((f) => f.form === form) ?? { total: 0, complete: 0 };
+    const ssp = counts('safe_sleep_audit');
+    const chart = counts('chart_reviews');
+    const earliest = a.earliest_submission_date ?? null;
+    const deadline = nestMonthDeadline(Number(m[1]), Number(m[2]));
+    const days = earliest ? dayDiff(earliest, deadline) : null;
+
+    cells.set(`${dag}::${a.period}`, {
+      dagCode: dag,
+      period: a.period,
+      ssp: rollup(ssp.total, ssp.complete, earliest),
+      chart: rollup(chart.total, chart.complete, earliest),
+      bothSubmitted: ssp.total > 0 && chart.total > 0,
+      dataComplete: a.complete,
+      earliestSubmissionDate: earliest,
+      // Reported in `notes`, as counts, rather than as this flag.
+      invalidDate: false,
+      onTime: days === null ? null : days <= 0,
+      daysFromDeadline: days,
+      deadline,
+      missingFieldGroups: a.missing_field_groups.map((g) => ({
+        ...g,
+        form: NEST_FORM_LABELS[g.form] ?? g.form,
       })),
       notes: a.notes,
     });
