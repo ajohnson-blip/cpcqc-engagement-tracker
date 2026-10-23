@@ -66,8 +66,8 @@ new path has been shown to agree with it. The Engagement Tracker Workspace runs
 5. **Delivery is an outbound HTTPS POST** to the tracker (`DELIVERY_URL`) —
    CHA's preference, pending CHA IT approval.
 6. **Alerting uses B and C** (see "Failure handling and alerting"). Alerts go
-   to Luis Montes and a shared CPCQC address, so they do not depend on one
-   person being available.
+   to Luis Montes and Jamie Arroway (jarroway@cpcqc.org), so they do not
+   depend on one person being available.
 7. **The previous program year is assessed in January and February.**
 8. **An attestation's year comes from its code.** `month_year_nontsv` codes
    1–12 are January–December 2026 in the SOAR data dictionary. 2027 continues
@@ -90,6 +90,11 @@ new path has been shown to agree with it. The Engagement Tracker Workspace runs
 11. **Service tokens** for the nightly job are issued by the REDCap project
     administrator. The TtT hospital-project token needs the Export and Logging
     rights.
+12. **Files are kept for one year.** The tracker deletes received files older
+    than a year whenever a new one arrives; the audit log's record of each
+    delivery stays. CHA keeps its nightly files for a year as its own
+    housekeeping — the script never deletes anything in `OUTPUT_DIR`.
+13. **The annual readiness assessment (HRA) stays outside this work** for now.
 
 ---
 
@@ -206,7 +211,8 @@ Three layers, not mutually exclusive:
 | **C** | A small daily job on the tracker side checks the newest file's age and emails a configured address when it is stale | Everything, including the script never running, without anyone having to look | A Render cron job; uses the tracker's existing email |
 
 **Decided:** B and C; A at CHA's discretion. C is the only layer that catches
-the script never running. Alerts go to Luis Montes and a shared CPCQC address.
+the script never running. Alerts go to Luis Montes and Jamie Arroway
+(jarroway@cpcqc.org).
 
 **B is built:** every SOAR preview shows when CHA's file was produced and how
 old it is, warns when it is more than 30 hours old, and warns when a newer run
@@ -322,21 +328,14 @@ Each phase ends at a checkpoint before the next starts.
 ## Open questions
 
 1. **Delivery approval** — CHA IT's approval of the outbound HTTPS POST.
-2. **Alert address** — which shared CPCQC address receives the staleness alert.
-3. **CHoSEN Dyadic instance** — whether the Dyadic project is on the same
+2. **CHoSEN Dyadic instance** — whether the Dyadic project is on the same
    REDCap instance as CPCQC's projects. If not, `REDCAP_TTT_DYADIC_API_URL`
    names it.
-4. **Retention** — CHA suggests keeping its nightly files for one year. How
-   long the tracker keeps received files is CPCQC's decision.
-5. **Run time** — a specific time after midnight Mountain that suits CHA's
+3. **Run time** — a specific time after midnight Mountain that suits CHA's
    systems.
-6. **The annual readiness assessment (HRA)** — the readiness assessment
-   hospitals complete each year is also in REDCap. Should the nightly script
-   report it too, so the tracker can mark each hospital's readiness task as
-   submitted, or does it stay outside this partition for now?
-7. **The 2027 attestation codes** — the REDCap project administrator adds
+4. **The 2027 attestation codes** — the REDCap project administrator adds
    `month_year_nontsv` codes 13–24, labelled January–December 2027, before
    January. Until then a 2027 attestation cannot be entered; once they are
    added, nothing else changes.
-8. **Memorial in SOAR from 2027** — whether Central and North get separate
+5. **Memorial in SOAR from 2027** — whether Central and North get separate
    data access groups in the SOAR project, and if so their names.

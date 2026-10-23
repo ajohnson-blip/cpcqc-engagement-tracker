@@ -4,7 +4,7 @@
  * Validation lives in cha-snapshot.ts (pure). This file owns the database.
  */
 import { createHash } from 'node:crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, lt } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
@@ -16,6 +16,14 @@ import {
   type ChaProgram,
   type SnapshotFile,
 } from './cha-snapshot.js';
+
+/**
+ * How long received files are kept (CPCQC decision, October 2026). Older ones
+ * are deleted each time a new file arrives, so no separate job is needed; their
+ * runs go with them (ON DELETE CASCADE). The audit log's record of each
+ * delivery is kept.
+ */
+export const RETENTION_DAYS = 365;
 
 export interface StoreResult {
   status: 'stored' | 'already_stored';
@@ -116,7 +124,15 @@ export async function storeSnapshot(body: Buffer, now: Date = new Date()): Promi
     throw e;
   }
 
-  logger.info({ snapshotId: file.snapshot_id, generatedAt: file.generated_at, runs: summary }, 'CHA assessment file stored');
+  const pruned = await db
+    .delete(schema.chaSnapshots)
+    .where(lt(schema.chaSnapshots.receivedAt, new Date(now.getTime() - RETENTION_DAYS * 86_400_000)))
+    .returning({ id: schema.chaSnapshots.id });
+
+  logger.info(
+    { snapshotId: file.snapshot_id, generatedAt: file.generated_at, runs: summary, pruned: pruned.length },
+    'CHA assessment file stored',
+  );
   return { status: 'stored', snapshotId: file.snapshot_id };
 }
 
