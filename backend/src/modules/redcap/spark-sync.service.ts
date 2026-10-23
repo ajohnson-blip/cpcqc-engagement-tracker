@@ -33,6 +33,7 @@ import {
   DEADLINES,
   eventToQuarter,
   rowHasData,
+  SPARK_MINIMUM_FIELDS,
   F_EVENT,
   type RedcapRow,
   type SparkCell,
@@ -385,7 +386,11 @@ export async function runSparkRedcapSync(opts: RunSparkSyncOptions): Promise<Spa
     // Guarded above, but narrow it here too: this deployment's whole reason for
     // holding a REDCap token is this call.
     if (!env.REDCAP_SPARK_TOKEN) throw new HttpError(400, 'REDCAP_SPARK_TOKEN must be configured.');
-    records = await exportRecords({ token: env.REDCAP_SPARK_TOKEN, form: 'quarterly_measures' });
+    records = await exportRecords({
+      token: env.REDCAP_SPARK_TOKEN,
+      // Named fields only, not the whole quarterly_measures form.
+      fields: SPARK_MINIMUM_FIELDS,
+    });
     recordsRead = records.length;
     grid = buildSparkGrid(records);
     // fetchedAt is taken before the read, so it is a safe "as of".
