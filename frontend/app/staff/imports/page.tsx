@@ -120,12 +120,9 @@ export default function StaffImportsPage() {
           Monthly Meeting Attendance Upload
         </h1>
         <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
-          Upload an updated PM engagement-data spreadsheet (.xlsx) — Enrollment Forms,
-          Meeting Attendance, QI Advising, Data Submissions, and HRA Completions sheets
-          all flow through in one pass. Safe to upload the same file more than once:
-          rows that already exist get updated to match the spreadsheet, and nothing is
-          ever deleted. If you fix a typo in the spreadsheet and re-upload, the tracker
-          will pick up the correction.
+          Upload the updated meeting attendance spreadsheet (.xlsx). Safe to upload the
+          same file more than once: rows that already exist are updated to match it, and
+          nothing is ever deleted, so a corrected re-upload fixes a typo.
         </p>
       </header>
 
