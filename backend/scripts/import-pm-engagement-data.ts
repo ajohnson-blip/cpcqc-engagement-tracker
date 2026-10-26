@@ -60,7 +60,7 @@ async function main() {
   }
   if (result.ignoredSheets.length > 0) {
     // eslint-disable-next-line no-console
-    console.warn(`Not imported (monthly meetings and 1:1s only): ${result.ignoredSheets.join(', ')}.`);
+    console.warn(`Not imported (monthly meetings and QI 1:1s only): ${result.ignoredSheets.join(', ')}.`);
   }
   // eslint-disable-next-line no-console
   console.log(

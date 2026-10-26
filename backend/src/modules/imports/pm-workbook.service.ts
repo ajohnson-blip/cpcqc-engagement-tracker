@@ -1,5 +1,5 @@
 /**
- * Monthly Meeting and 1:1 Upload — the reusable service.
+ * Monthly Meeting and QI 1:1 Attendance Upload — the reusable service.
  *
  * Reads two sheets of a PM spreadsheet (produced by `build_pm_data_entry.py`)
  * and maps each row onto the matching TaskInstance:
