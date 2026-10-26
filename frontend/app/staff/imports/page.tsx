@@ -117,21 +117,21 @@ export default function StaffImportsPage() {
       <RedcapPauseBanner />
       <header className="mb-8">
         <h1 className="font-rounded text-3xl font-extrabold text-cpcqc-purple-dark">
-          PM workbook import
+          Monthly Meeting Attendance Upload
         </h1>
         <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
-          Upload an updated PM engagement-data workbook (.xlsx) — Enrollment Forms,
+          Upload an updated PM engagement-data spreadsheet (.xlsx) — Enrollment Forms,
           Meeting Attendance, QI Advising, Data Submissions, and HRA Completions sheets
           all flow through in one pass. Safe to upload the same file more than once:
-          rows that already exist get updated to match the workbook, and nothing is
-          ever deleted. If you fix a typo in the workbook and re-upload, the tracker
+          rows that already exist get updated to match the spreadsheet, and nothing is
+          ever deleted. If you fix a typo in the spreadsheet and re-upload, the tracker
           will pick up the correction.
         </p>
       </header>
 
       <section className="rounded-2xl bg-white p-6 shadow-card ring-1 ring-cpcqc-purple-dark/5">
         <h2 className="font-rounded text-lg font-extrabold text-cpcqc-purple-dark">
-          1. Choose a workbook
+          1. Choose a spreadsheet
         </h2>
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
           <input
