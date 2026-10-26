@@ -118,12 +118,13 @@ export default function StaffImportsPage() {
       <RedcapPauseBanner />
       <header className="mb-8">
         <h1 className="font-rounded text-3xl font-extrabold text-cpcqc-purple-dark">
-          Monthly Meeting Attendance Upload
+          Monthly Meeting and 1:1 Upload
         </h1>
         <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
-          Upload the updated meeting attendance spreadsheet (.xlsx). Safe to upload the
-          same file more than once: rows that already exist are updated to match it, and
-          nothing is ever deleted, so a corrected re-upload fixes a typo.
+          Upload the updated spreadsheet (.xlsx) to record monthly meeting attendance and
+          1:1 QI advising sessions, from its Meeting Attendance and QI Advising sheets. Safe
+          to upload the same file more than once: rows that already exist are updated to
+          match it, and nothing is ever deleted, so a corrected re-upload fixes a typo.
         </p>
       </header>
 
@@ -257,8 +258,8 @@ function ResultPanel({ result }: { result: PmImportResult }) {
 
       {(result.ignoredSheets ?? []).length > 0 && (
         <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-amber-200">
-          Not imported: {result.ignoredSheets.join(', ')}. This upload records meeting attendance
-          only — record those in each hospital&rsquo;s tasks in the tracker.
+          Not imported: {result.ignoredSheets.join(', ')}. This upload records monthly meetings
+          and 1:1s only — record those in each hospital&rsquo;s tasks in the tracker.
         </p>
       )}
 

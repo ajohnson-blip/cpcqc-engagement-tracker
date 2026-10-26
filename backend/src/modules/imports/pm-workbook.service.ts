@@ -1,16 +1,18 @@
 /**
- * Monthly Meeting Attendance Upload — the reusable service.
+ * Monthly Meeting and 1:1 Upload — the reusable service.
  *
- * Reads the Meeting Attendance sheet of a PM spreadsheet (produced by
- * `build_pm_data_entry.py`) and maps each row onto the matching TaskInstance:
+ * Reads two sheets of a PM spreadsheet (produced by `build_pm_data_entry.py`)
+ * and maps each row onto the matching TaskInstance:
  *
- *   - meeting_attendance, period YYYY-MM for active cohorts and YYYY-Qx for
- *     sustainability (derived from the meeting date). Annual Forum credits ALL
- *     the hospital's active enrollments.
+ *   - Meeting Attendance  → meeting_attendance, period YYYY-MM for active
+ *                           cohorts and YYYY-Qx for sustainability (derived
+ *                           from the meeting date). Annual Forum credits ALL
+ *                           the hospital's active enrollments.
+ *   - QI Advising (1:1s)  → qi_advising, period YYYY-Qx.
  *
- * The spreadsheet's other sheets (Enrollment Forms, QI Advising, Data
- * Submissions, HRA Completions) are no longer imported; if present they are
- * listed in the result as ignored. Those tasks are recorded in the tracker.
+ * The spreadsheet's other sheets (Enrollment Forms, Data Submissions, HRA
+ * Completions) are no longer imported; if present they are listed in the
+ * result as ignored. Those tasks are recorded in the tracker.
  *
  * Idempotent: re-running updates the same TaskInstances; duplicate rows are
  * safe. No deletes — to undo a row, edit the TaskInstance directly in the UI.
@@ -23,6 +25,7 @@ import ExcelJS from 'exceljs';
 import { v4 as uuid } from 'uuid';
 import { and, eq } from 'drizzle-orm';
 import { db, schema } from '@/db/index.js';
+import { quarterOf } from '@/utils/period.js';
 import { computeCurrentStageForEnrollment } from '@/modules/stages/stage-resolver.js';
 import { parseAttendanceNote } from './attendance-note.js';
 
@@ -39,14 +42,18 @@ export interface PmImportResult {
   ignoredSheets: string[];
 }
 
-const MEETING_ATTENDANCE_SHEET = 'Meeting Attendance';
+/** The sheets this upload reads, and how. */
+const IMPORTED_SHEETS: Array<[string, (ctx: ProcessContext, ws: ExcelJS.Worksheet) => Promise<void>]> = [
+  ['Meeting Attendance', processMeetingAttendance],
+  ['QI Advising', processQiAdvising],
+];
 
 /**
  * Sheets the upload once imported. Their tasks are now recorded in the
  * tracker itself (data submissions by the REDCap syncs), so they are read for
  * their names only.
  */
-const NO_LONGER_IMPORTED_SHEETS = ['Enrollment Forms', 'QI Advising', 'Data Submissions', 'HRA Completions'];
+const NO_LONGER_IMPORTED_SHEETS = ['Enrollment Forms', 'Data Submissions', 'HRA Completions'];
 
 // ---------- Cell helpers ----------
 
@@ -81,6 +88,27 @@ function cellString(cell: ExcelJS.Cell): string {
 
 function isExampleRow(notes: string): boolean {
   return /example row/i.test(notes);
+}
+
+function normalizeDate(s: string): string | null {
+  if (!s) return null;
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // M/D/YYYY or MM/DD/YYYY
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  if (m) {
+    const [, mo, d, y] = m;
+    return `${y}-${mo!.padStart(2, '0')}-${d!.padStart(2, '0')}`;
+  }
+  // Excel might also produce "YYYY-MM-DDTHH:MM:SS" or similar
+  const iso = /^(\d{4}-\d{2}-\d{2})/.exec(s);
+  if (iso) return iso[1]!;
+  return null;
+}
+
+function quarterOfDate(iso: string): string {
+  const d = new Date(iso + 'T00:00:00Z');
+  return `${d.getUTCFullYear()}-Q${quarterOf(d)}`;
 }
 
 // ---------- Lookups ----------
@@ -473,6 +501,61 @@ async function processMeetingAttendance(ctx: ProcessContext, sheet: ExcelJS.Work
   }
 }
 
+async function processQiAdvising(ctx: ProcessContext, sheet: ExcelJS.Worksheet) {
+  const SHEET = 'QI Advising';
+  for (const { rowNumber, cells } of readRows(sheet)) {
+    const [hospital, initiative, track, sessionDateRaw, quarterRaw, advisor, attendeesRaw, notes] = cells;
+    if (isExampleRow(notes ?? '')) continue;
+    const sessionDate = normalizeDate(sessionDateRaw ?? '');
+    if (!sessionDate) {
+      ctx.errors.push({ sheet: SHEET, rowNumber, reason: `Invalid session date "${sessionDateRaw}"` });
+      continue;
+    }
+    const basics = validateBasics(ctx, SHEET, rowNumber, initiative ?? '', track ?? '', hospital ?? '');
+    if (!basics) continue;
+    const year = new Date(sessionDate + 'T00:00:00Z').getUTCFullYear();
+    const enrollment = await findActiveEnrollment(basics.hospitalId, basics.initiativeId, basics.track, year);
+    if (!enrollment) {
+      ctx.errors.push({
+        sheet: SHEET,
+        rowNumber,
+        reason: `No enrollment for ${hospital} × ${initiative}/${track}`,
+      });
+      continue;
+    }
+    const period =
+      quarterRaw && /^\d{4}-Q[1-4]$/.test(quarterRaw) ? quarterRaw : quarterOfDate(sessionDate);
+    const ti = await findTaskInstance(enrollment.id, 'qi_advising', period);
+    if (!ti) {
+      ctx.errors.push({
+        sheet: SHEET,
+        rowNumber,
+        reason: `No qi_advising TaskInstance for period ${period}`,
+      });
+      continue;
+    }
+    const attendees = (attendeesRaw ?? '')
+      .split(/[;\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const payload: Record<string, unknown> = { sessionDate, advisorName: advisor };
+    if (attendees.length) payload['attendees'] = attendees;
+    if (notes) payload['notes'] = notes;
+
+    if (ctx.dryRun) {
+      ctx.counts.applied += 1;
+      continue;
+    }
+    await updateTaskInstance(
+      ti,
+      { status: 'complete', outcome: 'attended', completedOn: sessionDate, payload },
+      `Backfilled from PM workbook (QI Advising row ${rowNumber})`,
+    );
+    ctx.touchedEnrollments.add(enrollment.id);
+    ctx.counts.applied += 1;
+  }
+}
+
 // ---------- Stage sync ----------
 
 /**
@@ -521,8 +604,8 @@ async function syncStagesFor(
 // ---------- Public entry point ----------
 
 /**
- * Import a PM spreadsheet's Meeting Attendance sheet and return a structured
- * result. Pure data in / data out — no console I/O, no process.exit, no DB
+ * Import a PM spreadsheet's Meeting Attendance and QI Advising sheets and
+ * return a structured result. Pure data in / data out — no console I/O, no process.exit, no DB
  * connection management (the caller owns the pool's lifetime).
  *
  * Throws only if loadLookups fails or there are zero initiative rows (which
@@ -546,11 +629,13 @@ export async function importPmWorkbook(
   };
 
   const missingSheets: string[] = [];
-  const ws = workbook.getWorksheet(MEETING_ATTENDANCE_SHEET);
-  if (ws) {
-    await processMeetingAttendance(ctx, ws);
-  } else {
-    missingSheets.push(MEETING_ATTENDANCE_SHEET);
+  for (const [sheetName, handler] of IMPORTED_SHEETS) {
+    const ws = workbook.getWorksheet(sheetName);
+    if (!ws) {
+      missingSheets.push(sheetName);
+      continue;
+    }
+    await handler(ctx, ws);
   }
   // Named so the preview can say they were not applied: a PM who edits them
   // should not think the tracker took the change.
