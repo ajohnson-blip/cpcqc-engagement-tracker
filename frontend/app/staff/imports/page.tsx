@@ -39,6 +39,7 @@ interface PmImportResult {
   stagesChanged: number;
   touchedEnrollmentIds: string[];
   missingSheets: string[];
+  ignoredSheets: string[];
 }
 
 /**
@@ -251,6 +252,13 @@ function ResultPanel({ result }: { result: PmImportResult }) {
       {result.missingSheets.length > 0 && (
         <p className="mt-4 text-xs text-cpcqc-purple-dark/70">
           Sheets not found in the upload (skipped): {result.missingSheets.join(', ')}.
+        </p>
+      )}
+
+      {(result.ignoredSheets ?? []).length > 0 && (
+        <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-amber-200">
+          Not imported: {result.ignoredSheets.join(', ')}. This upload records meeting attendance
+          only — record those in each hospital&rsquo;s tasks in the tracker.
         </p>
       )}
 

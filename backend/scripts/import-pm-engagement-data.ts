@@ -1,9 +1,10 @@
 /**
  * CLI wrapper around src/modules/imports/pm-workbook.service.ts.
  *
- * All the actual import logic — sheet processors, validation, row-error
- * collection — lives in the service so it can also be called from the HTTP
- * upload endpoint (POST /staff/imports/pm-workbook). This file just turns
+ * Imports the Meeting Attendance sheet only. All the actual import logic —
+ * the sheet processor, validation, row-error collection — lives in the service
+ * so it can also be called from the HTTP upload endpoint
+ * (POST /staff/imports/pm-workbook). This file just turns
  * CLI args into a workbook + dry-run flag, calls the service, prints what
  * happened, and exits with the right code.
  *
@@ -56,6 +57,10 @@ async function main() {
   for (const sheet of result.missingSheets) {
     // eslint-disable-next-line no-console
     console.warn(`Sheet "${sheet}" not found — skipping.`);
+  }
+  if (result.ignoredSheets.length > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(`Not imported (meeting attendance only): ${result.ignoredSheets.join(', ')}.`);
   }
   // eslint-disable-next-line no-console
   console.log(
