@@ -417,6 +417,12 @@ router.get('/tasks', requireAuth, async (req, res) => {
     status: r.task.status,
     outcome: r.task.outcome,
     completedOn: r.task.completedOn,
+    // The same task the initiative page lists, so a task opened from here
+    // shows (and saves over) what is really on it.
+    staffNote: r.task.staffNote,
+    attachmentUrl: r.task.attachmentUrl,
+    payload: r.task.payload,
+    updatedAt: r.task.updatedAt,
   }));
 
   if (query.status) tasks = tasks.filter((t) => t.status === query.status);

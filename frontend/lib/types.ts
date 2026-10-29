@@ -749,6 +749,10 @@ export interface MyTasksResponse {
     status: TaskStatus;
     outcome: TaskOutcome;
     completedOn: string | null;
+    staffNote: string | null;
+    attachmentUrl: string | null;
+    payload: Record<string, unknown> | null;
+    updatedAt: string;
   }>;
 }
 

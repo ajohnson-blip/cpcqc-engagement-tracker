@@ -87,12 +87,34 @@ export default function PortalTasksPage() {
       status: t.status,
       outcome: t.outcome,
       completedOn: t.completedOn,
-      staffNote: null,
-      attachmentUrl: null,
-      payload: null,
-      updatedAt: '',
+      // The task's real note and payload: the modal opened from here edits
+      // them, and a blank stand-in would be saved over what's there.
+      staffNote: t.staffNote,
+      attachmentUrl: t.attachmentUrl,
+      payload: t.payload,
+      updatedAt: t.updatedAt,
     }));
   }, [tasks, filter, initiativeFilter]);
+
+  // Keep the saved version, so reopening a task shows what was just saved.
+  function handleUpdated(u: TaskRow) {
+    setTasks((prev) =>
+      prev?.map((t) =>
+        t.id === u.id
+          ? {
+              ...t,
+              status: u.status,
+              outcome: u.outcome,
+              completedOn: u.completedOn,
+              staffNote: u.staffNote,
+              attachmentUrl: u.attachmentUrl,
+              payload: u.payload,
+              updatedAt: u.updatedAt,
+            }
+          : t,
+      ) ?? prev,
+    );
+  }
 
   const initiativeByEnrollment = useMemo(() => {
     const m = new Map<string, { code: string; name: string }>();
@@ -177,7 +199,12 @@ export default function PortalTasksPage() {
           Loading…
         </div>
       ) : (
-        <TaskTable tasks={filtered} showInitiative initiativeByEnrollment={initiativeByEnrollment} />
+        <TaskTable
+          tasks={filtered}
+          onTaskUpdated={handleUpdated}
+          showInitiative
+          initiativeByEnrollment={initiativeByEnrollment}
+        />
       )}
     </div>
   );
