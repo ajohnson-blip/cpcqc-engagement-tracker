@@ -4,11 +4,12 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
-import { MessageSquareWarning, Building2 } from 'lucide-react';
+import { MessageSquareWarning, Building2, ExternalLink } from 'lucide-react';
 import { Logo } from './logo';
 import { ReportIssueModal } from './report-issue-modal';
 import { useAuth } from '@/lib/auth-context';
 import { api } from '@/lib/api';
+import { LIVE_DATA_TOOLS } from '@/lib/data-tools';
 import type { EnrollmentWindowResponse } from '@/lib/types';
 
 interface NavItem {
@@ -105,6 +106,21 @@ export function PortalHeader() {
               {INTEREST_PROGRAM_YEAR} Interest
             </Link>
           )}
+          {/* Separate systems with their own logins (lib/data-tools.ts); the
+              Overview card says what each is for. */}
+          {LIVE_DATA_TOOLS.map((t) => (
+            <a
+              key={t.key}
+              href={t.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`${t.name}: ${t.purpose} Opens in a new tab.`}
+              className="ml-2 inline-flex items-center gap-1 rounded-full border border-cpcqc-purple-dark/20 px-3 py-1.5 font-rounded text-xs font-semibold uppercase tracking-wide text-cpcqc-purple-dark/80 transition hover:bg-cpcqc-purple-dark/5"
+            >
+              {t.name} <ExternalLink size={12} aria-hidden />
+              <span className="sr-only">(opens in a new tab)</span>
+            </a>
+          ))}
         </nav>
 
         <div className="flex items-center gap-3 text-sm">
