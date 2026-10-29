@@ -11,6 +11,7 @@ import type {
 } from '@/lib/types';
 import { useAuth } from '@/lib/auth-context';
 import { EnrollmentCard } from '@/components/enrollment-card';
+import { DataToolsCard } from '@/components/data-tools-card';
 import { daysUntilUtc, closesInLabel } from '@/lib/format';
 
 // Within this many days of the close date, the banner + form switch to a
@@ -194,6 +195,8 @@ export default function PortalHomePage() {
           </div>
         )
       )}
+
+      <DataToolsCard />
 
       {enrollments === null && !error && (
         <div className="rounded-xl bg-white p-8 text-center text-cpcqc-purple-dark/60 shadow-sm">
