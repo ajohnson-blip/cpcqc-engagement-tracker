@@ -210,13 +210,17 @@ export async function manageTask(taskId: string, body: unknown, ctx: AuthContext
 
   const now = new Date();
   const previousStatus = task.status;
-  // 'complete' stamps today's date; 'not_started' wipes any prior completion
-  // (it's the explicit-undo path so we don't want the old date lingering);
-  // intermediate statuses (current_activities / needs_revision) leave the
-  // existing completedOn alone in case the user is just toggling state.
+  // 'complete' stamps today's date, unless the task was already complete (a
+  // PM re-saving an old task, say to edit its comment, shouldn't move its
+  // date); 'not_started' wipes any prior completion (it's the explicit-undo
+  // path so we don't want the old date lingering); intermediate statuses
+  // (current_activities / needs_revision) leave the existing completedOn alone
+  // in case the user is just toggling state.
   const completedOn =
     parsed.status === 'complete'
-      ? now.toISOString().slice(0, 10)
+      ? task.status === 'complete' && task.completedOn
+        ? task.completedOn
+        : now.toISOString().slice(0, 10)
       : parsed.status === 'not_started'
         ? null
         : task.completedOn;
