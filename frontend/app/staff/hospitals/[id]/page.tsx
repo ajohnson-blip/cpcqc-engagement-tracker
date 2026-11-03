@@ -22,6 +22,7 @@ import type { HospitalDetailResponse, HospitalStaffMember, TaskRow } from '@/lib
 import { ComplianceTile } from '@/components/compliance-tile';
 import { RequirementStatusPill } from '@/components/status-pill';
 import { TaskTable } from '@/components/task-table';
+import { QiAdvisingPanel } from '@/components/qi-advising-panel';
 import { RosterMemberModal } from '@/components/roster-member-modal';
 import { fmtDate } from '@/lib/format';
 
@@ -38,8 +39,9 @@ export default function StaffHospitalDetailPage() {
   const params = useParams<{ id: string }>();
   const [data, setData] = useState<HospitalDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Lazy-loaded task lists, keyed by enrollmentId. Loaded on first expand;
-  // cached after that. Null = not loaded yet; [] = loaded, no tasks.
+  // Task lists, keyed by enrollmentId: current enrollments' load with the
+  // page, withdrawn ones on first expand; cached after that. Null = loading;
+  // [] = loaded, no tasks.
   const [tasksByEnrollment, setTasksByEnrollment] = useState<Record<string, TaskRow[] | null>>({});
   const [expandedEnrollment, setExpandedEnrollment] = useState<string | null>(null);
   const [showWithdrawn, setShowWithdrawn] = useState(false);
@@ -87,13 +89,7 @@ export default function StaffHospitalDetailPage() {
     });
   }
 
-  function toggleEnrollmentTasks(enrollmentId: string) {
-    if (expandedEnrollment === enrollmentId) {
-      setExpandedEnrollment(null);
-      return;
-    }
-    setExpandedEnrollment(enrollmentId);
-    if (tasksByEnrollment[enrollmentId] !== undefined) return; // already loading/loaded
+  function loadTasks(enrollmentId: string) {
     setTasksByEnrollment((prev) => ({ ...prev, [enrollmentId]: null }));
     api
       .get<{ tasks: TaskRow[] }>(`/tasks/enrollment/${enrollmentId}`)
@@ -101,6 +97,16 @@ export default function StaffHospitalDetailPage() {
         setTasksByEnrollment((prev) => ({ ...prev, [enrollmentId]: res.tasks })),
       )
       .catch((err: Error) => setError(err.message));
+  }
+
+  function toggleEnrollmentTasks(enrollmentId: string) {
+    if (expandedEnrollment === enrollmentId) {
+      setExpandedEnrollment(null);
+      return;
+    }
+    setExpandedEnrollment(enrollmentId);
+    if (tasksByEnrollment[enrollmentId] !== undefined) return; // already loading/loaded
+    loadTasks(enrollmentId);
   }
 
   function handleTaskUpdated(enrollmentId: string, updated: TaskRow) {
@@ -119,7 +125,13 @@ export default function StaffHospitalDetailPage() {
     let cancelled = false;
     api
       .get<HospitalDetailResponse>(`/staff/hospitals/${params.id}`)
-      .then((d) => !cancelled && setData(d))
+      .then((d) => {
+        if (cancelled) return;
+        setData(d);
+        // Current enrollments' tasks load with the page, for their QI 1:1
+        // summaries; withdrawn ones still wait for "Manage tasks".
+        for (const e of d.enrollments) if (e.status !== 'withdrawn') loadTasks(e.enrollmentId);
+      })
       .catch((err: Error) => !cancelled && setError(err.message));
     return () => {
       cancelled = true;
@@ -310,7 +322,16 @@ export default function StaffHospitalDetailPage() {
                   ))}
                 </div>
 
-                {/* Tasks (lazy-loaded inline expand) */}
+                {tasksByEnrollment[e.enrollmentId] && (
+                  <QiAdvisingPanel
+                    embedded
+                    tasks={tasksByEnrollment[e.enrollmentId] ?? []}
+                    enrollmentId={e.enrollmentId}
+                    onTaskUpdated={(updated) => handleTaskUpdated(e.enrollmentId, updated)}
+                  />
+                )}
+
+                {/* Tasks (loaded with the page, or on first expand if withdrawn) */}
                 <div className="mt-5">
                   <button
                     type="button"

@@ -7,6 +7,7 @@ import { ChevronLeft } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { TaskRow, MyEnrollment } from '@/lib/types';
 import { TaskTable } from '@/components/task-table';
+import { QiAdvisingPanel } from '@/components/qi-advising-panel';
 import { RequirementStatusPill } from '@/components/status-pill';
 
 export default function EnrollmentDetailPage() {
@@ -105,6 +106,12 @@ export default function EnrollmentDetailPage() {
           )}
         </div>
       </header>
+
+      <QiAdvisingPanel
+        tasks={tasks}
+        enrollmentId={enrollmentId}
+        onTaskUpdated={handleUpdated}
+      />
 
       <TaskTable tasks={tasks} onTaskUpdated={handleUpdated} groupByStage />
     </div>

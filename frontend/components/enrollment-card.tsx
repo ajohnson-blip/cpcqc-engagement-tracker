@@ -1,8 +1,10 @@
 import Link from 'next/link';
-import { Mail } from 'lucide-react';
+import { CalendarDays, Mail, NotebookPen } from 'lucide-react';
 import { ComplianceTile } from './compliance-tile';
 import { RequirementStatusPill } from './status-pill';
 import type { InitiativeTeam, MyEnrollment } from '@/lib/types';
+import { fmtDate, fmtPeriod } from '@/lib/format';
+import { QI_PANEL_ANCHOR } from '@/lib/qi-advising';
 
 export function EnrollmentCard({ enrollment }: { enrollment: MyEnrollment }) {
   const initiative = enrollment.initiative;
@@ -73,7 +75,27 @@ export function EnrollmentCard({ enrollment }: { enrollment: MyEnrollment }) {
           <TeamContactRow team={enrollment.team} />
         )}
 
-        <div className="mt-5 flex justify-end">
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-cpcqc-purple-dark/70">
+            {enrollment.nextQiSessionOn && (
+              <p className="inline-flex items-center gap-1.5">
+                <CalendarDays size={14} aria-hidden />
+                Next QI 1:1:{' '}
+                <span className="font-semibold text-cpcqc-purple-dark">
+                  {fmtDate(enrollment.nextQiSessionOn, 'EEE, MMM d, yyyy')}
+                </span>
+              </p>
+            )}
+            {enrollment.latestQiNotes && (
+              <Link
+                href={`/portal/enrollments/${enrollment.enrollmentId}#${QI_PANEL_ANCHOR}`}
+                className="inline-flex items-center gap-1.5 font-semibold text-cpcqc-purple hover:underline"
+              >
+                <NotebookPen size={14} aria-hidden />
+                Latest QI 1:1 notes ({fmtPeriod(enrollment.latestQiNotes.period)})
+              </Link>
+            )}
+          </div>
           <Link
             href={`/portal/enrollments/${enrollment.enrollmentId}`}
             className="rounded-full border border-cpcqc-purple/30 px-4 py-2 font-rounded text-sm font-bold uppercase tracking-wide text-cpcqc-purple transition hover:bg-cpcqc-purple hover:text-white"

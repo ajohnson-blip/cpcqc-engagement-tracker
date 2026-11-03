@@ -12,7 +12,7 @@
  */
 import { Router } from 'express';
 import { z } from 'zod';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { db, schema } from '@/db/index.js';
 import { requireAuth, resolveActiveHospitalId } from '@/middleware/auth.js';
 import { HttpError } from '@/middleware/errors.js';
@@ -24,6 +24,7 @@ import type { ProgramYearCompliance, RequirementStatus } from '@/modules/complia
 import { computeCohortBenchmark, type CohortBenchmark } from '@/modules/compliance/benchmarks.js';
 import { getTeamsForInitiativeIds } from '@/modules/staff/staff-team.service.js';
 import { dedupeWithdrawnDuplicates, selectOverviewRollup } from '@/modules/staff/staff.rollup.js';
+import { latestNotesSession, nextSessionOn } from '@/modules/tasks/qi-advising.js';
 
 const router = Router();
 
@@ -70,9 +71,32 @@ router.get('/enrollments', requireAuth, async (req, res) => {
   // CPCQC team contacts for every initiative this hospital is in.
   const teamByInitiative = await getTeamsForInitiativeIds(initiativeIds);
 
+  // QI 1:1 tasks, for each card's next 1:1 date and link to the latest notes.
+  const advisingRows = await db
+    .select({
+      enrollmentId: schema.taskInstances.enrollmentId,
+      period: schema.taskInstances.period,
+      status: schema.taskInstances.status,
+      outcome: schema.taskInstances.outcome,
+      payload: schema.taskInstances.payload,
+    })
+    .from(schema.taskInstances)
+    .innerJoin(schema.taskTemplates, eq(schema.taskTemplates.id, schema.taskInstances.taskTemplateId))
+    .where(
+      and(
+        inArray(
+          schema.taskInstances.enrollmentId,
+          enrollments.map((e) => e.id),
+        ),
+        eq(schema.taskTemplates.taskType, 'qi_advising'),
+      ),
+    );
+  const today = new Date().toISOString().slice(0, 10);
+
   const out = await Promise.all(
     enrollments.map(async (e) => {
       const cohort = cohortById.get(e.cohortId);
+      const advising = advisingRows.filter((r) => r.enrollmentId === e.id);
       const initiative = cohort ? initiativeById.get(cohort.initiativeId) : null;
       const stage = e.currentStageId ? stageById.get(e.currentStageId) : null;
       const compliance = await evaluateEnrollment(e.id);
@@ -123,6 +147,8 @@ router.get('/enrollments', requireAuth, async (req, res) => {
         allProgramYears: compliance,
         cohortBenchmark,
         team: initiative ? teamByInitiative.get(initiative.id) ?? null : null,
+        nextQiSessionOn: nextSessionOn(advising, today),
+        latestQiNotes: latestNotesSession(advising),
       };
     }),
   );

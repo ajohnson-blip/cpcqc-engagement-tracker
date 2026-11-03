@@ -6,6 +6,7 @@
  * persisted into TaskInstance.payload (JSONB).
  */
 import { z } from 'zod';
+import { qiAdvisingPayloadSchema } from './qi-advising.js';
 
 // Required champions (L&D, Data, Provider) — name required, email optional.
 const championSchema = z.object({
@@ -42,13 +43,10 @@ export const meetingAttendancePayload = z.object({
 });
 
 // sessionDate / advisorName are optional for the same reason as meetingMonth
-// above — the "Did not attend" outcome has no session to record.
-export const qiAdvisingPayload = z.object({
-  sessionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD').optional(),
-  advisorName: z.string().min(1).max(200).optional(),
-  attendees: z.array(z.string().min(1).max(200)).optional(),
-  notes: z.string().max(5000).optional(),
-});
+// above — the "Did not attend" outcome has no session to record. The call
+// notes, aims and PDSA tests are defined in qi-advising.ts, which hospitals
+// also edit through PATCH /tasks/:id/advising.
+export const qiAdvisingPayload = qiAdvisingPayloadSchema;
 
 export const dataSubmissionPayload = z.object({
   attachmentUrl: z.string().url().optional(),
@@ -91,17 +89,14 @@ export const manageTaskBody = z.object({
   // "user cleared it" apart from "user didn't touch it"). The service
   // uses an `!== undefined` check (not `??`) to honor an explicit null.
   staffNote: z.string().max(5000).nullable().optional(),
-  /** Type-specific payload — validated against the matching schema in the service. */
-  payload: z
-    .union([
-      enrollmentFormPayload,
-      meetingAttendancePayload,
-      qiAdvisingPayload,
-      dataSubmissionPayload,
-      readinessAssessmentPayload,
-      otherPayload,
-    ])
-    .optional(),
+  /**
+   * Type-specific payload — validated against the matching schema in the
+   * service, which knows the task's type. Not a union of those schemas here:
+   * every one of them is all-optional, so a union matched the first
+   * (enrollment form) for any object and stripped the fields it didn't know,
+   * silently saving a 1:1's session date and advisor as {}.
+   */
+  payload: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type ManageTaskBody = z.infer<typeof manageTaskBody>;
