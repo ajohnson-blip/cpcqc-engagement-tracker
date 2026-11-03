@@ -5,23 +5,35 @@
  * filing one form. This is about the question CPCQC actually asks between
  * Nov 15 and Dec 1: who was supposed to enroll, who has, and who hasn't yet.
  *
- * "Supposed to" is derived, not stored. For SPARK/SOAR/NEST it is the set of
- * hospitals accepted for that initiative on their interest form; for TTT it is
- * the hospitals already in a TtT cohort, since continuation is statutory and
- * nobody accepts them into it. That derivation is the whole point of the
- * screen — an outstanding list assembled by hand from two other tabs is how
- * hospitals get missed in the last week of the window.
+ * "Supposed to" is derived (enrollment-coverage.ts). For SPARK/SOAR/NEST it is
+ * the set of hospitals accepted for that initiative on their interest form; for
+ * TTT it is the hospitals already in a TtT cohort, since continuation is
+ * statutory and nobody accepts them into it. Either way, a hospital staff sent
+ * the form to from this screen owes it too — the route for one CPCQC enrolls
+ * without an interest form. That derivation is the whole point of the screen —
+ * an outstanding list assembled by hand from two other tabs is how hospitals
+ * get missed in the last week of the window.
  *
- * Read-only by design. Staff do not edit a hospital's enrollment: it is the
- * record that satisfies the statute, and editing it on the hospital's behalf
- * would erase the distinction between what CPCQC was told and what CPCQC
- * decided. Corrections go back through the hospital's own edit link.
+ * Staff send forms but never edit them. A hospital's enrollment is the record
+ * that satisfies the statute, and editing it on the hospital's behalf would
+ * erase the distinction between what CPCQC was told and what CPCQC decided.
+ * Corrections go back through the hospital's own edit link.
  */
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
+import { v4 as uuid } from 'uuid';
 import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
 import type { AuthContext } from '@/middleware/auth.js';
-import { ENROLLABLE, type Champion, type InitiativeCode } from './enrollment-forms.service.js';
+import { env, frontendBaseUrl } from '@/config/env.js';
+import { sendEmail } from '@/modules/notifications/notifications.service.js';
+import {
+  ENROLLABLE,
+  getEnrollmentStepWindow,
+  type Champion,
+  type InitiativeCode,
+} from './enrollment-forms.service.js';
+import { computeCoverage } from './enrollment-coverage.js';
+import { enrollmentFormEmail, enrollmentFormUrl } from './enrollment-emails.js';
 
 function assertStaff(ctx: AuthContext): void {
   if (ctx.role !== 'cpcqc_staff' && ctx.role !== 'cpcqc_admin') {
@@ -65,11 +77,25 @@ export interface EnrollmentCoverage {
   unexpectedCount: number;
 }
 
+/** One initiative's form, sent by staff from this screen. */
+export interface StaffEnrollmentFormSent {
+  hospital: { id: string; name: string };
+  initiativeCode: InitiativeCode;
+  toEmail: string;
+  toName: string | null;
+  /** False when SendGrid refused it, or in dev with no SendGrid key. */
+  emailSent: boolean;
+  sentAt: string;
+  sentBy: string | null;
+}
+
 export interface StaffEnrollmentOverview {
   programYear: number;
   window: { opensAt: string | null; closesAt: string | null };
   forms: StaffEnrollmentForm[];
   coverage: EnrollmentCoverage[];
+  /** Newest first. */
+  sent: StaffEnrollmentFormSent[];
 }
 
 function shape(
@@ -130,7 +156,7 @@ export async function getStaffEnrollmentOverview(
 ): Promise<StaffEnrollmentOverview> {
   assertStaff(ctx);
 
-  const [formRows, interestRows, window, tttIds] = await Promise.all([
+  const [formRows, interestRows, window, tttIds, sentRows] = await Promise.all([
     db
       .select()
       .from(schema.enrollmentForms)
@@ -146,6 +172,17 @@ export async function getStaffEnrollmentOverview(
       where: eq(schema.enrollmentWindows.programYear, programYear),
     }),
     tttContinuingHospitalIds(programYear),
+    db
+      .select({
+        row: schema.enrollmentFormInvitations,
+        firstName: schema.users.firstName,
+        lastName: schema.users.lastName,
+        email: schema.users.email,
+      })
+      .from(schema.enrollmentFormInvitations)
+      .leftJoin(schema.users, eq(schema.users.id, schema.enrollmentFormInvitations.sentByUserId))
+      .where(eq(schema.enrollmentFormInvitations.programYear, programYear))
+      .orderBy(desc(schema.enrollmentFormInvitations.createdAt)),
   ]);
 
   // One lookup for every hospital either side of the comparison, so an
@@ -155,6 +192,7 @@ export async function getStaffEnrollmentOverview(
       ...formRows.map((f) => f.hospitalId),
       ...interestRows.map((r) => r.hospitalId),
       ...tttIds,
+      ...sentRows.map((s) => s.row.hospitalId),
     ]),
   );
   const hospitals = hospitalIds.length
@@ -164,7 +202,7 @@ export async function getStaffEnrollmentOverview(
         .where(inArray(schema.hospitals.id, hospitalIds))
     : [];
   const nameById = new Map(hospitals.map((h) => [h.id, h.name]));
-  const named = (id: string) => ({ id, name: nameById.get(id) ?? 'Unknown hospital' });
+  const nameOf = (id: string) => nameById.get(id) ?? 'Unknown hospital';
 
   const forms = formRows
     .map((r) => shape(r, nameById.get(r.hospitalId) ?? 'Unknown hospital'))
@@ -174,32 +212,27 @@ export async function getStaffEnrollmentOverview(
         a.initiativeCode.localeCompare(b.initiativeCode),
     );
 
-  const acceptedByInitiative = new Map<string, Set<string>>();
-  for (const row of interestRows) {
-    for (const code of (row.decidedInitiatives ?? []) as string[]) {
-      if (!acceptedByInitiative.has(code)) acceptedByInitiative.set(code, new Set());
-      acceptedByInitiative.get(code)!.add(row.hospitalId);
-    }
-  }
-
-  const coverage: EnrollmentCoverage[] = ENROLLABLE.map((code) => {
-    const expectedIds =
-      code === 'TTT' ? new Set(tttIds) : (acceptedByInitiative.get(code) ?? new Set<string>());
-    const filedIds = new Set(
-      forms.filter((f) => f.initiativeCode === code).map((f) => f.hospital.id),
-    );
-    const outstanding = [...expectedIds].filter((id) => !filedIds.has(id)).map(named);
-    outstanding.sort((a, b) => a.name.localeCompare(b.name));
-    const expected = [...expectedIds].map(named);
-    expected.sort((a, b) => a.name.localeCompare(b.name));
-    return {
-      initiativeCode: code,
-      expected,
-      submittedCount: [...filedIds].filter((id) => expectedIds.has(id)).length,
-      outstanding,
-      unexpectedCount: [...filedIds].filter((id) => !expectedIds.has(id)).length,
-    };
+  const coverage: EnrollmentCoverage[] = computeCoverage({
+    codes: ENROLLABLE,
+    filed: formRows,
+    accepted: interestRows.map((r) => ({
+      hospitalId: r.hospitalId,
+      decidedInitiatives: (r.decidedInitiatives ?? null) as string[] | null,
+    })),
+    tttContinuing: tttIds,
+    sent: sentRows.map((s) => s.row),
+    nameOf,
   });
+
+  const sent: StaffEnrollmentFormSent[] = sentRows.map(({ row, firstName, lastName, email }) => ({
+    hospital: { id: row.hospitalId, name: nameOf(row.hospitalId) },
+    initiativeCode: row.initiativeCode as InitiativeCode,
+    toEmail: row.toEmail,
+    toName: row.toName,
+    emailSent: row.emailSent,
+    sentAt: row.createdAt.toISOString(),
+    sentBy: [firstName, lastName].filter(Boolean).join(' ') || email || null,
+  }));
 
   return {
     programYear,
@@ -209,5 +242,198 @@ export async function getStaffEnrollmentOverview(
     },
     forms,
     coverage,
+    sent,
   };
+}
+
+export interface SendEnrollmentFormsInput {
+  programYear: number;
+  hospitalId: string;
+  initiatives: InitiativeCode[];
+  toEmail: string;
+  toName?: string | null;
+}
+
+export interface SendEnrollmentFormsResult {
+  sentTo: string;
+  initiatives: InitiativeCode[];
+  /** False when SendGrid refused it, or in dev with no SendGrid key. */
+  emailSent: boolean;
+  error: string | null;
+}
+
+/**
+ * Email a hospital its enrollment form(s), one link per initiative, and record
+ * the send so the hospital joins each initiative's chase list.
+ *
+ * Works for any hospital, accepted or not. Its main use is a hospital CPCQC
+ * enrolls without an interest form, which has no acceptance email to carry the
+ * links, but it is equally how a PM re-sends a link that went astray.
+ */
+export async function sendEnrollmentForms(
+  input: SendEnrollmentFormsInput,
+  ctx: AuthContext,
+): Promise<SendEnrollmentFormsResult> {
+  assertStaff(ctx);
+  // ENROLLABLE order, deduplicated, so the email lists initiatives the same
+  // way every time.
+  const codes = ENROLLABLE.filter((c) => input.initiatives.includes(c));
+  if (codes.length === 0) throw new HttpError(400, 'Choose at least one initiative.');
+
+  const hospital = await db.query.hospitals.findFirst({
+    where: eq(schema.hospitals.id, input.hospitalId),
+  });
+  if (!hospital) throw new HttpError(404, 'Hospital not found.');
+
+  const window = await getEnrollmentStepWindow(input.programYear);
+  if (window.state === 'after' && window.closesAt) {
+    throw new HttpError(
+      409,
+      `The ${input.programYear} enrollment window closed on ${window.closesAt}, so the form no longer accepts submissions.`,
+    );
+  }
+
+  // The public form refuses a second submission for the same initiative, so a
+  // link to one already filed would only lead the hospital to that refusal.
+  const filed = await db
+    .select({ code: schema.enrollmentForms.initiativeCode })
+    .from(schema.enrollmentForms)
+    .where(
+      and(
+        eq(schema.enrollmentForms.programYear, input.programYear),
+        eq(schema.enrollmentForms.hospitalId, hospital.id),
+        inArray(schema.enrollmentForms.initiativeCode, codes),
+      ),
+    );
+  if (filed.length > 0) {
+    throw new HttpError(
+      409,
+      `${hospital.name} has already submitted its ${input.programYear} ` +
+        `${filed.map((f) => f.code).join(' and ')} enrollment form. Untick ` +
+        `${filed.length === 1 ? 'it' : 'them'} and send the rest.`,
+    );
+  }
+
+  const toEmail = input.toEmail.trim();
+  const toName = input.toName?.trim() || null;
+  const { subject, body } = enrollmentFormEmail({
+    recipientName: toName,
+    hospitalName: hospital.name,
+    programYear: input.programYear,
+    links: codes.map((code) => ({
+      code,
+      url: enrollmentFormUrl(frontendBaseUrl(), input.programYear, hospital.id, code),
+    })),
+    dates: window,
+  });
+  const result = await sendEmail({
+    toEmail,
+    fromEmail: env.EMAIL_FROM_ENROLLMENT,
+    kind: 'enrollment.form_sent',
+    subject,
+    body,
+  });
+
+  // Recorded even when SendGrid refused it: the decision that this hospital
+  // owes the form stands, and the chase list should show it until it is filed.
+  const now = new Date();
+  await db.insert(schema.enrollmentFormInvitations).values(
+    codes.map((code) => ({
+      id: uuid(),
+      programYear: input.programYear,
+      hospitalId: hospital.id,
+      initiativeCode: code,
+      toEmail,
+      toName,
+      sentByUserId: ctx.userId ?? null,
+      emailSent: result.sent,
+      createdAt: now,
+      updatedAt: now,
+    })),
+  );
+  await db.insert(schema.auditLog).values({
+    id: uuid(),
+    actorUserId: ctx.userId ?? null,
+    actorRole: ctx.role,
+    action: 'enrollment_form.sent',
+    entityType: 'hospital',
+    entityId: hospital.id,
+    diff: { programYear: input.programYear, initiatives: codes, toEmail },
+    note: `Sent ${codes.join(', ')} enrollment form(s) to ${toEmail}.`,
+  });
+
+  return { sentTo: toEmail, initiatives: codes, emailSent: result.sent, error: result.error ?? null };
+}
+
+export interface RecipientSuggestion {
+  name: string | null;
+  email: string;
+  /** Where the address came from, shown beside it. */
+  source: string;
+}
+
+/**
+ * Addresses a PM is likely to want for a hospital's enrollment form: its
+ * default contact, whoever filed its interest form, the people on its roster,
+ * and anyone it was sent to before. Suggestions only — the PM can type any
+ * address.
+ */
+export async function getRecipientSuggestions(
+  hospitalId: string,
+  programYear: number,
+  ctx: AuthContext,
+): Promise<{ suggestions: RecipientSuggestion[] }> {
+  assertStaff(ctx);
+  const [hospital, interest, roster, previous] = await Promise.all([
+    db.query.hospitals.findFirst({ where: eq(schema.hospitals.id, hospitalId) }),
+    db.query.annualInterestForms.findFirst({
+      where: and(
+        eq(schema.annualInterestForms.programYear, programYear),
+        eq(schema.annualInterestForms.hospitalId, hospitalId),
+      ),
+    }),
+    db
+      .select({
+        name: schema.hospitalStaffMembers.name,
+        role: schema.hospitalStaffMembers.role,
+        email: schema.hospitalStaffMembers.email,
+      })
+      .from(schema.hospitalStaffMembers)
+      .where(eq(schema.hospitalStaffMembers.hospitalId, hospitalId)),
+    db
+      .select({
+        name: schema.enrollmentFormInvitations.toName,
+        email: schema.enrollmentFormInvitations.toEmail,
+      })
+      .from(schema.enrollmentFormInvitations)
+      .where(
+        and(
+          eq(schema.enrollmentFormInvitations.programYear, programYear),
+          eq(schema.enrollmentFormInvitations.hospitalId, hospitalId),
+        ),
+      )
+      .orderBy(desc(schema.enrollmentFormInvitations.createdAt)),
+  ]);
+  if (!hospital) throw new HttpError(404, 'Hospital not found.');
+
+  const candidates: RecipientSuggestion[] = [
+    ...previous.map((p) => ({ name: p.name, email: p.email, source: 'Sent before' })),
+    ...(hospital.defaultContactEmail
+      ? [{ name: hospital.defaultContactName, email: hospital.defaultContactEmail, source: 'Default contact' }]
+      : []),
+    ...(interest
+      ? [{ name: interest.submitterName, email: interest.submitterEmail, source: 'Interest form' }]
+      : []),
+    ...roster
+      .filter((r) => r.email)
+      .map((r) => ({ name: r.name, email: r.email!, source: r.role || 'Roster' })),
+  ];
+  const seen = new Set<string>();
+  const suggestions = candidates.filter((c) => {
+    const key = c.email.trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return { suggestions };
 }

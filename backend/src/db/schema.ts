@@ -720,6 +720,36 @@ export const enrollmentForms = pgTable(
   }),
 );
 
+/**
+ * Enrollment forms staff sent a hospital, one row per initiative per send.
+ * Sending is a staff decision that the hospital owes that form, so it puts the
+ * hospital on the chase list — the only route there for a hospital CPCQC
+ * enrolls without an interest form. Re-sends add rows rather than replace them:
+ * which address got the link, and when, is what a PM checks when a hospital
+ * says it never arrived.
+ */
+export const enrollmentFormInvitations = pgTable(
+  'enrollment_form_invitations',
+  {
+    id: idCol(),
+    programYear: integer('program_year').notNull(),
+    hospitalId: text('hospital_id')
+      .notNull()
+      .references(() => hospitals.id, { onDelete: 'cascade' }),
+    /** 'SPARK' | 'SOAR' | 'NEST' | 'TTT' */
+    initiativeCode: text('initiative_code').notNull(),
+    toEmail: text('to_email').notNull(),
+    toName: text('to_name'),
+    sentByUserId: text('sent_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    /** False when SendGrid refused it, or in dev with no SendGrid key. */
+    emailSent: boolean('email_sent').notNull(),
+    ...timestamps,
+  },
+  (t) => ({
+    yearIdx: index('enrollment_form_invitations_year_idx').on(t.programYear),
+  }),
+);
+
 export const auditLog = pgTable(
   'audit_log',
   {

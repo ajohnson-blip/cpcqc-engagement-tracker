@@ -1019,11 +1019,75 @@ export interface EnrollmentCoverage {
   unexpectedCount: number;
 }
 
+/** One initiative's form, sent by staff from the enrollment-forms screen. */
+export interface StaffEnrollmentFormSent {
+  hospital: { id: string; name: string };
+  initiativeCode: EnrollableInitiativeCode;
+  toEmail: string;
+  toName: string | null;
+  /** False when SendGrid refused it, or in dev with no SendGrid key. */
+  emailSent: boolean;
+  sentAt: string;
+  sentBy: string | null;
+}
+
 export interface StaffEnrollmentOverview {
   programYear: number;
   window: { opensAt: string | null; closesAt: string | null };
   forms: StaffEnrollmentForm[];
   coverage: EnrollmentCoverage[];
+  /** Newest first. */
+  sent: StaffEnrollmentFormSent[];
+}
+
+export interface EnrollmentRecipientSuggestion {
+  name: string | null;
+  email: string;
+  /** Where the address came from: "Default contact", "Interest form", a roster role… */
+  source: string;
+}
+
+export interface SendEnrollmentFormsResult {
+  sentTo: string;
+  initiatives: EnrollableInitiativeCode[];
+  emailSent: boolean;
+  error: string | null;
+}
+
+/** One welcome-to-enroll email, as the uploaded acceptances would send it. */
+export interface WelcomePreviewEmail {
+  /** Everyone on the To line: the submitter, or an initiative's champions. */
+  recipients: Array<{ name: string; email: string }>;
+  /** "Interest form", or the roster the addresses came from. */
+  source: string;
+  hospitals: Array<{ id: string; name: string }>;
+  links: Array<{ code: EnrollableInitiativeCode; hospitalId: string; hospitalName: string }>;
+  warning: string | null;
+  subject: string;
+  body: string;
+}
+
+export interface WelcomePlanNote {
+  hospital: string;
+  initiative: EnrollableInitiativeCode | null;
+  reason: string;
+}
+
+export interface WelcomePreview {
+  programYear: number;
+  window: { opensAt: string | null; closesAt: string | null; state: 'before' | 'open' | 'after' };
+  /** Why sending is refused right now, or null when it can go. */
+  blocker: string | null;
+  emails: WelcomePreviewEmail[];
+  held: WelcomePlanNote[];
+  skipped: WelcomePlanNote[];
+}
+
+export interface WelcomeSendResult {
+  sent: number;
+  failed: Array<{ hospital: string; toEmail: string; error: string | null }>;
+  /** Still to send; the page calls again until it is 0. */
+  remaining: number;
 }
 
 // ---------- Funder-facing engagement metrics ----------

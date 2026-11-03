@@ -23,6 +23,10 @@ export interface EmailAttachment {
 
 export interface SendEmailInput {
   toEmail: string;
+  /** Further addresses on the same To line, e.g. a hospital's initiative team.
+   *  Each sees the others, which is the point: one email to the team, not one
+   *  each, so the team files one form. */
+  alsoTo?: string[];
   subject: string;
   body: string;
   kind: string;
@@ -57,10 +61,12 @@ export async function sendEmail(
 
   const storedBody = redacted(input.body, input.redact);
 
+  const to = [input.toEmail, ...(input.alsoTo ?? [])];
+
   await db.insert(schema.notifications).values({
     id,
     userId: input.userId ?? null,
-    toEmail: input.toEmail,
+    toEmail: to.join(', '),
     kind: input.kind,
     subject: input.subject,
     body: storedBody,
@@ -74,7 +80,7 @@ export async function sendEmail(
       {
         notification: {
           id,
-          to: input.toEmail,
+          to: to.join(', '),
           subject: input.subject,
           kind: input.kind,
           previewBody: storedBody.length > 500 ? storedBody.slice(0, 500) + '…' : storedBody,
@@ -93,7 +99,7 @@ export async function sendEmail(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        personalizations: [{ to: [{ email: input.toEmail }] }],
+        personalizations: [{ to: to.map((email) => ({ email })) }],
         from: { email: input.fromEmail ?? env.EMAIL_FROM, name: 'CPCQC Engagement Tracker' },
         subject: input.subject,
         content: [{ type: 'text/plain', value: input.body }],

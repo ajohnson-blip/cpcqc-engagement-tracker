@@ -1,16 +1,21 @@
 /**
  * Staff enrollment-form endpoints, mounted at /staff/enrollment-forms.
  *
- * Read-only. Enrollment is the record that satisfies the statute, so staff
- * review it rather than edit it — corrections go back through the hospital's
- * own emailed edit link.
+ * Staff review enrollment forms and send them out, but never edit one.
+ * Enrollment is the record that satisfies the statute, so corrections go back
+ * through the hospital's own emailed edit link.
  */
-import { Router } from 'express';
+import express, { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import ExcelJS from 'exceljs';
-import { requireAuth } from '@/middleware/auth.js';
-import { CHAMPION_ROLES } from './enrollment-forms.service.js';
-import { getStaffEnrollmentOverview } from './enrollment-forms.staff.js';
+import { requireAuth, requireStaff } from '@/middleware/auth.js';
+import { CHAMPION_ROLES, ENROLLABLE } from './enrollment-forms.service.js';
+import {
+  getRecipientSuggestions,
+  getStaffEnrollmentOverview,
+  sendEnrollmentForms,
+} from './enrollment-forms.staff.js';
+import { previewWelcome, sendWelcome, sendWelcomeTest } from './enrollment-welcome.js';
 
 const router = Router();
 
@@ -19,6 +24,48 @@ const programYearSchema = z.coerce.number().int().min(2026).max(2100);
 router.get('/', requireAuth, async (req, res) => {
   const programYear = programYearSchema.parse(req.query.programYear);
   res.json(await getStaffEnrollmentOverview(programYear, req.auth!));
+});
+
+router.get('/recipients', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const hospitalId = z.string().min(1).parse(req.query.hospitalId);
+  res.json(await getRecipientSuggestions(hospitalId, programYear, req.auth!));
+});
+
+// The welcome-to-enroll send from the uploaded acceptances sheet (.xlsx or
+// .csv, sent as the raw request body). Each step re-reads the file: preview
+// sends nothing, test sends one email to the caller, send sends them all.
+const rawSheetBody: RequestHandler = express.raw({ type: () => true, limit: '10mb' });
+
+router.post('/welcome/preview', requireAuth, requireStaff, rawSheetBody, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  res.json(await previewWelcome(req.body as Buffer, programYear, req.auth!));
+});
+
+router.post('/welcome/test', requireAuth, requireStaff, rawSheetBody, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const index = z.coerce.number().int().min(0).parse(req.query.index ?? 0);
+  res.json(await sendWelcomeTest(req.body as Buffer, programYear, index, req.auth!));
+});
+
+router.post('/welcome/send', requireAuth, requireStaff, rawSheetBody, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const max = z.coerce.number().int().min(1).max(50).parse(req.query.max ?? 20);
+  res.json(await sendWelcome(req.body as Buffer, programYear, max, req.auth!));
+});
+
+/** Emails the hospital a link per initiative and adds it to each chase list. */
+router.post('/send', requireAuth, requireStaff, async (req, res) => {
+  const body = z
+    .object({
+      programYear: programYearSchema,
+      hospitalId: z.string().min(1),
+      initiatives: z.array(z.enum(ENROLLABLE)).min(1).max(ENROLLABLE.length),
+      toEmail: z.string().trim().email().max(254),
+      toName: z.string().trim().max(200).optional(),
+    })
+    .parse(req.body);
+  res.json(await sendEnrollmentForms(body, req.auth!));
 });
 
 /**

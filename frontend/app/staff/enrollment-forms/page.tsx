@@ -22,15 +22,20 @@ import {
   ChevronRight,
   Download,
   Mail,
+  Send,
 } from 'lucide-react';
 import { api, apiFetch } from '@/lib/api';
 import type {
   EnrollableInitiativeCode,
   EnrollmentCoverage,
+  SendEnrollmentFormsResult,
   StaffEnrollmentForm,
+  StaffEnrollmentFormSent,
   StaffEnrollmentOverview,
 } from '@/lib/types';
 import { fmtDate } from '@/lib/format';
+import { SendEnrollmentFormDialog } from '@/components/send-enrollment-form-dialog';
+import { WelcomeUploadCard } from '@/components/welcome-upload-card';
 
 const PROGRAM_YEAR = 2027;
 
@@ -51,6 +56,12 @@ export default function StaffEnrollmentFormsPage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<InitiativeFilter>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [sendFor, setSendFor] = useState<{
+    hospitalId?: string;
+    initiative?: EnrollableInitiativeCode;
+  } | null>(null);
+  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,7 +72,7 @@ export default function StaffEnrollmentFormsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   const forms = useMemo(() => {
     if (!data) return [];
@@ -69,6 +80,27 @@ export default function StaffEnrollmentFormsPage() {
       ? data.forms
       : data.forms.filter((f) => f.initiativeCode === filter);
   }, [data, filter]);
+
+  const filedByHospital = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const f of data?.forms ?? []) {
+      if (!m.has(f.hospital.id)) m.set(f.hospital.id, new Set());
+      m.get(f.hospital.id)!.add(f.initiativeCode);
+    }
+    return m;
+  }, [data]);
+
+  function handleSent(result: SendEnrollmentFormsResult, hospitalName: string) {
+    setSendFor(null);
+    const what = `${hospitalName}'s ${result.initiatives.join(', ')} enrollment form${result.initiatives.length === 1 ? '' : 's'}`;
+    setNotice({
+      ok: result.emailSent,
+      text: result.emailSent
+        ? `Sent ${what} to ${result.sentTo}.`
+        : `Recorded ${what} for ${result.sentTo}, but the email did not go out${result.error ? ` (${result.error})` : ''}. Send it again, or email the link by hand.`,
+    });
+    setReloadKey((k) => k + 1);
+  }
 
   async function downloadXlsx() {
     try {
@@ -100,7 +132,8 @@ export default function StaffEnrollmentFormsPage() {
           Step two of {PROGRAM_YEAR} enrollment — the forms that satisfy the statute.
           Who owes one is worked out from the interest-form acceptances (and, for TtT,
           from the hospitals already in a cohort), so accepting a hospital for an
-          initiative is what puts it on this list.
+          initiative is what puts it on this list. Sending a hospital its form from
+          here does too, which is how one with no interest form gets on it.
         </p>
         {data?.window.opensAt && data.window.closesAt && (
           <p className="mt-2 text-sm text-cpcqc-purple-dark/60">
@@ -115,6 +148,34 @@ export default function StaffEnrollmentFormsPage() {
         </div>
       )}
 
+      {notice && (
+        <div
+          className={clsx(
+            'mb-4 flex items-start justify-between gap-3 rounded-xl p-4 text-sm',
+            notice.ok
+              ? 'bg-cpcqc-teal-dark/10 text-cpcqc-teal-dark'
+              : 'bg-cpcqc-orange-dark/10 text-cpcqc-orange-dark',
+          )}
+        >
+          <span>{notice.text}</span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="text-xs font-bold uppercase tracking-wide hover:underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      <WelcomeUploadCard
+        programYear={PROGRAM_YEAR}
+        onSent={(text, ok) => {
+          setNotice({ text, ok });
+          setReloadKey((k) => k + 1);
+        }}
+      />
+
       {!data ? (
         <div className="rounded-xl bg-white p-8 text-center text-cpcqc-purple-dark/60 shadow-sm">
           Loading…
@@ -124,9 +185,18 @@ export default function StaffEnrollmentFormsPage() {
           <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {INITIATIVE_ORDER.map((code) => {
               const c = data.coverage.find((x) => x.initiativeCode === code);
-              return c ? <CoverageCard key={code} coverage={c} /> : null;
+              return c ? (
+                <CoverageCard
+                  key={code}
+                  coverage={c}
+                  sent={data.sent}
+                  onSend={(hospitalId) => setSendFor({ hospitalId, initiative: code })}
+                />
+              ) : null;
             })}
           </div>
+
+          {data.sent.length > 0 && <SentList sent={data.sent} />}
 
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/60">
@@ -149,8 +219,15 @@ export default function StaffEnrollmentFormsPage() {
             ))}
             <button
               type="button"
+              onClick={() => setSendFor({})}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-cpcqc-purple px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90"
+            >
+              <Send size={12} aria-hidden /> Send enrollment form
+            </button>
+            <button
+              type="button"
               onClick={() => void downloadXlsx()}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-cpcqc-purple-dark/20 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5"
+              className="inline-flex items-center gap-1.5 rounded-full border border-cpcqc-purple-dark/20 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark hover:bg-cpcqc-purple-dark/5"
             >
               <Download size={12} aria-hidden /> Export XLSX
             </button>
@@ -192,6 +269,17 @@ export default function StaffEnrollmentFormsPage() {
           )}
         </>
       )}
+
+      {sendFor && (
+        <SendEnrollmentFormDialog
+          programYear={PROGRAM_YEAR}
+          initialHospitalId={sendFor.hospitalId}
+          initialInitiative={sendFor.initiative}
+          filed={filedByHospital}
+          onCancel={() => setSendFor(null)}
+          onSent={handleSent}
+        />
+      )}
     </div>
   );
 }
@@ -201,11 +289,23 @@ export default function StaffEnrollmentFormsPage() {
  *
  * Names, not just a count: "3 outstanding" sends a PM to another screen to
  * find out which three, and in the last week of the window that round trip is
- * the difference between chasing them and not.
+ * the difference between chasing them and not. Each name says when its form
+ * was last sent, and sends it (again) in one click.
  */
-function CoverageCard({ coverage }: { coverage: EnrollmentCoverage }) {
+function CoverageCard({
+  coverage,
+  sent,
+  onSend,
+}: {
+  coverage: EnrollmentCoverage;
+  sent: StaffEnrollmentFormSent[];
+  onSend: (hospitalId: string) => void;
+}) {
   const { initiativeCode, expected, submittedCount, outstanding, unexpectedCount } = coverage;
   const done = expected.length > 0 && outstanding.length === 0;
+  // `sent` is newest first, so the first match is the latest send.
+  const lastSent = (hospitalId: string) =>
+    sent.find((s) => s.hospital.id === hospitalId && s.initiativeCode === initiativeCode);
 
   return (
     <div
@@ -238,10 +338,32 @@ function CoverageCard({ coverage }: { coverage: EnrollmentCoverage }) {
           <p className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-cpcqc-orange-dark">
             <AlertTriangle size={12} aria-hidden /> {outstanding.length} outstanding
           </p>
-          <ul className="mt-1.5 space-y-0.5 text-sm text-cpcqc-purple-dark/80">
-            {outstanding.map((h) => (
-              <li key={h.id}>{h.name}</li>
-            ))}
+          <ul className="mt-1.5 space-y-1 text-sm text-cpcqc-purple-dark/80">
+            {outstanding.map((h) => {
+              const last = lastSent(h.id);
+              return (
+                <li key={h.id} className="flex items-start justify-between gap-2">
+                  <span>
+                    {h.name}
+                    {last && (
+                      <span className="block text-xs text-cpcqc-purple-dark/50">
+                        {last.emailSent ? 'Sent' : 'Send failed'} {fmtDate(last.sentAt)} to{' '}
+                        {last.toEmail}
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onSend(h.id)}
+                    title={`Send ${h.name} its ${initiativeCode} enrollment form`}
+                    className="shrink-0 rounded-full p-1 text-cpcqc-purple-dark/50 hover:bg-cpcqc-purple-dark/5 hover:text-cpcqc-purple-dark"
+                    aria-label={`Send ${h.name} its ${initiativeCode} enrollment form`}
+                  >
+                    <Send size={13} aria-hidden />
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
@@ -249,8 +371,61 @@ function CoverageCard({ coverage }: { coverage: EnrollmentCoverage }) {
       {unexpectedCount > 0 && (
         <p className="mt-2 text-xs text-cpcqc-purple-dark/60">
           + {unexpectedCount} filed by {unexpectedCount === 1 ? 'a hospital' : 'hospitals'} not
-          on the accepted list
+          on the expected list
         </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Every form sent from this screen, newest first: what a PM checks when a
+ * hospital says its link never arrived.
+ */
+function SentList({ sent }: { sent: StaffEnrollmentFormSent[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mb-6 rounded-2xl bg-white shadow-card ring-1 ring-cpcqc-purple-dark/5">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-bold text-cpcqc-purple-dark"
+        aria-expanded={open}
+      >
+        {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+        Sent from here ({sent.length})
+      </button>
+      {open && (
+        <table className="w-full text-left text-sm">
+          <thead className="bg-cpcqc-cream-dark/40 text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
+            <tr>
+              <th className="px-4 py-2">Hospital</th>
+              <th className="px-4 py-2">Initiative</th>
+              <th className="px-4 py-2">To</th>
+              <th className="px-4 py-2">Sent</th>
+              <th className="px-4 py-2">By</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sent.map((s, i) => (
+              <tr key={`${s.hospital.id}-${s.initiativeCode}-${s.sentAt}-${i}`} className="border-t border-cpcqc-purple-dark/5">
+                <td className="px-4 py-2">{s.hospital.name}</td>
+                <td className="px-4 py-2">{s.initiativeCode}</td>
+                <td className="px-4 py-2">
+                  {s.toName ? `${s.toName} · ` : ''}
+                  {s.toEmail}
+                </td>
+                <td className="px-4 py-2">
+                  {fmtDate(s.sentAt)}
+                  {!s.emailSent && (
+                    <span className="ml-1 text-xs font-semibold text-cpcqc-pink-dark">email failed</span>
+                  )}
+                </td>
+                <td className="px-4 py-2">{s.sentBy ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );

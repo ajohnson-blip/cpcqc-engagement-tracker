@@ -100,7 +100,6 @@ export interface EnrollmentContext {
    * SOAR it had just graduated from — with nothing on screen to say so.
    */
   currentlyEnrolled: string[];
-  inSoarSustainability: boolean;
   /** Set when this pairing looks wrong, e.g. TtT for a hospital not in it. */
   caution: string | null;
   /** Other initiatives this hospital has already enrolled in this year — the
@@ -127,15 +126,14 @@ export async function getEnrollmentContext(
   });
 
   const enrollments = await db
-    .select({ code: schema.initiatives.code, track: schema.cohorts.track })
+    .select({ code: schema.initiatives.code })
     .from(schema.enrollments)
     .innerJoin(schema.cohorts, eq(schema.cohorts.id, schema.enrollments.cohortId))
     .innerJoin(schema.initiatives, eq(schema.initiatives.id, schema.cohorts.initiativeId))
     .where(and(eq(schema.enrollments.hospitalId, hospitalId), eq(schema.enrollments.status, 'enrolled')));
+  // SOAR enrollment is one form whatever the track: CPCQC assigns active or
+  // sustainability after enrollment, so the form never mentions either.
   const currentlyEnrolled = enrollments.map((e) => e.code);
-  const inSoarSustainability = enrollments.some(
-    (e) => e.code === 'SOAR' && e.track === 'sustainability',
-  );
 
   // What CPCQC decided on this hospital's interest form, if anything yet.
   // Null decidedInitiatives means undecided — a very different thing from an
@@ -156,10 +154,6 @@ export async function getEnrollmentContext(
     caution =
       `Our records don't show ${hospital.name} in Turning the Tide. TtT is a two-year cohort and ` +
       `CPCQC isn't enrolling new hospitals — if you believe this is wrong, contact qi@cpcqc.org before submitting.`;
-  } else if (initiativeCode === 'SOAR' && inSoarSustainability) {
-    caution =
-      `${hospital.name} is completing a SOAR sustainability year. Sustainability is capped at one year, and ` +
-      `hospitals that meet their metrics graduate from SOAR — check with CPCQC before enrolling in SOAR again.`;
   } else if (initiativeCode !== 'TTT' && decided && !decided.includes(initiativeCode)) {
     // Enrollment forms are sent per acceptance, so reaching this page for an
     // initiative CPCQC didn't accept usually means a wrong link or a shared
@@ -189,7 +183,6 @@ export async function getEnrollmentContext(
     isTttContinuation: initiativeCode === 'TTT',
     alreadySubmitted: !!existing,
     currentlyEnrolled,
-    inSoarSustainability,
     caution,
     copyableFrom: others
       .filter((o) => o.initiativeCode !== initiativeCode && o.initiativeCode !== 'TTT')

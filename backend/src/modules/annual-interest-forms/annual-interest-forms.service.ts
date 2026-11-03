@@ -14,8 +14,10 @@ import { z } from 'zod';
 import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
 import { resolveActiveHospitalId, type AuthContext } from '@/middleware/auth.js';
-import { env } from '@/config/env.js';
+import { env, frontendBaseUrl } from '@/config/env.js';
 import { sendEmail } from '@/modules/notifications/notifications.service.js';
+import { getEnrollmentStepWindow } from '@/modules/enrollment-forms/enrollment-forms.service.js';
+import { acceptanceEmail, enrollmentFormUrl } from '@/modules/enrollment-forms/enrollment-emails.js';
 
 // ---------- Types + zod schemas ----------
 
@@ -811,26 +813,31 @@ async function sendSubmissionEmails(form: InterestFormShape, wasUpdate: boolean)
  * Acceptance notification to the hospital — fired on transition into accepted
  * (single or bulk). #3-Light: this tells the hospital their outcome and what
  * comes next; it does NOT auto-create enrollments (that's the deferred
- * heavier phase, gated on 2027 cohorts existing).
+ * heavier phase, gated on 2027 cohorts existing). It does carry a link to the
+ * enrollment form for each accepted initiative. The wording lives in
+ * enrollment-emails.ts, beside the email staff send from the enrollment-forms
+ * screen.
  */
 async function sendAcceptanceEmail(form: InterestFormShape): Promise<void> {
-  const cohorts = form.decidedInitiatives ?? [];
-  const cohortLine =
-    cohorts.length > 0
-      ? `into the following initiative(s) for ${form.programYear}: ${cohorts.join(', ')}`
-      : `for ${form.programYear}`;
+  const decided = form.decidedInitiatives ?? [];
+  const initiatives = RANKABLE_INITIATIVE_CODES.filter((c) => decided.includes(c));
+  const { subject, body } = acceptanceEmail({
+    submitterName: form.submitterName,
+    hospitalName: form.hospital.name,
+    programYear: form.programYear,
+    initiatives,
+    links: initiatives.map((code) => ({
+      code,
+      url: enrollmentFormUrl(frontendBaseUrl(), form.programYear, form.hospital.id, code),
+    })),
+    dates: await getEnrollmentStepWindow(form.programYear),
+  });
   await sendEmail({
     toEmail: form.submitterEmail,
-    subject: `CPCQC ${form.programYear} — ${form.hospital.name} has been accepted`,
+    subject,
     kind: 'annual_interest.accepted',
     fromEmail: env.EMAIL_FROM_ENROLLMENT,
-    body:
-      `Hi ${form.submitterName},\n\n` +
-      `Good news — ${form.hospital.name} has been accepted ${cohortLine}.\n\n` +
-      `What's next: CPCQC will follow up with the detailed, initiative-specific ` +
-      `Enrollment Form(s) for each accepted initiative, along with onboarding ` +
-      `details and key dates.\n\n` +
-      `Questions? qi@cpcqc.org`,
+    body,
   });
 }
 

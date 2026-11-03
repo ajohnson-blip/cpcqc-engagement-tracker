@@ -1,0 +1,337 @@
+/**
+ * The welcome-to-enroll send, from the uploaded enrollment-decisions sheet.
+ *
+ * Three steps, each re-reading the file so nothing goes out from a stale
+ * plan: a preview listing every email and everything held or skipped, a test
+ * copy of one email to the staff member sending, then the send itself. Every
+ * email sent is recorded in enrollment_form_invitations, which puts the
+ * hospital on that initiative's chase list and means uploading the same sheet
+ * again sends nothing twice.
+ *
+ * Who receives what is decided in welcome-plan.ts; the wording is in
+ * enrollment-emails.ts.
+ */
+import ExcelJS from 'exceljs';
+import { and, eq } from 'drizzle-orm';
+import { v4 as uuid } from 'uuid';
+import { db, schema } from '@/db/index.js';
+import { HttpError } from '@/middleware/errors.js';
+import type { AuthContext } from '@/middleware/auth.js';
+import { env, frontendBaseUrl } from '@/config/env.js';
+import { sendEmail } from '@/modules/notifications/notifications.service.js';
+import { csvToRows } from '@/modules/ce/ce-roster.js';
+import { getEnrollmentStepWindow, type EnrollmentWindowState } from './enrollment-forms.service.js';
+import { enrollmentFormUrl, greetingFor, longDate, welcomeEmail } from './enrollment-emails.js';
+import {
+  interestFormAcceptances,
+  parseAcceptanceSheet,
+  planWelcomeEmails,
+  type PlanNote,
+  type PlannedEmail,
+} from './welcome-plan.js';
+
+/**
+ * UCHealth Memorial enrolled as one hospital in 2026. From 2027 Central and
+ * North each file their own forms, and both go to the champions on the
+ * combined roster, which stayed with Central when the record was split.
+ */
+const SHARED_ROSTER: Record<string, string> = {
+  'UCHealth Memorial Hospital North': 'UCHealth Memorial Hospital Central',
+};
+
+/** The interest form's acceptances; TtT continues without one. */
+const ACCEPTABLE = ['SPARK', 'SOAR', 'NEST'];
+
+export interface WelcomePreviewEmail extends PlannedEmail {
+  subject: string;
+  body: string;
+}
+
+export interface WelcomePreview {
+  programYear: number;
+  window: EnrollmentWindowState;
+  /** Why sending is refused right now, or null when it can go. */
+  blocker: string | null;
+  emails: WelcomePreviewEmail[];
+  held: PlanNote[];
+  skipped: PlanNote[];
+}
+
+function assertStaff(ctx: AuthContext) {
+  if (ctx.role !== 'cpcqc_staff' && ctx.role !== 'cpcqc_admin') throw new HttpError(403, 'Staff only.');
+}
+
+/** The uploaded file as rows of cells: the Board tab of a workbook, or a CSV. */
+async function sheetRows(buf: Buffer): Promise<unknown[][]> {
+  if (!buf || buf.length === 0) throw new HttpError(400, 'No file received.');
+  const isXlsx = buf.length > 1 && buf[0] === 0x50 && buf[1] === 0x4b; // 'PK'
+  if (!isXlsx) return csvToRows(buf.toString('utf8'));
+
+  const wb = new ExcelJS.Workbook();
+  try {
+    await wb.xlsx.load(buf as unknown as ArrayBuffer);
+  } catch {
+    throw new HttpError(400, 'That file could not be read as a spreadsheet. Upload a .xlsx or .csv.');
+  }
+  // A download of the whole decisions workbook has several tabs.
+  const sheet = wb.worksheets.find((w) => w.name.trim().toLowerCase() === 'board') ?? wb.worksheets[0];
+  if (!sheet) throw new HttpError(400, 'The workbook has no sheets.');
+  const rows: unknown[][] = [];
+  sheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
+    const cells: unknown[] = [];
+    row.eachCell({ includeEmpty: true }, (cell, col) => {
+      const v = cell.value;
+      let out: unknown = v;
+      if (v && typeof v === 'object' && !(v instanceof Date)) {
+        // Formulas, hyperlinks and rich text arrive as objects.
+        if ('result' in v) out = (v as { result: unknown }).result;
+        else if ('text' in v && typeof v.text === 'string') out = v.text;
+        else if ('richText' in v) {
+          out = (v as { richText: Array<{ text: string }> }).richText.map((r) => r.text).join('');
+        } else out = String(v);
+      }
+      cells[col - 1] = out;
+    });
+    rows[rowNumber - 1] = cells;
+  });
+  return Array.from(rows, (r) => r ?? []);
+}
+
+export async function previewWelcome(
+  buf: Buffer,
+  programYear: number,
+  ctx: AuthContext,
+): Promise<WelcomePreview> {
+  return (await prepareWelcome(buf, programYear, ctx)).preview;
+}
+
+/** The preview, plus what the interest forms should record once it is sent. */
+async function prepareWelcome(
+  buf: Buffer,
+  programYear: number,
+  ctx: AuthContext,
+): Promise<{ preview: WelcomePreview; acceptances: Map<string, string[]> }> {
+  assertStaff(ctx);
+  let sheet;
+  try {
+    sheet = parseAcceptanceSheet(await sheetRows(buf));
+  } catch (err) {
+    if (err instanceof HttpError) throw err;
+    throw new HttpError(400, err instanceof Error ? err.message : 'Could not read the sheet.');
+  }
+
+  const [hospitals, interest, roster, filed, sent, window] = await Promise.all([
+    db.select({ id: schema.hospitals.id, name: schema.hospitals.name }).from(schema.hospitals),
+    db
+      .select({
+        hospitalId: schema.annualInterestForms.hospitalId,
+        submitterName: schema.annualInterestForms.submitterName,
+        submitterEmail: schema.annualInterestForms.submitterEmail,
+      })
+      .from(schema.annualInterestForms)
+      .where(eq(schema.annualInterestForms.programYear, programYear)),
+    db
+      .select({
+        hospitalId: schema.hospitalStaffMembers.hospitalId,
+        initiativeCode: schema.initiatives.code,
+        name: schema.hospitalStaffMembers.name,
+        email: schema.hospitalStaffMembers.email,
+      })
+      .from(schema.hospitalStaffMembers)
+      .innerJoin(schema.initiatives, eq(schema.initiatives.id, schema.hospitalStaffMembers.initiativeId)),
+    db
+      .select({ hospitalId: schema.enrollmentForms.hospitalId, code: schema.enrollmentForms.initiativeCode })
+      .from(schema.enrollmentForms)
+      .where(eq(schema.enrollmentForms.programYear, programYear)),
+    db
+      .select({
+        hospitalId: schema.enrollmentFormInvitations.hospitalId,
+        code: schema.enrollmentFormInvitations.initiativeCode,
+        createdAt: schema.enrollmentFormInvitations.createdAt,
+      })
+      .from(schema.enrollmentFormInvitations)
+      .where(eq(schema.enrollmentFormInvitations.programYear, programYear)),
+    getEnrollmentStepWindow(programYear),
+  ]);
+
+  const firstSent = new Map<string, string>();
+  for (const s of [...sent].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
+    const k = `${s.hospitalId}:${s.code}`;
+    if (!firstSent.has(k)) firstSent.set(k, s.createdAt.toISOString().slice(0, 10));
+  }
+
+  const plan = planWelcomeEmails({
+    sheet,
+    hospitals,
+    interestForms: new Map(interest.map((i) => [i.hospitalId, i])),
+    roster,
+    filed: new Set(filed.map((f) => `${f.hospitalId}:${f.code}`)),
+    sent: firstSent,
+    sharedRoster: SHARED_ROSTER,
+  });
+
+  const base = frontendBaseUrl();
+  const emails = plan.emails.map((e) => ({
+    ...e,
+    ...welcomeEmail({
+      recipientName: greetingFor(e.recipients.map((r) => r.name)),
+      programYear,
+      links: e.links.map((l) => ({
+        code: l.code,
+        hospitalName: l.hospitalName,
+        url: enrollmentFormUrl(base, programYear, l.hospitalId, l.code),
+      })),
+      closesAt: window.closesAt,
+    }),
+  }));
+
+  const blocker =
+    window.state === 'open'
+      ? null
+      : window.state === 'before'
+        ? window.opensAt
+          ? `The ${programYear} enrollment forms don't open until ${longDate(window.opensAt)}, so the links wouldn't work yet.`
+          : `The ${programYear} enrollment window has no dates yet, so the links wouldn't work.`
+        : `The ${programYear} enrollment window closed on ${longDate(window.closesAt!)}.`;
+
+  const withForms = new Set(interest.map((i) => i.hospitalId));
+  return {
+    preview: { programYear, window, blocker, emails, held: plan.held, skipped: plan.skipped },
+    acceptances: interestFormAcceptances(sheet, hospitals, (id) => withForms.has(id)),
+  };
+}
+
+/** One email, sent to the staff member themselves, so they see what hospitals will. */
+export async function sendWelcomeTest(
+  buf: Buffer,
+  programYear: number,
+  index: number,
+  ctx: AuthContext,
+): Promise<{ sentTo: string; emailSent: boolean }> {
+  const preview = await previewWelcome(buf, programYear, ctx);
+  const e = preview.emails[index];
+  if (!e) throw new HttpError(400, 'There is no email at that position to test.');
+  const me = ctx.userId
+    ? await db.query.users.findFirst({ where: eq(schema.users.id, ctx.userId) })
+    : undefined;
+  if (!me?.email) throw new HttpError(400, 'Your account has no email address to send the test to.');
+  const result = await sendEmail({
+    toEmail: me.email,
+    fromEmail: env.EMAIL_FROM_ENROLLMENT,
+    kind: 'enrollment.welcome_test',
+    subject: `[Test] ${e.subject}`,
+    body:
+      `Test copy. In the real send this goes to ` +
+      `${e.recipients.map((r) => `${r.name} <${r.email}>`).join(', ')}.\n\n${e.body}`,
+  });
+  return { sentTo: me.email, emailSent: result.sent };
+}
+
+export interface WelcomeSendResult {
+  sent: number;
+  /** SendGrid refused these; they are recorded and can be re-sent from the Send button. */
+  failed: Array<{ hospital: string; toEmail: string; error: string | null }>;
+  /** Still to send; the page calls again until it is 0. */
+  remaining: number;
+}
+
+/**
+ * Sends up to `max` of the planned emails. The page calls again until none
+ * remain: each call re-plans and skips what has gone, so a batch cut short by
+ * a timeout loses nothing and sends nothing twice. Batches keep each request
+ * well inside the frontend proxy's timeout.
+ */
+export async function sendWelcome(
+  buf: Buffer,
+  programYear: number,
+  max: number,
+  ctx: AuthContext,
+): Promise<WelcomeSendResult> {
+  const { preview, acceptances } = await prepareWelcome(buf, programYear, ctx);
+  if (preview.blocker) throw new HttpError(409, preview.blocker);
+
+  const batch = preview.emails.slice(0, max);
+  const result: WelcomeSendResult = { sent: 0, failed: [], remaining: preview.emails.length - batch.length };
+  for (const e of batch) {
+    const [first, ...rest] = e.recipients;
+    const outcome = await sendEmail({
+      toEmail: first!.email,
+      alsoTo: rest.map((r) => r.email),
+      fromEmail: env.EMAIL_FROM_ENROLLMENT,
+      kind: 'enrollment.welcome',
+      subject: e.subject,
+      body: e.body,
+    });
+    if (outcome.sent || !env.SENDGRID_API_KEY) result.sent += 1;
+    else {
+      result.failed.push({
+        hospital: e.hospitals[0]!.name,
+        toEmail: e.recipients.map((r) => r.email).join(', '),
+        error: outcome.error ?? null,
+      });
+    }
+
+    // Recorded even when SendGrid refused it, as the Send button does: the
+    // decision that the hospital owes the form stands.
+    const now = new Date();
+    // One row per person per form, so a PM can see who was sent what.
+    await db.insert(schema.enrollmentFormInvitations).values(
+      e.links.flatMap((l) =>
+        e.recipients.map((r) => ({
+          id: uuid(),
+          programYear,
+          hospitalId: l.hospitalId,
+          initiativeCode: l.code,
+          toEmail: r.email,
+          toName: r.name,
+          sentByUserId: ctx.userId ?? null,
+          emailSent: outcome.sent,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      ),
+    );
+  }
+
+  // The interest forms record the sheet's acceptances, so the interest-form
+  // screen and the chase list agree with what hospitals were told. Written
+  // directly: the screen's own accept would email them again.
+  const now = new Date();
+  for (const [hospitalId, codes] of acceptances) {
+    const form = await db.query.annualInterestForms.findFirst({
+      where: and(
+        eq(schema.annualInterestForms.programYear, programYear),
+        eq(schema.annualInterestForms.hospitalId, hospitalId),
+      ),
+    });
+    if (!form) continue;
+    const decided = ACCEPTABLE.filter((c) => codes.includes(c));
+    const before = (form.decidedInitiatives as string[] | null) ?? null;
+    if (before && before.length === decided.length && before.every((c) => decided.includes(c))) continue;
+    await db
+      .update(schema.annualInterestForms)
+      .set({
+        // Accepted for nothing (a TtT-only hospital) is a decision too, but
+        // not an acceptance; its status is left as it was.
+        ...(decided.length > 0 ? { status: 'accepted' as const } : {}),
+        decidedInitiatives: decided,
+        decidedAt: now,
+        decidedBy: ctx.userId ?? null,
+        updatedAt: now,
+      })
+      .where(eq(schema.annualInterestForms.id, form.id));
+  }
+
+  await db.insert(schema.auditLog).values({
+    id: uuid(),
+    actorUserId: ctx.userId ?? null,
+    actorRole: ctx.role,
+    action: 'enrollment_form.welcome_sent',
+    entityType: 'enrollment_window',
+    entityId: String(programYear),
+    diff: { programYear, emails: batch.length, failed: result.failed.length, remaining: result.remaining },
+    note: `Sent ${batch.length} welcome-to-enroll email(s) from the uploaded acceptances.`,
+  });
+
+  return result;
+}

@@ -50,7 +50,6 @@ interface Ctx {
   isTttContinuation: boolean;
   alreadySubmitted: boolean;
   currentlyEnrolled: string[];
-  inSoarSustainability: boolean;
   caution: string | null;
   copyableFrom: Array<{ initiativeCode: string; championCount: number }>;
 }
@@ -95,9 +94,14 @@ export default function PublicEnrollmentFormPage() {
 
 function EnrollmentForm() {
   const programYear = parseInt(useParams<{ year: string }>().year, 10);
+  const searchParams = useSearchParams();
   // ?token= reopens an existing enrollment; the emailed link is the only proof
   // of being the original submitter.
-  const editToken = useSearchParams().get('token');
+  const editToken = searchParams.get('token');
+  // ?hospital=&initiative= come from the links CPCQC emails. They only make the
+  // first choice for the hospital, which can still change either one.
+  const presetHospital = searchParams.get('hospital');
+  const presetInitiative = searchParams.get('initiative');
   const [editing, setEditing] = useState<EditableEnrollment | null>(null);
   const [editClosed, setEditClosed] = useState<string | null>(null);
 
@@ -205,6 +209,18 @@ function EnrollmentForm() {
   useEffect(() => {
     if (editing) void loadCtx(editing.hospitalId, editing.initiativeCode);
   }, [editing, loadCtx]);
+
+  // Runs once the hospital list and config arrive. A value that isn't on the
+  // list (a stale or hand-edited link) is ignored rather than trusted.
+  useEffect(() => {
+    if (editToken || !config || hospitals.length === 0) return;
+    const hid = hospitals.some((h) => h.id === presetHospital) ? presetHospital! : '';
+    const code = config.initiatives.find((c) => c === presetInitiative) ?? '';
+    if (!hid && !code) return;
+    setHospitalId(hid);
+    setInitiative(code);
+    void loadCtx(hid, code);
+  }, [editToken, config, hospitals, presetHospital, presetInitiative, loadCtx]);
 
   const isTtt = initiative === 'TTT';
   const isOpen = win?.state === 'open';
@@ -329,7 +345,8 @@ function EnrollmentForm() {
         <p className="mt-2 max-w-2xl text-cpcqc-purple-dark/80">
           This is the step required under Colorado law — a hospital without a submitted enrollment
           form is not enrolled, regardless of what it ranked on the interest form. Each initiative
-          has its own form, so repeat this for any other initiative you were accepted into.
+          has its own form, so repeat this for any other initiative you were accepted into. Each
+          form should be completed by one team member.
         </p>
       </header>
 
@@ -436,8 +453,7 @@ function EnrollmentForm() {
               <Info size={16} className="mt-0.5 shrink-0" aria-hidden />
               <p>
                 Our records show {ctx.hospitalName} currently in{' '}
-                <strong>{ctx.currentlyEnrolled.join(', ')}</strong>
-                {ctx.inSoarSustainability && ' (SOAR as a sustainability year)'}. Enrollment is per
+                <strong>{ctx.currentlyEnrolled.join(', ')}</strong>. Enrollment is per
                 initiative, so this form covers {initiative} only.
               </p>
             </div>
@@ -466,7 +482,7 @@ function EnrollmentForm() {
               {isTtt ? (
                 <Section
                   title="Continuation attestation"
-                  description="Turning the Tide runs as a single two-year cohort, so there's nothing to re-enroll — just confirm you're continuing."
+                  description="Turning the Tide runs as a single two-year cohort, so there's nothing to re-enroll — just confirm you're continuing. This confirmation is still required by Colorado law."
                 >
                   <label className="flex cursor-pointer gap-3 rounded-xl border-2 border-cpcqc-purple/40 bg-white p-4">
                     <input
