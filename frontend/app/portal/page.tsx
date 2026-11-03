@@ -196,7 +196,7 @@ export default function PortalHomePage() {
         )
       )}
 
-      <DataToolsCard />
+      <DataToolsCard enrollments={enrollments} />
 
       {enrollments === null && !error && (
         <div className="rounded-xl bg-white p-8 text-center text-cpcqc-purple-dark/60 shadow-sm">

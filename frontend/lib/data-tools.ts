@@ -42,3 +42,23 @@ export const DATA_TOOLS: DataTool[] = [
 export const LIVE_DATA_TOOLS = DATA_TOOLS.filter(
   (t): t is DataTool & { url: string } => t.url !== null,
 );
+
+/**
+ * Each initiative's resources page on cpcqc.org (toolkits and such). The
+ * Overview lists only the initiatives the hospital is enrolled in, in this
+ * order. Keyed by initiative code.
+ */
+export const INITIATIVE_RESOURCES: Array<{ code: string; label: string; url: string }> = [
+  {
+    code: 'TTT',
+    label: 'Turning the Tide',
+    url: 'https://cpcqc.org/initiative/turning-the-tide/#resources',
+  },
+  { code: 'SPARK', label: 'SPARK', url: 'https://cpcqc.org/initiative/spark/#resources' },
+  { code: 'SOAR', label: 'SOAR', url: 'https://cpcqc.org/initiative/soar/#resources' },
+  {
+    code: 'NEST',
+    label: 'NEST',
+    url: 'https://cpcqc.org/initiative/nest-newborn-evidence-based-sleep-teaching-safe-sleep/#resources',
+  },
+];
