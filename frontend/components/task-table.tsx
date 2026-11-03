@@ -7,10 +7,16 @@ import { ManageTaskModal } from './manage-task-modal';
 import { TaskCommentModal } from './task-comment-modal';
 import { fmtDate, fmtPeriod, TASK_TYPE_LABEL } from '@/lib/format';
 import { useAuth } from '@/lib/auth-context';
+import { latestAims, scheduledDateFor } from '@/lib/qi-advising';
 import type { TaskRow } from '@/lib/types';
 
 interface TaskTableProps {
   tasks: TaskRow[];
+  /**
+   * The unfiltered list when `tasks` is filtered, so a QI 1:1 can still find
+   * the session before it (its aims and scheduled date). Defaults to `tasks`.
+   */
+  allTasks?: TaskRow[];
   /** Called after a task is successfully managed; parent should refresh data. */
   onTaskUpdated?: (updated: TaskRow) => void;
   /** When true, group rows by stage with a header per group. */
@@ -22,6 +28,7 @@ interface TaskTableProps {
 
 export function TaskTable({
   tasks,
+  allTasks = tasks,
   onTaskUpdated,
   groupByStage = false,
   showInitiative = false,
@@ -29,6 +36,15 @@ export function TaskTable({
 }: TaskTableProps) {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const openTask = openTaskId ? tasks.find((t) => t.id === openTaskId) ?? null : null;
+  // A QI 1:1 with no aims yet starts from the last session's.
+  const previousAims =
+    openTask?.template.taskType === 'qi_advising'
+      ? latestAims(allTasks, openTask.enrollmentId, openTask.period)
+      : null;
+  const scheduledOn =
+    openTask?.template.taskType === 'qi_advising'
+      ? scheduledDateFor(allTasks, openTask.enrollmentId, openTask.period)
+      : null;
   // Hospital users (hospital_user, hospital_admin) get a read-only view with
   // a comment box; CPCQC staff (cpcqc_staff, cpcqc_admin) get the full
   // Manage Task modal. The button label flips with the role for clarity.
@@ -159,6 +175,8 @@ export function TaskTable({
       {openTask && (isStaff ? (
         <ManageTaskModal
           task={openTask}
+          previousAims={previousAims}
+          scheduledOn={scheduledOn}
           onClose={() => setOpenTaskId(null)}
           onUpdated={(t) => {
             setOpenTaskId(null);
@@ -168,6 +186,8 @@ export function TaskTable({
       ) : (
         <TaskCommentModal
           task={openTask}
+          previousAims={previousAims}
+          scheduledOn={scheduledOn}
           onClose={() => setOpenTaskId(null)}
           onUpdated={(t) => {
             setOpenTaskId(null);

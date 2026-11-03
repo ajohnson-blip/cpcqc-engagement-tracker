@@ -4,7 +4,10 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { X } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { TASK_TYPE_LABEL, fmtPeriod } from '@/lib/format';
-import type { TaskRow, TaskStatus, TaskOutcome } from '@/lib/types';
+import type { QiAdvisingContent, QiAim, TaskRow, TaskStatus, TaskOutcome } from '@/lib/types';
+import { advisingContentOf, cleanAdvisingContent } from '@/lib/qi-advising';
+import { QiAdvisingEditor } from './qi-advising-editor';
+import { QiSummaryDownload } from './qi-summary-download';
 
 /**
  * Composite UI value combining task status + outcome. Each option maps to a
@@ -126,9 +129,24 @@ interface ManageTaskModalProps {
   task: TaskRow;
   onClose: () => void;
   onUpdated: (updated: TaskRow) => void;
+  /** QI 1:1s: the last session's aims, carried over when this one has none yet. */
+  previousAims?: { aims: QiAim[]; period: string } | null;
+  /** QI 1:1s: the date the previous session set for this one. */
+  scheduledOn?: string | null;
 }
 
-export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalProps) {
+const payloadString = (task: TaskRow, key: string): string => {
+  const v = task.payload?.[key];
+  return typeof v === 'string' ? v : '';
+};
+
+export function ManageTaskModal({
+  task,
+  onClose,
+  onUpdated,
+  previousAims,
+  scheduledOn,
+}: ManageTaskModalProps) {
   const [outcomeChoice, setOutcomeChoice] = useState<OutcomeOption>(defaultOutcomeOption(task));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -149,8 +167,27 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
   const [other2Role, setOther2Role] = useState('');
   const [other2Email, setOther2Email] = useState('');
   const [ehrSystem, setEhrSystem] = useState('');
-  const [sessionDate, setSessionDate] = useState('');
-  const [advisorName, setAdvisorName] = useState('');
+  // QI 1:1: prefilled from what this session already holds, so reopening it
+  // shows the record rather than blank fields.
+  const [sessionDate, setSessionDate] = useState(
+    () => payloadString(task, 'sessionDate') || (task.template.taskType === 'qi_advising' ? (scheduledOn ?? '') : ''),
+  );
+  const [advisorName, setAdvisorName] = useState(() => payloadString(task, 'advisorName'));
+  const [attendees, setAttendees] = useState(() => {
+    const a = task.payload?.['attendees'];
+    return Array.isArray(a) ? a.join(', ') : '';
+  });
+  const [nextSessionOn, setNextSessionOn] = useState(() => payloadString(task, 'nextSessionOn'));
+  const carriedAims =
+    task.template.taskType === 'qi_advising' &&
+    (advisingContentOf(task.payload).aims ?? []).length === 0 &&
+    previousAims
+      ? previousAims
+      : null;
+  const [advising, setAdvising] = useState<QiAdvisingContent>(() => {
+    const content = advisingContentOf(task.payload);
+    return carriedAims ? { ...content, aims: carriedAims.aims } : content;
+  });
   const [attachmentUrl, setAttachmentUrl] = useState('');
   // Pre-fill from the persisted note so re-opening a managed task shows
   // the previous text. Migration 0015 backfilled legacy payload.notes
@@ -202,14 +239,24 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
         // there's no per-row data to capture. Status + outcome are sent
         // outside buildPayload via the top-level fields.
         return undefined;
-      case 'qi_advising':
-        if (outcomeChoice === 'did_not_attend' || outcomeChoice === 'reset_not_started') {
-          return undefined;
-        }
+      case 'qi_advising': {
+        if (outcomeChoice === 'reset_not_started') return undefined;
+        // A missed 1:1 still sets up the next one; its notes and aims are left
+        // as they were, so the plan carries forward.
+        if (outcomeChoice === 'did_not_attend') return { nextSessionOn: nextSessionOn || null };
+        // onSubmit has already refused content that won't clean.
+        const cleaned = cleanAdvisingContent(advising);
         return {
           sessionDate,
           advisorName,
+          attendees: attendees
+            .split(/[,;\n]/)
+            .map((a) => a.trim())
+            .filter(Boolean),
+          nextSessionOn: nextSessionOn || null,
+          ...('content' in cleaned ? cleaned.content : {}),
         };
+      }
       case 'data_submission':
         // QI data is entered directly in REDCap; we only confirm submission
         // here. The task itself already carries the period (e.g. "Jan 2026")
@@ -226,6 +273,13 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    if (task.template.taskType === 'qi_advising') {
+      const cleaned = cleanAdvisingContent(advising);
+      if ('error' in cleaned) {
+        setError(cleaned.error);
+        return;
+      }
+    }
     setSubmitting(true);
     try {
       const { status, outcome } = outcomeOptionToWire(outcomeChoice);
@@ -263,7 +317,11 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-card">
+      <div
+        className={`max-h-[92vh] w-full overflow-y-auto rounded-2xl bg-white shadow-card ${
+          task.template.taskType === 'qi_advising' ? 'max-w-3xl' : 'max-w-2xl'
+        }`}
+      >
         <div className="h-1.5 w-full bg-cpcqc-pink" />
         <div className="flex items-start justify-between gap-4 px-6 pt-5">
           <div>
@@ -288,6 +346,8 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
         </div>
 
         <form onSubmit={onSubmit} className="space-y-5 px-6 pb-6 pt-4">
+          <QiSummaryDownload task={task} />
+
           {task.template.taskType === 'enrollment_form' && (
             <>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -391,8 +451,46 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
                     className="modal-input"
                   />
                 </Field>
+                <Field label="Hospital attendees">
+                  <input
+                    type="text"
+                    value={attendees}
+                    onChange={(e) => setAttendees(e.target.value)}
+                    placeholder="Names, separated by commas"
+                    className="modal-input"
+                  />
+                </Field>
+                <Field label="Next 1:1">
+                  <input
+                    type="date"
+                    value={nextSessionOn}
+                    onChange={(e) => setNextSessionOn(e.target.value)}
+                    className="modal-input"
+                  />
+                </Field>
               </div>
+              <QiAdvisingEditor
+                value={advising}
+                onChange={setAdvising}
+                carriedFrom={carriedAims?.period ?? null}
+              />
             </>
+          )}
+
+          {task.template.taskType === 'qi_advising' && outcomeChoice === 'did_not_attend' && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Next 1:1">
+                <input
+                  type="date"
+                  value={nextSessionOn}
+                  onChange={(e) => setNextSessionOn(e.target.value)}
+                  className="modal-input"
+                />
+                <span className="mt-1.5 block text-xs text-cpcqc-purple-dark/65">
+                  The team&apos;s aims and PDSA tests carry forward to it.
+                </span>
+              </Field>
+            </div>
           )}
 
           {task.template.taskType === 'data_submission' && (
@@ -426,7 +524,9 @@ export function ManageTaskModal({ task, onClose, onUpdated }: ManageTaskModalPro
             </Field>
           )}
 
-          <Field label="Notes (optional)">
+          <Field
+            label={task.template.taskType === 'qi_advising' ? 'Comments (optional)' : 'Notes (optional)'}
+          >
             <textarea
               rows={3}
               value={notes}

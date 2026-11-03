@@ -26,6 +26,7 @@ import {
   payloadSchemaForType,
   type ManageTaskBody,
 } from './tasks.schemas.js';
+import { qiAdvisingContentSchema, qiYearSummary } from './qi-advising.js';
 
 // -------- Reads --------
 
@@ -206,6 +207,12 @@ export async function manageTask(taskId: string, body: unknown, ctx: AuthContext
   if (parsed.payload !== undefined) {
     const specificSchema = payloadSchemaForType(template.taskType);
     validatedPayload = specificSchema.parse(parsed.payload) as Record<string, unknown>;
+    // A 1:1's payload is shared: hospitals edit its notes and aims between
+    // calls (updateAdvisingContent), and the PM spreadsheet upload adds
+    // attendees and notes. Merge, so a staff save keeps whatever it didn't send.
+    if (template.taskType === 'qi_advising') {
+      validatedPayload = { ...asRecord(task.payload), ...validatedPayload };
+    }
   }
 
   const now = new Date();
@@ -400,7 +407,111 @@ export async function setTaskNote(
   return await fetchShapedTaskRow(taskId);
 }
 
+// -------- QI 1:1 notes and aims (any authenticated user) --------
+
+/**
+ * Update a QI 1:1's call notes and its aims and PDSA tests. Hospital users can
+ * edit their own hospital's 1:1s — CPCQC wants them keeping their PDSA work
+ * current between calls — and CPCQC staff can edit any. Attendance, the
+ * session date and the next 1:1 stay staff-only, through manageTask().
+ *
+ * Fields not sent are left alone; an empty string clears a note, and an empty
+ * array clears the aims.
+ */
+export async function updateAdvisingContent(taskId: string, body: unknown, ctx: AuthContext) {
+  const content = qiAdvisingContentSchema.parse(body);
+
+  const task = await db.query.taskInstances.findFirst({
+    where: eq(schema.taskInstances.id, taskId),
+  });
+  if (!task) throw new HttpError(404, 'Task not found');
+  const template = await db.query.taskTemplates.findFirst({
+    where: eq(schema.taskTemplates.id, task.taskTemplateId),
+  });
+  if (template?.taskType !== 'qi_advising') {
+    throw new HttpError(400, 'Only QI 1:1 tasks have call notes and aims.');
+  }
+  const enrollment = await db.query.enrollments.findFirst({
+    where: eq(schema.enrollments.id, task.enrollmentId),
+  });
+  if (!enrollment) throw new HttpError(500, 'Task references missing enrollment');
+  // The same rule as comments: anyone who can see the task can work on it.
+  assertCanReadEnrollment(enrollment.hospitalId, ctx);
+
+  const sent = Object.fromEntries(
+    Object.entries(content).filter(([, v]) => v !== undefined),
+  );
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(schema.taskInstances)
+      .set({ payload: { ...asRecord(task.payload), ...sent }, updatedBy: ctx.userId, updatedAt: now })
+      .where(eq(schema.taskInstances.id, taskId));
+
+    await tx.insert(schema.auditLog).values({
+      id: uuid(),
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      action: 'task.advising_update',
+      entityType: 'task_instance',
+      entityId: taskId,
+      diff: { fields: Object.keys(sent) },
+    });
+  });
+
+  return await fetchShapedTaskRow(taskId);
+}
+
+/**
+ * One enrollment's year of QI 1:1s for the end-of-year summary. Anyone who can
+ * see the enrollment's tasks can download it.
+ */
+export async function getQiYearSummary(enrollmentId: string, year: number, ctx: AuthContext) {
+  const enrollment = await db.query.enrollments.findFirst({
+    where: eq(schema.enrollments.id, enrollmentId),
+  });
+  if (!enrollment) throw new HttpError(404, 'Enrollment not found');
+  assertCanReadEnrollment(enrollment.hospitalId, ctx);
+
+  const [hospital, cohort] = await Promise.all([
+    db.query.hospitals.findFirst({ where: eq(schema.hospitals.id, enrollment.hospitalId) }),
+    db.query.cohorts.findFirst({ where: eq(schema.cohorts.id, enrollment.cohortId) }),
+  ]);
+  const initiative = cohort
+    ? await db.query.initiatives.findFirst({ where: eq(schema.initiatives.id, cohort.initiativeId) })
+    : undefined;
+  const advising = await db
+    .select({
+      period: schema.taskInstances.period,
+      status: schema.taskInstances.status,
+      outcome: schema.taskInstances.outcome,
+      payload: schema.taskInstances.payload,
+    })
+    .from(schema.taskInstances)
+    .innerJoin(schema.taskTemplates, eq(schema.taskTemplates.id, schema.taskInstances.taskTemplateId))
+    .where(
+      and(
+        eq(schema.taskInstances.enrollmentId, enrollmentId),
+        eq(schema.taskTemplates.taskType, 'qi_advising'),
+      ),
+    );
+
+  return {
+    hospitalName: hospital?.name ?? 'Hospital',
+    initiativeCode: initiative?.code ?? 'QI',
+    initiativeName: initiative?.name ?? 'Initiative',
+    cohortLabel: cohort?.label ?? null,
+    summary: qiYearSummary(advising, year),
+  };
+}
+
 // -------- Helpers --------
+
+function asRecord(payload: unknown): Record<string, unknown> {
+  return payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>)
+    : {};
+}
 
 function assertCanReadEnrollment(hospitalId: string, ctx: AuthContext) {
   if (ctx.role === 'cpcqc_staff' || ctx.role === 'cpcqc_admin') return;

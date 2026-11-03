@@ -61,14 +61,11 @@ export default function PortalTasksPage() {
       .map((code) => ({ code, name: byCode.get(code)! }));
   }, [tasks]);
 
-  const filtered = useMemo<TaskRow[]>(() => {
+  // Adapt the aggregated shape to the richer TaskRow shape consumed by TaskTable.
+  const rows = useMemo<Array<TaskRow & { initiativeCode: string }>>(() => {
     if (!tasks) return [];
-    let rows = filter === 'all' ? tasks : tasks.filter((t) => t.status === filter);
-    if (initiativeFilter !== 'all') {
-      rows = rows.filter((t) => t.initiative.code === initiativeFilter);
-    }
-    // Adapt the aggregated shape to the richer TaskRow shape consumed by TaskTable.
-    return rows.map((t) => ({
+    return tasks.map((t) => ({
+      initiativeCode: t.initiative.code,
       id: t.id,
       enrollmentId: t.enrollmentId,
       programYear: t.programYear,
@@ -94,7 +91,15 @@ export default function PortalTasksPage() {
       payload: t.payload,
       updatedAt: t.updatedAt,
     }));
-  }, [tasks, filter, initiativeFilter]);
+  }, [tasks]);
+
+  const filtered = useMemo<TaskRow[]>(() => {
+    let out = filter === 'all' ? rows : rows.filter((t) => t.status === filter);
+    if (initiativeFilter !== 'all') {
+      out = out.filter((t) => t.initiativeCode === initiativeFilter);
+    }
+    return out;
+  }, [rows, filter, initiativeFilter]);
 
   // Keep the saved version, so reopening a task shows what was just saved.
   function handleUpdated(u: TaskRow) {
@@ -201,6 +206,7 @@ export default function PortalTasksPage() {
       ) : (
         <TaskTable
           tasks={filtered}
+          allTasks={rows}
           onTaskUpdated={handleUpdated}
           showInitiative
           initiativeByEnrollment={initiativeByEnrollment}

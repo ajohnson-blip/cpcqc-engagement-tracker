@@ -551,6 +551,10 @@ export interface MyEnrollment {
   allProgramYears: ComplianceForProgramYear[];
   cohortBenchmark: CohortBenchmark | null;
   team: InitiativeTeam | null;
+  /** Set at the latest QI 1:1; null once it has passed or when none is set. */
+  nextQiSessionOn: string | null;
+  /** The most recent 1:1 with call notes; sessionDate is null if notes came before the call. */
+  latestQiNotes: { period: string; sessionDate: string | null } | null;
 }
 
 export type TaskType =
@@ -575,6 +579,36 @@ export type TaskOutcome =
   | 'missed'
   | 'not_submitted'
   | null;
+
+// ---------- QI 1:1 notes, aims and PDSA tests ----------
+// Stored in a qi_advising task's payload; see backend qi-advising.ts.
+
+export type PdsaStage = 'plan' | 'do' | 'study' | 'act';
+export type PdsaDecision = 'adopt' | 'adapt' | 'abandon';
+
+export interface PdsaTest {
+  change: string;
+  stage: PdsaStage;
+  learning?: string;
+  /** Recorded once a test reaches Act. */
+  decision?: PdsaDecision;
+}
+
+export interface QiAim {
+  statement: string;
+  tests: PdsaTest[];
+  /** When the team marked the aim complete (YYYY-MM-DD). */
+  completedOn?: string;
+}
+
+/** The part of a 1:1 that hospitals and advisors both edit. */
+export interface QiAdvisingContent {
+  progress?: string;
+  challenges?: string;
+  priorities?: string;
+  notes?: string;
+  aims?: QiAim[];
+}
 
 export interface TaskRow {
   id: string;
