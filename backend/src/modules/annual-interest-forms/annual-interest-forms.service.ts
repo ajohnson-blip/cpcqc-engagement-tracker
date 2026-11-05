@@ -821,7 +821,7 @@ async function sendSubmissionEmails(form: InterestFormShape, wasUpdate: boolean)
 async function sendAcceptanceEmail(form: InterestFormShape): Promise<void> {
   const decided = form.decidedInitiatives ?? [];
   const initiatives = RANKABLE_INITIATIVE_CODES.filter((c) => decided.includes(c));
-  const { subject, body } = acceptanceEmail({
+  const { subject, body, html } = acceptanceEmail({
     submitterName: form.submitterName,
     hospitalName: form.hospital.name,
     programYear: form.programYear,
@@ -838,6 +838,7 @@ async function sendAcceptanceEmail(form: InterestFormShape): Promise<void> {
     kind: 'annual_interest.accepted',
     fromEmail: env.EMAIL_FROM_ENROLLMENT,
     body,
+    html,
   });
 }
 

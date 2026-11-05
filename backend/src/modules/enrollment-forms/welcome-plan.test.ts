@@ -88,6 +88,8 @@ describe('planWelcomeEmails', () => {
     expect(mine[0]).toMatchObject({
       recipients: [{ name: 'Jordan Lee', email: 'jordan@example.test' }],
       source: 'Interest form',
+      forTeam: false,
+      accepted: ['SPARK', 'NEST', 'TTT'],
     });
     expect(mine[0]!.links.map((l) => l.code)).toEqual(['SPARK', 'NEST', 'TTT']);
   });
@@ -99,6 +101,11 @@ describe('planWelcomeEmails', () => {
     expect(theirs.map((e) => [e.recipients.map((r) => r.email), e.source, e.links.map((l) => l.code)])).toEqual([
       [['avery@example.test', 'blake@example.test'], 'SOAR roster', ['SOAR']],
       [['riley@example.test'], 'TtT roster', ['TTT']],
+    ]);
+    // Each team hears everything the hospital was accepted into.
+    expect(theirs.map((e) => [e.forTeam, e.accepted])).toEqual([
+      [true, ['SOAR', 'TTT']],
+      [true, ['SOAR', 'TTT']],
     ]);
   });
 

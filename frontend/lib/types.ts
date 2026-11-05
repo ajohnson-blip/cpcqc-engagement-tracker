@@ -1063,8 +1063,13 @@ export interface WelcomePreviewEmail {
   hospitals: Array<{ id: string; name: string }>;
   links: Array<{ code: EnrollableInitiativeCode; hospitalId: string; hospitalName: string }>;
   warning: string | null;
+  /** Everything the hospital was accepted into; a team's email links only its own form. */
+  accepted: EnrollableInitiativeCode[];
+  forTeam: boolean;
   subject: string;
   body: string;
+  /** What recipients see: the email with each link named. */
+  html: string;
 }
 
 export interface WelcomePlanNote {

@@ -65,18 +65,62 @@ export const longDate = (iso: string) =>
     timeZone: 'UTC',
   });
 
+const ORDER: FormInitiativeCode[] = ['SPARK', 'SOAR', 'NEST', 'TTT'];
+
+// -------- Rendering --------
+
+/** A named link: the bare URL in the plain-text part, `label` in the HTML. */
+interface LinkSegment {
+  label: string;
+  url: string;
+}
+type Line = Array<string | LinkSegment>;
+/** An email as paragraphs of lines, so it can be written once and sent both ways. */
+type Paragraph = Line[];
+
+export interface RenderedEmail {
+  subject: string;
+  /** Plain text, with bare URLs, for mail programs that show only text. */
+  body: string;
+  /** The same email with each link named, e.g. "NEST Enrollment Form". */
+  html: string;
+}
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function render(subject: string, paragraphs: Paragraph[]): RenderedEmail {
+  const text = (line: Line) => line.map((seg) => (typeof seg === 'string' ? seg : seg.url)).join('');
+  const html = (line: Line) =>
+    line
+      .map((seg) =>
+        typeof seg === 'string'
+          ? escapeHtml(seg)
+          : `<a href="${escapeHtml(seg.url)}" style="color:#6B529B;font-weight:bold;">${escapeHtml(seg.label)}</a>`,
+      )
+      .join('');
+  return {
+    subject,
+    body: paragraphs.map((p) => p.map(text).join('\n')).join('\n\n'),
+    html:
+      '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#2a2536;">' +
+      paragraphs.map((p) => `<p style="margin:0 0 14px;">${p.map(html).join('<br>')}</p>`).join('') +
+      '</div>',
+  };
+}
+
+/** "SPARK, SOAR and TtT", for sentences about initiatives. */
+function listCodes(codes: FormInitiativeCode[]): string {
+  const n = codes.map((c) => INITIATIVE_SHORT[c]);
+  return n.length <= 1 ? (n[0] ?? '') : `${n.slice(0, -1).join(', ')} and ${n.at(-1)}`;
+}
+
 function datesLine(dates: EnrollmentDates): string {
   if (!dates.opensAt || !dates.closesAt) {
     return 'CPCQC will let you know when enrollment forms open.';
   }
   return `Enrollment forms can be submitted from ${longDate(dates.opensAt)} to ${longDate(dates.closesAt)}.`;
 }
-
-function linkLines(links: EnrollmentLink[]): string[] {
-  return links.flatMap((l) => [`- ${INITIATIVE_NAMES[l.code]}`, `  ${l.url}`]);
-}
-
-const ORDER: FormInitiativeCode[] = ['SPARK', 'SOAR', 'NEST', 'TTT'];
 
 /**
  * Who the greeting names: one person, two or three by name, or a whole team
@@ -106,57 +150,94 @@ export interface WelcomeEmailInput {
   programYear: number;
   /** One per initiative per hospital; usually one hospital. */
   links: WelcomeLink[];
+  /**
+   * Everything the hospital was accepted into, which a team's email lists in
+   * full though it links only that team's form. Defaults to the linked ones.
+   */
+  accepted?: FormInitiativeCode[];
+  /** Sent to one initiative's team, whose colleagues get the other forms. */
+  forTeam?: boolean;
   /** The enrollment window's last day (ISO), or null when not yet set. */
   closesAt: string | null;
 }
 
 /**
  * "Welcome to enroll": the hospital's acceptances, with a link to each
- * initiative's enrollment form. A roster that covers two sites (UCHealth
- * Memorial Central and North, one hospital in 2026) gets both sites' links in
- * one email, and is told each site files its own form.
+ * enrollment form the reader is responsible for. A team's email names every
+ * initiative the hospital was accepted into, so the NEST team isn't left
+ * wondering about the rest, but links only NEST's form. A roster that covers
+ * two sites (UCHealth Memorial Central and North, one hospital in 2026) gets
+ * both sites' links in one email, and is told each site files its own form.
  */
-export function welcomeEmail(input: WelcomeEmailInput): { subject: string; body: string } {
+export function welcomeEmail(input: WelcomeEmailInput): RenderedEmail {
   const hospitals = [...new Set(input.links.map((l) => l.hospitalName))];
   const who = hospitals.join(' and ');
   const several = hospitals.length > 1;
-  const codes = ORDER.filter((c) => input.links.some((l) => l.code === c));
-  const accepted = codes.map((c) => (c === 'TTT' ? 'TtT (continuing)' : INITIATIVE_SHORT[c])).join(', ');
+  const linked = ORDER.filter((c) => input.links.some((l) => l.code === c));
+  const accepted = ORDER.filter((c) => (input.accepted ?? linked).includes(c) || linked.includes(c));
+  const others = accepted.filter((c) => !linked.includes(c));
   const name = input.recipientName?.trim();
-  const lines = input.links.map(
-    (l) =>
-      `– ${INITIATIVE_NAMES[l.code]}${l.code === 'TTT' ? ' (continuation form)' : ''}` +
-      `${several ? ` for ${l.hospitalName}` : ''}, ${l.url}`,
-  );
-  return {
-    subject: `CPCQC ${input.programYear} — ${who} ${several ? 'have' : 'has'} been accepted`,
-    body: [
-      `Hi ${name || 'there'},`,
-      '',
-      `Good news — ${who} ${several ? 'have' : 'has'} been accepted into the following initiative(s) for ${input.programYear}: ${accepted}.`,
-      '',
-      'Next step: complete an enrollment form for each initiative. Each initiative has its own form, and ' +
-        `your hospital isn’t enrolled until each one is submitted and confirmed. ${ONE_PERSON}`,
-      '',
-      ...lines,
-      '',
-      ...(several
-        ? [
-            `${who} enrolled together as one hospital in ${input.programYear - 1}. For ${input.programYear}, ` +
-              'each needs its own enrollment form, so please submit one for each.',
-            '',
-          ]
-        : []),
-      ...(codes.includes('TTT') ? [TTT_REQUIRED, ''] : []),
-      input.closesAt
-        ? `Enrollment forms must be submitted by ${longDate(input.closesAt)} to meet Colorado law.`
-        : 'CPCQC will let you know when enrollment forms open.',
-      '',
-      'If anything has changed or if you have additional questions, please contact qi@cpcqc.org.',
-    ].join('\n'),
-  };
-}
+  const acceptedList = accepted.map((c) => (c === 'TTT' ? 'TtT (continuing)' : INITIATIVE_SHORT[c])).join(', ');
 
+  const paragraphs: Paragraph[] = [
+    [[`Hi ${name || 'there'},`]],
+    [
+      [
+        `Good news — ${who} ${several ? 'have' : 'has'} been accepted into the following ` +
+          `initiative(s) for ${input.programYear}: ${acceptedList}.`,
+      ],
+    ],
+    [
+      [
+        'Next step: complete an enrollment form for each initiative. Each initiative has its own form, and ' +
+          `your hospital isn’t enrolled until each one is submitted and confirmed. ${ONE_PERSON}`,
+      ],
+    ],
+    ...(input.forTeam && others.length > 0
+      ? [
+          [
+            [
+              `This email has your ${listCodes(linked)} enrollment form${linked.length > 1 ? 's' : ''}. ` +
+                (others.length === 1
+                  ? `The ${listCodes(others)} form goes to that initiative’s team.`
+                  : `The ${listCodes(others)} forms go to those initiatives’ teams.`),
+            ],
+          ],
+        ]
+      : []),
+    input.links.map((l) => [
+      `– ${INITIATIVE_NAMES[l.code]}${l.code === 'TTT' ? ' (continuation form)' : ''}` +
+        `${several ? ` for ${l.hospitalName}` : ''}, `,
+      {
+        label: `${INITIATIVE_SHORT[l.code]} Enrollment Form${several ? `: ${l.hospitalName}` : ''}`,
+        url: l.url,
+      },
+    ]),
+    ...(several
+      ? [
+          [
+            [
+              `${who} enrolled together as one hospital in ${input.programYear - 1}. For ${input.programYear}, ` +
+                'each needs its own enrollment form, so please submit one for each.',
+            ],
+          ],
+        ]
+      : []),
+    ...(linked.includes('TTT') ? [[[TTT_REQUIRED]]] : []),
+    [
+      [
+        input.closesAt
+          ? `Enrollment forms must be submitted by ${longDate(input.closesAt)} to meet Colorado law.`
+          : 'CPCQC will let you know when enrollment forms open.',
+      ],
+    ],
+    [['If anything has changed or if you have additional questions, please contact qi@cpcqc.org.']],
+  ];
+  return render(
+    `CPCQC ${input.programYear} — ${who} ${several ? 'have' : 'has'} been accepted`,
+    paragraphs,
+  );
+}
 
 export interface AcceptanceEmailInput {
   submitterName: string;
@@ -168,12 +249,13 @@ export interface AcceptanceEmailInput {
   dates: EnrollmentDates;
 }
 
-export function acceptanceEmail(input: AcceptanceEmailInput): { subject: string; body: string } {
+export function acceptanceEmail(input: AcceptanceEmailInput): RenderedEmail {
   if (input.links.length > 0) {
     return welcomeEmail({
       recipientName: input.submitterName,
       programYear: input.programYear,
       links: input.links.map((l) => ({ ...l, hospitalName: input.hospitalName })),
+      accepted: input.initiatives,
       closesAt: input.dates.closesAt,
     });
   }
@@ -181,35 +263,18 @@ export function acceptanceEmail(input: AcceptanceEmailInput): { subject: string;
     input.initiatives.length > 0
       ? `into the following initiative(s) for ${input.programYear}: ${input.initiatives.join(', ')}`
       : `for ${input.programYear}`;
-  const next =
-    input.links.length > 0
-      ? [
-          'Next step: complete an enrollment form for each initiative. Each initiative has ' +
-            "its own form, and your hospital isn't enrolled until each one is submitted and confirmed.",
-          '',
-          ...linkLines(input.links),
-          '',
-          datesLine(input.dates),
-          '',
-          'CPCQC will follow up with onboarding details and key dates.',
-        ]
-      : [
-          "What's next: CPCQC will follow up with the detailed, initiative-specific " +
-            'Enrollment Form(s) for each accepted initiative, along with onboarding ' +
-            'details and key dates.',
-        ];
-  return {
-    subject: `CPCQC ${input.programYear} — ${input.hospitalName} has been accepted`,
-    body: [
-      `Hi ${input.submitterName.trim()},`,
-      '',
-      `Good news — ${input.hospitalName} has been accepted ${accepted}.`,
-      '',
-      ...next,
-      '',
-      'Questions? qi@cpcqc.org',
-    ].join('\n'),
-  };
+  return render(`CPCQC ${input.programYear} — ${input.hospitalName} has been accepted`, [
+    [[`Hi ${input.submitterName.trim()},`]],
+    [[`Good news — ${input.hospitalName} has been accepted ${accepted}.`]],
+    [
+      [
+        "What's next: CPCQC will follow up with the detailed, initiative-specific " +
+          'Enrollment Form(s) for each accepted initiative, along with onboarding ' +
+          'details and key dates.',
+      ],
+    ],
+    [['Questions? qi@cpcqc.org']],
+  ]);
 }
 
 export interface EnrollmentFormEmailInput {
@@ -221,38 +286,32 @@ export interface EnrollmentFormEmailInput {
   dates: EnrollmentDates;
 }
 
-export function enrollmentFormEmail(input: EnrollmentFormEmailInput): {
-  subject: string;
-  body: string;
-} {
+export function enrollmentFormEmail(input: EnrollmentFormEmailInput): RenderedEmail {
   const one = input.links.length === 1;
   const name = input.recipientName?.trim();
-  return {
-    subject: one
+  return render(
+    one
       ? `${input.hospitalName}: CPCQC ${input.programYear} ${input.links[0]!.code} enrollment form`
       : `${input.hospitalName}: CPCQC ${input.programYear} enrollment forms`,
-    body: [
-      `Hi ${name || 'there'},`,
-      '',
-      one
-        ? `Here is ${input.hospitalName}'s ${input.programYear} CPCQC enrollment form. ` +
-          `Your hospital isn't enrolled until it is submitted and confirmed. ${ONE_PERSON}`
-        : `Here are ${input.hospitalName}'s ${input.programYear} CPCQC enrollment forms, one for each initiative. ` +
-          `Your hospital isn't enrolled in an initiative until its form is submitted and confirmed. ${ONE_PERSON}`,
-      '',
-      ...linkLines(input.links),
-      '',
-      ...(input.links.some((l) => l.code === 'TTT')
-        ? [
-            TTT_REQUIRED,
-            '',
-          ]
-        : []),
-      datesLine(input.dates),
-      '',
-      'Questions? qi@cpcqc.org',
-      '',
-      'Colorado Perinatal Care Quality Collaborative',
-    ].join('\n'),
-  };
+    [
+      [[`Hi ${name || 'there'},`]],
+      [
+        [
+          one
+            ? `Here is ${input.hospitalName}'s ${input.programYear} CPCQC enrollment form. ` +
+              `Your hospital isn't enrolled until it is submitted and confirmed. ${ONE_PERSON}`
+            : `Here are ${input.hospitalName}'s ${input.programYear} CPCQC enrollment forms, one for each initiative. ` +
+              `Your hospital isn't enrolled in an initiative until its form is submitted and confirmed. ${ONE_PERSON}`,
+        ],
+      ],
+      input.links.map((l) => [
+        `– ${INITIATIVE_NAMES[l.code]}, `,
+        { label: `${INITIATIVE_SHORT[l.code]} Enrollment Form`, url: l.url },
+      ]),
+      ...(input.links.some((l) => l.code === 'TTT') ? [[[TTT_REQUIRED]]] : []),
+      [[datesLine(input.dates)]],
+      [['Questions? qi@cpcqc.org']],
+      [['Colorado Perinatal Care Quality Collaborative']],
+    ],
+  );
 }

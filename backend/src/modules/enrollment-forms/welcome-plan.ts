@@ -167,6 +167,13 @@ export interface PlannedEmail {
   /** The hospitals the email is about; two when one roster covers both. */
   hospitals: PlanHospital[];
   links: PlannedLink[];
+  /**
+   * Everything those hospitals were accepted into. A team's email lists it
+   * all, so no team wonders about the rest, but links only its own form.
+   */
+  accepted: FormInitiativeCode[];
+  /** Sent to one initiative's team rather than to whoever filed the interest form. */
+  forTeam: boolean;
   /** Something staff should know before sending, e.g. a sheet/tracker mismatch. */
   warning: string | null;
 }
@@ -200,13 +207,15 @@ export function planWelcomeEmails(input: PlanInput): WelcomePlan {
 
   const add = (
     key: string,
-    base: Omit<PlannedEmail, 'links' | 'hospitals'>,
+    base: Omit<PlannedEmail, 'links' | 'hospitals' | 'accepted'>,
     hospitals: PlanHospital[],
     link: PlannedLink,
+    accepted: FormInitiativeCode[],
   ) => {
-    const e = emails.get(key) ?? { ...base, hospitals: [], links: [] };
+    const e = emails.get(key) ?? { ...base, hospitals: [], links: [], accepted: [] };
     for (const h of hospitals) if (!e.hospitals.some((x) => x.id === h.id)) e.hospitals.push(h);
     e.links.push(link);
+    for (const c of accepted) if (!e.accepted.includes(c)) e.accepted.push(c);
     emails.set(key, e);
   };
 
@@ -259,9 +268,11 @@ export function planWelcomeEmails(input: PlanInput): WelcomePlan {
             recipients: [{ name: interest.submitterName.trim(), email: interest.submitterEmail.trim() }],
             source: 'Interest form',
             warning: null,
+            forTeam: false,
           },
           [hospital],
           { code, hospitalId: hospital.id, hospitalName: hospital.name },
+          row.send,
         );
       }
       continue;
@@ -299,15 +310,21 @@ export function planWelcomeEmails(input: PlanInput): WelcomePlan {
           recipients: people.map((p) => ({ name: p.name.trim(), email: p.email!.trim() })),
           source: `${INITIATIVE_SHORT[code]} roster`,
           warning,
+          forTeam: true,
         },
         // The roster's own hospital first, then any whose links it carries.
         [rosterHospital, hospital],
         { code, hospitalId: hospital.id, hospitalName: hospital.name },
+        row.send,
       );
     }
   }
 
-  const planned = [...emails.values()].map((e) => ({ ...e, links: [...e.links].sort(byOrder) }));
+  const planned = [...emails.values()].map((e) => ({
+    ...e,
+    links: [...e.links].sort(byOrder),
+    accepted: ORDER.filter((c) => e.accepted.includes(c)),
+  }));
   planned.sort(
     (a, b) =>
       a.hospitals[0]!.name.localeCompare(b.hospitals[0]!.name) ||

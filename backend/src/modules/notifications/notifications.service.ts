@@ -28,7 +28,10 @@ export interface SendEmailInput {
    *  each, so the team files one form. */
   alsoTo?: string[];
   subject: string;
+  /** Plain text: always sent, and what the notifications log keeps. */
   body: string;
+  /** The same email as HTML, sent alongside the text, e.g. to name links. */
+  html?: string;
   kind: string;
   userId?: string | null;
   relatedTaskId?: string | null;
@@ -102,7 +105,11 @@ export async function sendEmail(
         personalizations: [{ to: to.map((email) => ({ email })) }],
         from: { email: input.fromEmail ?? env.EMAIL_FROM, name: 'CPCQC Engagement Tracker' },
         subject: input.subject,
-        content: [{ type: 'text/plain', value: input.body }],
+        // Text first, then HTML: SendGrid requires that order.
+        content: [
+          { type: 'text/plain', value: input.body },
+          ...(input.html ? [{ type: 'text/html', value: input.html }] : []),
+        ],
         // Click tracking OFF. SendGrid otherwise rewrites every link through a
         // shared tracking host (u*.ct.sendgrid.net), which breaks these emails
         // in three ways: hospital mail security blocks that domain as a phishing

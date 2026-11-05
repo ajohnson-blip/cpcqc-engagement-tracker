@@ -22,6 +22,9 @@ import { sendEmail } from '@/modules/notifications/notifications.service.js';
 import { csvToRows } from '@/modules/ce/ce-roster.js';
 import { getEnrollmentStepWindow, type EnrollmentWindowState } from './enrollment-forms.service.js';
 import { enrollmentFormUrl, greetingFor, longDate, welcomeEmail } from './enrollment-emails.js';
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 import {
   interestFormAcceptances,
   parseAcceptanceSheet,
@@ -45,6 +48,8 @@ const ACCEPTABLE = ['SPARK', 'SOAR', 'NEST'];
 export interface WelcomePreviewEmail extends PlannedEmail {
   subject: string;
   body: string;
+  /** What most recipients see: the same email with each link named. */
+  html: string;
 }
 
 export interface WelcomePreview {
@@ -176,6 +181,8 @@ async function prepareWelcome(
     ...welcomeEmail({
       recipientName: greetingFor(e.recipients.map((r) => r.name)),
       programYear,
+      accepted: e.accepted,
+      forTeam: e.forTeam,
       links: e.links.map((l) => ({
         code: l.code,
         hospitalName: l.hospitalName,
@@ -215,14 +222,16 @@ export async function sendWelcomeTest(
     ? await db.query.users.findFirst({ where: eq(schema.users.id, ctx.userId) })
     : undefined;
   if (!me?.email) throw new HttpError(400, 'Your account has no email address to send the test to.');
+  const note =
+    'Test copy. In the real send this goes to ' +
+    `${e.recipients.map((r) => `${r.name} <${r.email}>`).join(', ')}.`;
   const result = await sendEmail({
     toEmail: me.email,
     fromEmail: env.EMAIL_FROM_ENROLLMENT,
     kind: 'enrollment.welcome_test',
     subject: `[Test] ${e.subject}`,
-    body:
-      `Test copy. In the real send this goes to ` +
-      `${e.recipients.map((r) => `${r.name} <${r.email}>`).join(', ')}.\n\n${e.body}`,
+    body: `${note}\n\n${e.body}`,
+    html: `<p style="font-family:Arial,Helvetica,sans-serif;color:#C1534E;">${escapeHtml(note)}</p>${e.html}`,
   });
   return { sentTo: me.email, emailSent: result.sent };
 }
@@ -261,6 +270,7 @@ export async function sendWelcome(
       kind: 'enrollment.welcome',
       subject: e.subject,
       body: e.body,
+      html: e.html,
     });
     if (outcome.sent || !env.SENDGRID_API_KEY) result.sent += 1;
     else {

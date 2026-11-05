@@ -331,9 +331,18 @@ function EmailRow({
         <tr className="bg-cpcqc-cream-dark/20">
           <td colSpan={5} className="px-3 pb-3">
             <p className="text-xs font-bold text-cpcqc-purple-dark/70">Subject: {email.subject}</p>
-            <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-white p-3 font-sans text-sm text-cpcqc-purple-dark">
-              {email.body}
-            </pre>
+            {/* As recipients see it. Sandboxed (no scripts), and the HTML is
+                built server-side with every value escaped. */}
+            <iframe
+              title={`Email to ${email.recipients.map((r) => r.name).join(', ')}`}
+              sandbox="allow-same-origin"
+              srcDoc={email.html}
+              onLoad={(e) => {
+                const doc = e.currentTarget.contentDocument;
+                if (doc) e.currentTarget.style.height = `${doc.documentElement.scrollHeight + 8}px`;
+              }}
+              className="mt-1 h-80 w-full rounded-lg border-0 bg-white p-1"
+            />
             <button
               type="button"
               onClick={onTest}

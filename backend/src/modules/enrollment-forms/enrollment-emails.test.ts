@@ -55,6 +55,39 @@ describe('welcomeEmail', () => {
     );
   });
 
+  it('names each link in the HTML instead of showing the address', () => {
+    const { html } = welcomeEmail({
+      recipientName: 'Jane <Doe>',
+      programYear: 2027,
+      links: [at('SPARK'), at('NEST')],
+      closesAt: '2026-12-01',
+    });
+    expect(html).toContain(`<a href="${link('SPARK').url.replace(/&/g, '&amp;')}"`);
+    expect(html).toContain('>SPARK Enrollment Form</a>');
+    expect(html).toContain('>NEST Enrollment Form</a>');
+    expect(html).not.toContain(`, ${link('NEST').url}`);
+    expect(html).toContain('Hi Jane &lt;Doe&gt;,');
+  });
+
+  it("lists all of a hospital's acceptances in a team's email but links only its own form", () => {
+    const { body, html } = welcomeEmail({
+      recipientName: 'everyone',
+      programYear: 2027,
+      links: [at('NEST')],
+      accepted: ['SPARK', 'SOAR', 'NEST', 'TTT'],
+      forTeam: true,
+      closesAt: '2026-12-01',
+    });
+    expect(body).toContain('for 2027: SPARK, SOAR, NEST, TtT (continuing).');
+    expect(body).toContain(
+      'This email has your NEST enrollment form. The SPARK, SOAR and TtT forms go to those initiatives’ teams.',
+    );
+    expect(html).toContain('>NEST Enrollment Form</a>');
+    expect(html).not.toContain('SPARK Enrollment Form');
+    // The TtT note belongs with the TtT form, which this team doesn't hold.
+    expect(body).not.toContain('still required by Colorado law');
+  });
+
   it('marks TtT as a continuation that is still required', () => {
     const { body } = welcomeEmail({
       recipientName: 'Jane',
@@ -77,6 +110,12 @@ describe('welcomeEmail', () => {
     expect(subject).toBe('CPCQC 2027 — Example Central and Example North have been accepted');
     expect(body).toContain('(continuation form) for Example Central, ');
     expect(body).toContain('(continuation form) for Example North, ');
+    expect(welcomeEmail({
+      recipientName: 'Morgan',
+      programYear: 2027,
+      links: [at('TTT', 'Example Central'), at('TTT', 'Example North')],
+      closesAt: '2026-12-01',
+    }).html).toContain('>TtT Enrollment Form: Example North</a>');
     expect(body).toContain(
       'Example Central and Example North enrolled together as one hospital in 2026. For 2027, each needs its own enrollment form',
     );

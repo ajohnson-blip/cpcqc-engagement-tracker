@@ -316,7 +316,7 @@ export async function sendEnrollmentForms(
 
   const toEmail = input.toEmail.trim();
   const toName = input.toName?.trim() || null;
-  const { subject, body } = enrollmentFormEmail({
+  const { subject, body, html } = enrollmentFormEmail({
     recipientName: toName,
     hospitalName: hospital.name,
     programYear: input.programYear,
@@ -332,6 +332,7 @@ export async function sendEnrollmentForms(
     kind: 'enrollment.form_sent',
     subject,
     body,
+    html,
   });
 
   // Recorded even when SendGrid refused it: the decision that this hospital
