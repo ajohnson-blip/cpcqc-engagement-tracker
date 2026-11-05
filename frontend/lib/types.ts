@@ -1080,6 +1080,8 @@ export interface WelcomePlanNote {
 
 export interface WelcomePreview {
   programYear: number;
+  /** The saved sheet this preview is from; test and send name it. */
+  sheet: { id: string; fileName: string | null; uploadedAt: string; uploadedBy: string | null };
   window: { opensAt: string | null; closesAt: string | null; state: 'before' | 'open' | 'after' };
   /** Why sending is refused right now, or null when it can go. */
   blocker: string | null;

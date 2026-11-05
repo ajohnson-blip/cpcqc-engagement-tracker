@@ -1,12 +1,11 @@
 /**
- * The welcome-to-enroll email and the enrollment-form email.
+ * The welcome-to-enroll email.
  *
- * All of their wording lives here, in one place, so CPCQC can revise it
- * without hunting through modules. The welcome email goes out when staff
- * upload the year's acceptances (and from the interest-form screen's accept);
- * the enrollment-form email is a single send or re-send from the
- * enrollment-forms screen. Both carry the same per-initiative links, so they
- * cannot drift apart in where they send a hospital.
+ * All of its wording lives here, in one place, so CPCQC can revise it without
+ * hunting through modules. It goes out when staff upload the year's
+ * acceptances, from the interest-form screen's accept, and as a single send
+ * or resend from the enrollment-forms screen, so a hospital reads the same
+ * email however it reaches them.
  *
  * Pure, so it is testable without a database (the `@/` alias does not resolve
  * under vitest).
@@ -113,13 +112,6 @@ function render(subject: string, paragraphs: Paragraph[]): RenderedEmail {
 function listCodes(codes: FormInitiativeCode[]): string {
   const n = codes.map((c) => INITIATIVE_SHORT[c]);
   return n.length <= 1 ? (n[0] ?? '') : `${n.slice(0, -1).join(', ')} and ${n.at(-1)}`;
-}
-
-function datesLine(dates: EnrollmentDates): string {
-  if (!dates.opensAt || !dates.closesAt) {
-    return 'CPCQC will let you know when enrollment forms open.';
-  }
-  return `Enrollment forms can be submitted from ${longDate(dates.opensAt)} to ${longDate(dates.closesAt)}.`;
 }
 
 /**
@@ -279,43 +271,4 @@ export function acceptanceEmail(input: AcceptanceEmailInput): RenderedEmail {
     ],
     [['Questions? qi@cpcqc.org']],
   ]);
-}
-
-export interface EnrollmentFormEmailInput {
-  /** Blank when staff typed only an address. */
-  recipientName: string | null;
-  hospitalName: string;
-  programYear: number;
-  links: EnrollmentLink[];
-  dates: EnrollmentDates;
-}
-
-export function enrollmentFormEmail(input: EnrollmentFormEmailInput): RenderedEmail {
-  const one = input.links.length === 1;
-  const name = input.recipientName?.trim();
-  return render(
-    one
-      ? `${input.hospitalName}: CPCQC ${input.programYear} ${input.links[0]!.code} enrollment form`
-      : `${input.hospitalName}: CPCQC ${input.programYear} enrollment forms`,
-    [
-      [[`Hi ${name || 'there'},`]],
-      [
-        [
-          one
-            ? `Here is ${input.hospitalName}'s ${input.programYear} CPCQC enrollment form. ` +
-              `Your hospital isn't enrolled until it is submitted and confirmed. ${ONE_PERSON}`
-            : `Here are ${input.hospitalName}'s ${input.programYear} CPCQC enrollment forms, one for each initiative. ` +
-              `Your hospital isn't enrolled in an initiative until its form is submitted and confirmed. ${ONE_PERSON}`,
-        ],
-      ],
-      input.links.map((l) => [
-        `– ${INITIATIVE_NAMES[l.code]}, `,
-        { label: `${INITIATIVE_SHORT[l.code]} Enrollment Form`, url: l.url },
-      ]),
-      ...(input.links.some((l) => l.code === 'TTT') ? [[[TTT_REQUIRED]]] : []),
-      [[datesLine(input.dates)]],
-      [['Questions? qi@cpcqc.org']],
-      [['Colorado Perinatal Care Quality Collaborative']],
-    ],
-  );
 }

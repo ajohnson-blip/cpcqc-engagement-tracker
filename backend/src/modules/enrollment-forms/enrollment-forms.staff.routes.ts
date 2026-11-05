@@ -15,7 +15,7 @@ import {
   getStaffEnrollmentOverview,
   sendEnrollmentForms,
 } from './enrollment-forms.staff.js';
-import { previewWelcome, sendWelcome, sendWelcomeTest } from './enrollment-welcome.js';
+import { previewWelcome, saveWelcomeSheet, sendWelcome, sendWelcomeTest } from './enrollment-welcome.js';
 
 const router = Router();
 
@@ -32,26 +32,35 @@ router.get('/recipients', requireAuth, requireStaff, async (req, res) => {
   res.json(await getRecipientSuggestions(hospitalId, programYear, req.auth!));
 });
 
-// The welcome-to-enroll send from the uploaded acceptances sheet (.xlsx or
-// .csv, sent as the raw request body). Each step re-reads the file: preview
-// sends nothing, test sends one email to the caller, send sends them all.
+// The welcome-to-enroll send. The acceptances sheet (.xlsx or .csv) is
+// uploaded once as the raw request body and saved; the preview, test and send
+// then work from the saved copy, so a page refresh loses nothing. Test and
+// send name the sheet they were previewed from.
 const rawSheetBody: RequestHandler = express.raw({ type: () => true, limit: '10mb' });
 
-router.post('/welcome/preview', requireAuth, requireStaff, rawSheetBody, async (req, res) => {
+router.get('/welcome', requireAuth, requireStaff, async (req, res) => {
   const programYear = programYearSchema.parse(req.query.programYear);
-  res.json(await previewWelcome(req.body as Buffer, programYear, req.auth!));
+  res.json({ preview: await previewWelcome(programYear, req.auth!) });
 });
 
-router.post('/welcome/test', requireAuth, requireStaff, rawSheetBody, async (req, res) => {
+router.post('/welcome/sheet', requireAuth, requireStaff, rawSheetBody, async (req, res) => {
   const programYear = programYearSchema.parse(req.query.programYear);
+  const fileName = z.string().max(300).optional().parse(req.query.fileName);
+  res.json({ preview: await saveWelcomeSheet(req.body as Buffer, fileName ?? null, programYear, req.auth!) });
+});
+
+router.post('/welcome/test', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const sheetId = z.string().min(1).parse(req.query.sheetId);
   const index = z.coerce.number().int().min(0).parse(req.query.index ?? 0);
-  res.json(await sendWelcomeTest(req.body as Buffer, programYear, index, req.auth!));
+  res.json(await sendWelcomeTest(programYear, sheetId, index, req.auth!));
 });
 
-router.post('/welcome/send', requireAuth, requireStaff, rawSheetBody, async (req, res) => {
+router.post('/welcome/send', requireAuth, requireStaff, async (req, res) => {
   const programYear = programYearSchema.parse(req.query.programYear);
+  const sheetId = z.string().min(1).parse(req.query.sheetId);
   const max = z.coerce.number().int().min(1).max(50).parse(req.query.max ?? 20);
-  res.json(await sendWelcome(req.body as Buffer, programYear, max, req.auth!));
+  res.json(await sendWelcome(programYear, sheetId, max, req.auth!));
 });
 
 /** Emails the hospital a link per initiative and adds it to each chase list. */

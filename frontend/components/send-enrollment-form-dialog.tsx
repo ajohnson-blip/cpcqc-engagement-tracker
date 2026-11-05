@@ -31,6 +31,9 @@ interface Props {
   /** Preselected from a chase-list row. */
   initialHospitalId?: string;
   initialInitiative?: EnrollableInitiativeCode;
+  /** Prefilled for a resend: who it went to before. */
+  initialToEmail?: string;
+  initialToName?: string | null;
   /** Initiatives each hospital has already filed — those can't be sent again. */
   filed: Map<string, Set<string>>;
   onCancel: () => void;
@@ -41,6 +44,8 @@ export function SendEnrollmentFormDialog({
   programYear,
   initialHospitalId,
   initialInitiative,
+  initialToEmail,
+  initialToName,
   filed,
   onCancel,
   onSent,
@@ -50,8 +55,8 @@ export function SendEnrollmentFormDialog({
   const [codes, setCodes] = useState<EnrollableInitiativeCode[]>(
     initialInitiative ? [initialInitiative] : [],
   );
-  const [toEmail, setToEmail] = useState('');
-  const [toName, setToName] = useState('');
+  const [toEmail, setToEmail] = useState(initialToEmail ?? '');
+  const [toName, setToName] = useState(initialToName ?? '');
   const [suggestions, setSuggestions] = useState<EnrollmentRecipientSuggestion[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +125,7 @@ export function SendEnrollmentFormDialog({
         <div className="h-1.5 w-full bg-cpcqc-pink" />
         <div className="flex items-start justify-between gap-4 px-6 pt-5">
           <h2 className="font-rounded text-xl font-extrabold text-cpcqc-purple-dark">
-            Send enrollment form
+            {initialToEmail ? 'Resend enrollment form' : 'Send enrollment form'}
           </h2>
           <button
             type="button"

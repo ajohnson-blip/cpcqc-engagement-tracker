@@ -211,6 +211,13 @@
       "when": 1787500000004,
       "tag": "0030_open_2027_enrollment",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1787500000005,
+      "tag": "0031_enrollment_acceptance_sheets",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   acceptanceEmail,
-  enrollmentFormEmail,
   enrollmentFormUrl,
   greetingFor,
   welcomeEmail,
@@ -155,36 +154,6 @@ describe('acceptanceEmail', () => {
     expect(body).toContain('has been accepted for 2027.');
     expect(body).toContain('CPCQC will follow up with the detailed, initiative-specific');
     expect(body).not.toContain('/enrollment/');
-  });
-});
-
-describe('enrollmentFormEmail', () => {
-  it('names one form in the subject when only one is sent', () => {
-    const { subject, body } = enrollmentFormEmail({
-      recipientName: 'Sam Lee',
-      hospitalName: 'Example Valley Hospital',
-      programYear: 2027,
-      links: [link('SOAR')],
-      dates,
-    });
-    expect(subject).toBe('Example Valley Hospital: CPCQC 2027 SOAR enrollment form');
-    expect(body).toContain('Hi Sam Lee,');
-    expect(body).toContain(link('SOAR').url);
-    expect(body).not.toContain('Submitting it is still required by Colorado law.');
-  });
-
-  it('greets an address-only recipient and explains the TtT form', () => {
-    const { subject, body } = enrollmentFormEmail({
-      recipientName: null,
-      hospitalName: 'Example Valley Hospital',
-      programYear: 2027,
-      links: [link('SPARK'), link('TTT')],
-      dates: { opensAt: null, closesAt: null },
-    });
-    expect(subject).toBe('Example Valley Hospital: CPCQC 2027 enrollment forms');
-    expect(body).toContain('Hi there,');
-    expect(body).toContain('Submitting it is still required by Colorado law.');
-    expect(body).toContain('CPCQC will let you know when enrollment forms open.');
   });
 });
 

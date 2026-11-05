@@ -59,6 +59,9 @@ export default function StaffEnrollmentFormsPage() {
   const [sendFor, setSendFor] = useState<{
     hospitalId?: string;
     initiative?: EnrollableInitiativeCode;
+    /** Set for a resend: the person it went to. */
+    toEmail?: string;
+    toName?: string | null;
   } | null>(null);
   const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -196,7 +199,19 @@ export default function StaffEnrollmentFormsPage() {
             })}
           </div>
 
-          {data.sent.length > 0 && <SentList sent={data.sent} />}
+          {data.sent.length > 0 && (
+            <SentList
+              sent={data.sent}
+              onResend={(s) =>
+                setSendFor({
+                  hospitalId: s.hospital.id,
+                  initiative: s.initiativeCode,
+                  toEmail: s.toEmail,
+                  toName: s.toName,
+                })
+              }
+            />
+          )}
 
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/60">
@@ -275,6 +290,8 @@ export default function StaffEnrollmentFormsPage() {
           programYear={PROGRAM_YEAR}
           initialHospitalId={sendFor.hospitalId}
           initialInitiative={sendFor.initiative}
+          initialToEmail={sendFor.toEmail}
+          initialToName={sendFor.toName}
           filed={filedByHospital}
           onCancel={() => setSendFor(null)}
           onSent={handleSent}
@@ -382,7 +399,17 @@ function CoverageCard({
  * Every form sent from this screen, newest first: what a PM checks when a
  * hospital says its link never arrived.
  */
-function SentList({ sent }: { sent: StaffEnrollmentFormSent[] }) {
+/**
+ * Every form sent this year, one row per person per form. Resend opens the
+ * send dialog filled in from the row, for a champion who asks for it again.
+ */
+function SentList({
+  sent,
+  onResend,
+}: {
+  sent: StaffEnrollmentFormSent[];
+  onResend: (s: StaffEnrollmentFormSent) => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="mb-6 rounded-2xl bg-white shadow-card ring-1 ring-cpcqc-purple-dark/5">
@@ -393,7 +420,7 @@ function SentList({ sent }: { sent: StaffEnrollmentFormSent[] }) {
         aria-expanded={open}
       >
         {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
-        Sent from here ({sent.length})
+        Sent ({sent.length})
       </button>
       {open && (
         <table className="w-full text-left text-sm">
@@ -404,6 +431,7 @@ function SentList({ sent }: { sent: StaffEnrollmentFormSent[] }) {
               <th className="px-4 py-2">To</th>
               <th className="px-4 py-2">Sent</th>
               <th className="px-4 py-2">By</th>
+              <th className="px-4 py-2" />
             </tr>
           </thead>
           <tbody>
@@ -422,6 +450,15 @@ function SentList({ sent }: { sent: StaffEnrollmentFormSent[] }) {
                   )}
                 </td>
                 <td className="px-4 py-2">{s.sentBy ?? '—'}</td>
+                <td className="px-4 py-2 text-right">
+                  <button
+                    type="button"
+                    onClick={() => onResend(s)}
+                    className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple hover:underline"
+                  >
+                    <Send size={12} aria-hidden /> Resend
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

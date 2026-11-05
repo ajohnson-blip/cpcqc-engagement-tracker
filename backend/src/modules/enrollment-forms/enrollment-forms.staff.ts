@@ -33,7 +33,8 @@ import {
   type InitiativeCode,
 } from './enrollment-forms.service.js';
 import { computeCoverage } from './enrollment-coverage.js';
-import { enrollmentFormEmail, enrollmentFormUrl } from './enrollment-emails.js';
+import { enrollmentFormUrl, welcomeEmail } from './enrollment-emails.js';
+import { sheetDecisionFor } from './enrollment-welcome.js';
 
 function assertStaff(ctx: AuthContext): void {
   if (ctx.role !== 'cpcqc_staff' && ctx.role !== 'cpcqc_admin') {
@@ -316,15 +317,29 @@ export async function sendEnrollmentForms(
 
   const toEmail = input.toEmail.trim();
   const toName = input.toName?.trim() || null;
-  const { subject, body, html } = enrollmentFormEmail({
+  // The same welcome email the upload sends, so a resend reads like the
+  // original: every initiative the sheet accepted the hospital into, and, for
+  // a hospital with no interest form, addressed to that initiative's team.
+  const decision = await sheetDecisionFor(input.programYear, hospital.name);
+  const interest = decision
+    ? null
+    : await db.query.annualInterestForms.findFirst({
+        where: and(
+          eq(schema.annualInterestForms.programYear, input.programYear),
+          eq(schema.annualInterestForms.hospitalId, hospital.id),
+        ),
+      });
+  const { subject, body, html } = welcomeEmail({
     recipientName: toName,
-    hospitalName: hospital.name,
     programYear: input.programYear,
     links: codes.map((code) => ({
       code,
+      hospitalName: hospital.name,
       url: enrollmentFormUrl(frontendBaseUrl(), input.programYear, hospital.id, code),
     })),
-    dates: window,
+    accepted: decision?.accepted,
+    forTeam: decision ? decision.filedInterestForm === false : !interest,
+    closesAt: window.closesAt,
   });
   const result = await sendEmail({
     toEmail,

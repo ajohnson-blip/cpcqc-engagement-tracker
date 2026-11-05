@@ -1,18 +1,20 @@
 /**
  * The welcome-to-enroll send, from the uploaded enrollment-decisions sheet.
  *
- * Three steps, each re-reading the file so nothing goes out from a stale
- * plan: a preview listing every email and everything held or skipped, a test
- * copy of one email to the staff member sending, then the send itself. Every
- * email sent is recorded in enrollment_form_invitations, which puts the
- * hospital on that initiative's chase list and means uploading the same sheet
- * again sends nothing twice.
+ * The upload is saved (enrollment_acceptance_sheets), so it survives a page
+ * refresh and any staff member can work from it. Then three steps, each
+ * re-planning from the saved sheet and today's records so nothing goes out
+ * from a stale plan: a preview listing every email and everything held or
+ * skipped, a test copy of one email to the staff member sending, then the
+ * send itself. Every email sent is recorded in enrollment_form_invitations,
+ * which puts the hospital on that initiative's chase list and means nothing
+ * is sent twice.
  *
  * Who receives what is decided in welcome-plan.ts; the wording is in
  * enrollment-emails.ts.
  */
 import ExcelJS from 'exceljs';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
@@ -22,17 +24,19 @@ import { sendEmail } from '@/modules/notifications/notifications.service.js';
 import { csvToRows } from '@/modules/ce/ce-roster.js';
 import { getEnrollmentStepWindow, type EnrollmentWindowState } from './enrollment-forms.service.js';
 import { enrollmentFormUrl, greetingFor, longDate, welcomeEmail } from './enrollment-emails.js';
-
-const escapeHtml = (s: string) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 import {
   cellValue,
   interestFormAcceptances,
+  nameKey,
   parseAcceptanceSheet,
   planWelcomeEmails,
   type PlanNote,
   type PlannedEmail,
 } from './welcome-plan.js';
+import type { FormInitiativeCode } from './enrollment-emails.js';
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /**
  * UCHealth Memorial enrolled as one hospital in 2026. From 2027 Central and
@@ -53,8 +57,17 @@ export interface WelcomePreviewEmail extends PlannedEmail {
   html: string;
 }
 
+/** The saved sheet a preview was made from. */
+export interface SavedSheetMeta {
+  id: string;
+  fileName: string | null;
+  uploadedAt: string;
+  uploadedBy: string | null;
+}
+
 export interface WelcomePreview {
   programYear: number;
+  sheet: SavedSheetMeta;
   window: EnrollmentWindowState;
   /** Why sending is refused right now, or null when it can go. */
   blocker: string | null;
@@ -90,31 +103,98 @@ async function sheetRows(buf: Buffer): Promise<unknown[][]> {
     });
     rows[rowNumber - 1] = cells;
   });
-  return Array.from(rows, (r) => r ?? []);
+  return Array.from(rows, (r) => Array.from(r ?? [], (c) => cellValue(c)));
 }
 
-export async function previewWelcome(
+/** The year's sheet in use: the latest upload. */
+async function latestSheet(programYear: number) {
+  const [row] = await db
+    .select({
+      sheet: schema.enrollmentAcceptanceSheets,
+      firstName: schema.users.firstName,
+      lastName: schema.users.lastName,
+      email: schema.users.email,
+    })
+    .from(schema.enrollmentAcceptanceSheets)
+    .leftJoin(schema.users, eq(schema.users.id, schema.enrollmentAcceptanceSheets.uploadedByUserId))
+    .where(eq(schema.enrollmentAcceptanceSheets.programYear, programYear))
+    .orderBy(desc(schema.enrollmentAcceptanceSheets.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Saves an uploaded sheet as the year's one in use, refusing a file that can't be read. */
+export async function saveWelcomeSheet(
   buf: Buffer,
+  fileName: string | null,
   programYear: number,
   ctx: AuthContext,
 ): Promise<WelcomePreview> {
-  return (await prepareWelcome(buf, programYear, ctx)).preview;
-}
-
-/** The preview, plus what the interest forms should record once it is sent. */
-async function prepareWelcome(
-  buf: Buffer,
-  programYear: number,
-  ctx: AuthContext,
-): Promise<{ preview: WelcomePreview; acceptances: Map<string, string[]> }> {
   assertStaff(ctx);
-  let sheet;
+  const rows = await sheetRows(buf);
   try {
-    sheet = parseAcceptanceSheet(await sheetRows(buf));
+    parseAcceptanceSheet(rows);
   } catch (err) {
-    if (err instanceof HttpError) throw err;
     throw new HttpError(400, err instanceof Error ? err.message : 'Could not read the sheet.');
   }
+  await db.insert(schema.enrollmentAcceptanceSheets).values({
+    id: uuid(),
+    programYear,
+    fileName: fileName?.trim().slice(0, 200) || null,
+    rows,
+    uploadedByUserId: ctx.userId ?? null,
+  });
+  return (await previewWelcome(programYear, ctx))!;
+}
+
+/** The preview from the saved sheet, or null before anything is uploaded. */
+export async function previewWelcome(programYear: number, ctx: AuthContext): Promise<WelcomePreview | null> {
+  return (await prepareWelcome(programYear, null, ctx))?.preview ?? null;
+}
+
+/**
+ * What the saved sheet says about one hospital: everything it was accepted
+ * into, and whether it filed an interest form. The single send uses it so a
+ * resent email reads like the original. Null without a sheet or a row.
+ */
+export async function sheetDecisionFor(
+  programYear: number,
+  hospitalName: string,
+): Promise<{ accepted: FormInitiativeCode[]; filedInterestForm: boolean | null } | null> {
+  const saved = await latestSheet(programYear);
+  if (!saved) return null;
+  const row = parseAcceptanceSheet(saved.sheet.rows as unknown[][]).find(
+    (r) => nameKey(r.hospital) === nameKey(hospitalName),
+  );
+  return row ? { accepted: row.send, filedInterestForm: row.filedInterestForm } : null;
+}
+
+/**
+ * The preview, plus what the interest forms should record once it is sent.
+ * Given a sheet id, refuses if a newer sheet has been uploaded since, so a
+ * send always goes from the sheet that was previewed.
+ */
+async function prepareWelcome(
+  programYear: number,
+  sheetId: string | null,
+  ctx: AuthContext,
+): Promise<{ preview: WelcomePreview; acceptances: Map<string, string[]> } | null> {
+  assertStaff(ctx);
+  const saved = await latestSheet(programYear);
+  if (!saved) {
+    if (sheetId) throw new HttpError(409, 'No sheet has been uploaded for this year.');
+    return null;
+  }
+  if (sheetId && saved.sheet.id !== sheetId) {
+    throw new HttpError(409, 'A newer sheet has been uploaded since this preview. Check its preview before sending.');
+  }
+  const sheet = parseAcceptanceSheet(saved.sheet.rows as unknown[][]);
+  const sheetMeta: SavedSheetMeta = {
+    id: saved.sheet.id,
+    fileName: saved.sheet.fileName,
+    uploadedAt: saved.sheet.createdAt.toISOString(),
+    uploadedBy: [saved.firstName, saved.lastName].filter(Boolean).join(' ') || saved.email || null,
+  };
 
   const [hospitals, interest, roster, filed, sent, window] = await Promise.all([
     db.select({ id: schema.hospitals.id, name: schema.hospitals.name }).from(schema.hospitals),
@@ -194,20 +274,20 @@ async function prepareWelcome(
 
   const withForms = new Set(interest.map((i) => i.hospitalId));
   return {
-    preview: { programYear, window, blocker, emails, held: plan.held, skipped: plan.skipped },
+    preview: { programYear, sheet: sheetMeta, window, blocker, emails, held: plan.held, skipped: plan.skipped },
     acceptances: interestFormAcceptances(sheet, hospitals, (id) => withForms.has(id)),
   };
 }
 
 /** One email, sent to the staff member themselves, so they see what hospitals will. */
 export async function sendWelcomeTest(
-  buf: Buffer,
   programYear: number,
+  sheetId: string,
   index: number,
   ctx: AuthContext,
 ): Promise<{ sentTo: string; emailSent: boolean }> {
-  const preview = await previewWelcome(buf, programYear, ctx);
-  const e = preview.emails[index];
+  const prepared = await prepareWelcome(programYear, sheetId, ctx);
+  const e = prepared?.preview.emails[index];
   if (!e) throw new HttpError(400, 'There is no email at that position to test.');
   const me = ctx.userId
     ? await db.query.users.findFirst({ where: eq(schema.users.id, ctx.userId) })
@@ -242,12 +322,12 @@ export interface WelcomeSendResult {
  * well inside the frontend proxy's timeout.
  */
 export async function sendWelcome(
-  buf: Buffer,
   programYear: number,
+  sheetId: string,
   max: number,
   ctx: AuthContext,
 ): Promise<WelcomeSendResult> {
-  const { preview, acceptances } = await prepareWelcome(buf, programYear, ctx);
+  const { preview, acceptances } = (await prepareWelcome(programYear, sheetId, ctx))!;
   if (preview.blocker) throw new HttpError(409, preview.blocker);
 
   const batch = preview.emails.slice(0, max);

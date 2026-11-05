@@ -750,6 +750,28 @@ export const enrollmentFormInvitations = pgTable(
   }),
 );
 
+/**
+ * The enrollment-decisions sheet staff uploaded for the welcome-to-enroll
+ * emails, kept so the preview, test and send survive a page refresh and work
+ * from any computer. The latest upload for a year is the one in use; earlier
+ * ones stay as the record of what was sent from. `rows` is the sheet as text,
+ * one array of cells per spreadsheet row.
+ */
+export const enrollmentAcceptanceSheets = pgTable(
+  'enrollment_acceptance_sheets',
+  {
+    id: idCol(),
+    programYear: integer('program_year').notNull(),
+    fileName: text('file_name'),
+    rows: jsonb('rows').notNull(),
+    uploadedByUserId: text('uploaded_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => ({
+    yearIdx: index('enrollment_acceptance_sheets_year_idx').on(t.programYear),
+  }),
+);
+
 export const auditLog = pgTable(
   'audit_log',
   {

@@ -4,28 +4,30 @@
  * Sends the year's welcome-to-enroll emails from the uploaded acceptances: the
  * Board tab of the enrollment-decisions sheet, as .xlsx or .csv.
  *
- * Preview first, always. It lists every email and who it goes to, and what is
- * held (needs staff action) or skipped (the decision, or already filed or
- * sent). A test copy of any email goes to the person sending; the real send
+ * The upload is saved, so the preview is still here after a refresh or on
+ * another computer; uploading again replaces it. Preview first, always. It
+ * lists every email and who it goes to, and what is held (needs staff action)
+ * or skipped (the decision, or already filed or sent). A test copy of any email goes to the person sending; the real send
  * asks once more before it goes, then goes in batches, so no one request runs
  * long enough to time out. Uploading the same sheet again later sends only
- * what hasn't gone yet.
+ * what hasn't gone yet. A single email is resent from the Sent list.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { AlertTriangle, ChevronDown, ChevronRight, Send, Upload } from 'lucide-react';
-import { apiFetch } from '@/lib/api';
+import { api, apiFetch } from '@/lib/api';
 import { fmtDate } from '@/lib/format';
 import type { WelcomePreview, WelcomeSendResult } from '@/lib/types';
 
 const SHORT: Record<string, string> = { SPARK: 'SPARK', SOAR: 'SOAR', NEST: 'NEST', TTT: 'TtT' };
 
-async function postSheet<T>(path: string, file: File): Promise<T> {
+async function post<T>(path: string, file?: File): Promise<T> {
   const res = await apiFetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': file.type || 'application/octet-stream' },
-    body: file,
+    ...(file
+      ? { headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file }
+      : {}),
   });
   const body = (await res.json().catch(() => null)) as
     | (T & { error?: { message?: string } })
@@ -42,22 +44,39 @@ export function WelcomeUploadCard({
   programYear: number;
   onSent: (text: string, ok: boolean) => void;
 }) {
-  const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<WelcomePreview | null>(null);
-  const [busy, setBusy] = useState<'preview' | 'test' | 'send' | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState<'upload' | 'test' | 'send' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [testNote, setTestNote] = useState<string | null>(null);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const q = `programYear=${programYear}`;
 
-  async function run<T>(step: 'preview' | 'test' | 'send', path: string): Promise<T | null> {
-    if (!file) return null;
+  // The last upload is saved, so the preview is here again after a refresh.
+  async function reload() {
+    try {
+      const r = await api.get<{ preview: WelcomePreview | null }>(`/staff/enrollment-forms/welcome?${q}`);
+      setPreview(r.preview);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoaded(true);
+    }
+  }
+
+  useEffect(() => {
+    void reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [programYear]);
+
+  async function run<T>(step: 'upload' | 'test' | 'send', path: string, file?: File): Promise<T | null> {
     setBusy(step);
     setError(null);
     try {
-      return await postSheet<T>(path, file);
+      return await post<T>(path, file);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return null;
@@ -66,17 +85,23 @@ export function WelcomeUploadCard({
     }
   }
 
-  async function doPreview() {
+  async function doUpload(file: File) {
     setTestNote(null);
     setOpenIndex(null);
-    const p = await run<WelcomePreview>('preview', `/api/staff/enrollment-forms/welcome/preview?${q}`);
-    setPreview(p);
+    const r = await run<{ preview: WelcomePreview }>(
+      'upload',
+      `/api/staff/enrollment-forms/welcome/sheet?${q}&fileName=${encodeURIComponent(file.name)}`,
+      file,
+    );
+    if (r) setPreview(r.preview);
+    if (fileInput.current) fileInput.current.value = '';
   }
 
   async function doTest(index: number) {
+    if (!preview) return;
     const r = await run<{ sentTo: string; emailSent: boolean }>(
       'test',
-      `/api/staff/enrollment-forms/welcome/test?${q}&index=${index}`,
+      `/api/staff/enrollment-forms/welcome/test?${q}&sheetId=${preview.sheet.id}&index=${index}`,
     );
     if (r) {
       setTestNote(
@@ -88,7 +113,7 @@ export function WelcomeUploadCard({
   }
 
   async function doSend() {
-    if (!preview || !file) return;
+    if (!preview) return;
     const n = preview.emails.length;
     if (!window.confirm(`Send ${n} welcome-to-enroll email${n === 1 ? '' : 's'} now? This can't be undone.`)) {
       return;
@@ -101,7 +126,9 @@ export function WelcomeUploadCard({
     const failed: WelcomeSendResult['failed'] = [];
     try {
       for (;;) {
-        const r = await postSheet<WelcomeSendResult>(`/api/staff/enrollment-forms/welcome/send?${q}&max=20`, file);
+        const r = await post<WelcomeSendResult>(
+          `/api/staff/enrollment-forms/welcome/send?${q}&sheetId=${preview.sheet.id}&max=20`,
+        );
         sent += r.sent;
         failed.push(...r.failed);
         setProgress({ done: sent + failed.length, total: n });
@@ -110,21 +137,20 @@ export function WelcomeUploadCard({
     } catch (err) {
       setError(
         `${err instanceof Error ? err.message : String(err)} ${sent} sent before it stopped. ` +
-          'Preview again to see what is left; nothing already sent goes twice.',
+          'The preview below shows what is left; nothing already sent goes twice.',
       );
       return;
     } finally {
       setBusy(null);
       setProgress(null);
+      void reload();
     }
-    setPreview(null);
-    setFile(null);
     onSent(
       failed.length === 0
         ? `Sent ${sent} welcome-to-enroll email${sent === 1 ? '' : 's'}.`
         : `Sent ${sent}; ${failed.length} failed (${failed
             .map((f) => `${f.hospital}: ${f.toEmail}`)
-            .join('; ')}). Re-send those from the chase list.`,
+            .join('; ')}). Resend those from the Sent list.`,
       failed.length === 0,
     );
   }
@@ -139,31 +165,40 @@ export function WelcomeUploadCard({
       <p className="mt-1 max-w-3xl text-sm text-cpcqc-purple-dark/70">
         Upload the Board tab of the {programYear} enrollment decisions sheet (.xlsx or .csv). Accept
         and Continuing send that initiative&rsquo;s form: to whoever filed the interest form, or, when
-        there wasn&rsquo;t one, in one email to everyone on that initiative&rsquo;s roster. You&rsquo;ll
-        see every email before anything is sent.
+        there wasn&rsquo;t one, in one email to everyone on that initiative&rsquo;s roster. The sheet is
+        saved, and you&rsquo;ll see every email before anything is sent.
       </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <input
+          ref={fileInput}
           type="file"
           accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
           onChange={(e) => {
-            setFile(e.target.files?.[0] ?? null);
-            setPreview(null);
-            setError(null);
-            setTestNote(null);
+            const f = e.target.files?.[0];
+            if (f) void doUpload(f);
           }}
-          className="text-sm text-cpcqc-purple-dark file:mr-3 file:rounded-full file:border-0 file:bg-cpcqc-purple/10 file:px-4 file:py-1.5 file:text-xs file:font-bold file:uppercase file:tracking-wide file:text-cpcqc-purple"
+          className="hidden"
         />
         <button
           type="button"
-          onClick={doPreview}
-          disabled={!file || busy !== null}
+          onClick={() => fileInput.current?.click()}
+          disabled={busy !== null}
           className="inline-flex items-center gap-1.5 rounded-full border border-cpcqc-purple/30 px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-cpcqc-purple hover:bg-cpcqc-purple hover:text-white disabled:opacity-50"
         >
           <Upload size={14} aria-hidden />
-          {busy === 'preview' ? 'Reading…' : 'Preview emails'}
+          {busy === 'upload' ? 'Reading…' : preview ? 'Upload a new sheet' : 'Upload the sheet'}
         </button>
+        {preview && (
+          <span className="text-xs text-cpcqc-purple-dark/60">
+            Using {preview.sheet.fileName ?? 'the uploaded sheet'}, uploaded{' '}
+            {fmtDate(preview.sheet.uploadedAt)}
+            {preview.sheet.uploadedBy ? ` by ${preview.sheet.uploadedBy}` : ''}.
+          </span>
+        )}
+        {loaded && !preview && !error && (
+          <span className="text-xs text-cpcqc-purple-dark/60">No sheet uploaded yet for {programYear}.</span>
+        )}
       </div>
 
       {error && (
