@@ -28,6 +28,7 @@ import {
   cellValue,
   interestFormAcceptances,
   nameKey,
+  notTakingUp,
   parseAcceptanceSheet,
   planWelcomeEmails,
   type PlanNote,
@@ -150,6 +151,15 @@ export async function saveWelcomeSheet(
 /** The preview from the saved sheet, or null before anything is uploaded. */
 export async function previewWelcome(programYear: number, ctx: AuthContext): Promise<WelcomePreview | null> {
   return (await prepareWelcome(programYear, null, ctx))?.preview ?? null;
+}
+
+/**
+ * The hospitals (by name key) the saved sheet marks as not taking up an
+ * initiative, e.g. withdrawing from Turning the Tide. Empty without a sheet.
+ */
+export async function sheetNotTakingUp(programYear: number, code: FormInitiativeCode): Promise<Set<string>> {
+  const saved = await latestSheet(programYear);
+  return saved ? notTakingUp(parseAcceptanceSheet(saved.sheet.rows as unknown[][]), code) : new Set();
 }
 
 /**

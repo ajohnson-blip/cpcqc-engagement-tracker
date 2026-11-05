@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cellValue,
   interestFormAcceptances,
+  notTakingUp,
   parseAcceptanceSheet,
   planWelcomeEmails,
   type PlanInput,
@@ -212,5 +213,15 @@ describe('cellValue', () => {
     expect(cellValue({ error: '#N/A' })).toBe('');
     expect(cellValue(' Accept ')).toBe('Accept');
     expect(cellValue(2)).toBe('2');
+  });
+});
+
+describe('notTakingUp', () => {
+  it("names the hospitals the sheet holds back from an initiative", () => {
+    const sheet = parseAcceptanceSheet(SHEET);
+    // Sample Hospital 02 is marked Withdrawing from TtT and Waitlist for SOAR.
+    expect([...notTakingUp(sheet, 'TTT')]).toEqual(['sample hospital 02']);
+    expect([...notTakingUp(sheet, 'SOAR')]).toEqual(['sample hospital 02']);
+    expect(notTakingUp(sheet, 'SPARK').size).toBe(0);
   });
 });

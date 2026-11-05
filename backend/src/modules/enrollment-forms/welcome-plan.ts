@@ -126,6 +126,15 @@ export function parseAcceptanceSheet(rows: unknown[][]): SheetRow[] {
 }
 
 /**
+ * Hospitals the sheet marks with a decision other than Accept or Continuing
+ * for an initiative, such as Withdrawing from Turning the Tide, by name key.
+ * The chase list stops expecting their form.
+ */
+export function notTakingUp(sheet: SheetRow[], code: FormInitiativeCode): Set<string> {
+  return new Set(sheet.filter((r) => r.notSent.some((n) => n.code === code)).map((r) => nameKey(r.hospital)));
+}
+
+/**
  * What each hospital that filed an interest form was accepted into, per the
  * sheet. Once the welcome emails go, this replaces whatever its interest form
  * recorded before: the sheet is CPCQC's final decision. TtT isn't on the

@@ -34,7 +34,8 @@ import {
 } from './enrollment-forms.service.js';
 import { computeCoverage } from './enrollment-coverage.js';
 import { enrollmentFormUrl, welcomeEmail } from './enrollment-emails.js';
-import { sheetDecisionFor } from './enrollment-welcome.js';
+import { sheetDecisionFor, sheetNotTakingUp } from './enrollment-welcome.js';
+import { nameKey } from './welcome-plan.js';
 
 function assertStaff(ctx: AuthContext): void {
   if (ctx.role !== 'cpcqc_staff' && ctx.role !== 'cpcqc_admin') {
@@ -213,6 +214,12 @@ export async function getStaffEnrollmentOverview(
         a.initiativeCode.localeCompare(b.initiativeCode),
     );
 
+  // Everyone in a TtT cohort owes a continuation form, except a hospital the
+  // decisions sheet marks as withdrawing: it finishes its 2026 year but owes
+  // nothing for 2027.
+  const leavingTtt = await sheetNotTakingUp(programYear, 'TTT');
+  const continuingTtt = tttIds.filter((id) => !leavingTtt.has(nameKey(nameOf(id))));
+
   const coverage: EnrollmentCoverage[] = computeCoverage({
     codes: ENROLLABLE,
     filed: formRows,
@@ -220,7 +227,7 @@ export async function getStaffEnrollmentOverview(
       hospitalId: r.hospitalId,
       decidedInitiatives: (r.decidedInitiatives ?? null) as string[] | null,
     })),
-    tttContinuing: tttIds,
+    tttContinuing: continuingTtt,
     sent: sentRows.map((s) => s.row),
     nameOf,
   });
