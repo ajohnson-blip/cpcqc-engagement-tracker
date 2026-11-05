@@ -186,7 +186,7 @@ export function welcomeEmail(input: WelcomeEmailInput): RenderedEmail {
     [
       [
         'Next step: complete an enrollment form for each initiative. Each initiative has its own form, and ' +
-          `your hospital isn’t enrolled until each one is submitted and confirmed. ${ONE_PERSON}`,
+          `your hospital isn’t enrolled until each one is submitted. ${ONE_PERSON}`,
       ],
     ],
     ...(input.forTeam && others.length > 0
@@ -270,5 +270,49 @@ export function acceptanceEmail(input: AcceptanceEmailInput): RenderedEmail {
       ],
     ],
     [['Questions? qi@cpcqc.org']],
+  ]);
+}
+
+export interface ReceiptEmailInput {
+  submitterName: string;
+  hospitalName: string;
+  initiativeCode: FormInitiativeCode;
+  programYear: number;
+  /** Reopens the submitted form for changes. */
+  editUrl: string;
+  /** The enrollment window's last day (ISO), or null when not yet set. */
+  closesAt: string | null;
+}
+
+/**
+ * The receipt a hospital gets the moment it submits. The enrollment counts
+ * from then, so there is nothing more to click; the email carries the link
+ * for making changes until the deadline. The first paragraph is CPCQC's own
+ * wording.
+ */
+export function receiptEmail(input: ReceiptEmailInput): RenderedEmail {
+  const code = INITIATIVE_SHORT[input.initiativeCode];
+  return render(`${code} enrollment received — ${input.hospitalName}`, [
+    [[`Hi ${input.submitterName.trim()},`]],
+    [
+      [
+        'Your enrollment form has been received and the program manager will be in contact ' +
+          'with next steps. If you need support, please contact qi@cpcqc.org',
+      ],
+    ],
+    [[`Hospital: ${input.hospitalName}`], [`Initiative: ${INITIATIVE_NAMES[input.initiativeCode]}`], [`Program year: ${input.programYear}`]],
+    [
+      [
+        `To change anything${input.closesAt ? ` before ${longDate(input.closesAt)}` : ''}, use this link: `,
+        { label: 'Edit your enrollment form', url: input.editUrl },
+      ],
+    ],
+    [
+      [
+        'Keep this email: the link is how you change this submission. ' +
+          'If you didn’t submit this form, please let us know at qi@cpcqc.org.',
+      ],
+    ],
+    [['Colorado Perinatal Care Quality Collaborative']],
   ]);
 }

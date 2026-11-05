@@ -2,8 +2,8 @@
  * Step 2 of annual enrollment — the legally mandated enrollment form.
  *
  * Public, like the interest form: hospitals must be able to complete this
- * without a portal account. Identity rests on an emailed token that confirms
- * the address and is the only route to editing afterwards.
+ * without a portal account. A submission counts at once, and its emailed
+ * receipt carries a token that is the only route to editing afterwards.
  *
  * That guard matters more here than on the interest form. This is the record
  * that satisfies the statute, and the table is unique on (year, hospital,
@@ -18,6 +18,7 @@ import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
 import { env, frontendBaseUrl } from '@/config/env.js';
 import { sendEmail } from '@/modules/notifications/notifications.service.js';
+import { receiptEmail } from './enrollment-emails.js';
 
 const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
 
@@ -266,7 +267,7 @@ export async function submitEnrollmentForm(input: EnrollmentSubmitInput) {
     throw new HttpError(
       409,
       `${ctx.hospitalName} has already submitted a ${input.programYear} enrollment form for ` +
-        `${input.initiativeCode}. To change it, use the link in your confirmation email, or contact qi@cpcqc.org.`,
+        `${input.initiativeCode}. To change it, use the link in your receipt email, or contact qi@cpcqc.org.`,
     );
   }
 
@@ -288,40 +289,88 @@ export async function submitEnrollmentForm(input: EnrollmentSubmitInput) {
     submitterEmail: input.submitterEmail.trim(),
     submitterUserId: null,
     verificationTokenHash: hashToken(token),
-    verifiedAt: null,
+    // A submission counts at once: the links go to people CPCQC chose, staff
+    // see every form, and an extra confirm click only left enrollments
+    // half-done.
+    verifiedAt: new Date(),
     submittedVia: 'public',
   });
 
-  const verifyUrl = `${frontendBaseUrl()}/enrollment/verify?token=${encodeURIComponent(token)}`;
-  await sendEmail({
-    toEmail: input.submitterEmail.trim(),
-    fromEmail: env.EMAIL_FROM_ENROLLMENT,
-    kind: 'enrollment.verify',
-    subject: `Confirm ${ctx.hospitalName}'s ${input.programYear} ${input.initiativeCode} enrollment`,
-    body: [
-      `Hi ${input.submitterName.trim()},`,
-      '',
-      `We've received a ${input.programYear} enrollment form for ${ctx.hospitalName} — ${input.initiativeCode}.`,
-      '',
-      'Please confirm it by opening this link:',
-      verifyUrl,
-      '',
-      'Enrollment is not complete until you confirm by clicking the link.',
-      '',
-      'Keep this email. The same link reopens this form if you need to change it —',
-      'right up until the enrollment deadline. After that it is the record that',
-      'satisfies the statute, so contact qi@cpcqc.org instead.',
-      '',
-      "If you didn't fill in this form, you can ignore this email and nothing will be recorded.",
-      '',
-      'Colorado Perinatal Care Quality Collaborative',
-    ].join('\n'),
-  });
+  const row = (await db.query.enrollmentForms.findFirst({ where: eq(schema.enrollmentForms.id, id) }))!;
+  await sendReceiptAndNotice(row, token);
 
   return { formId: id, sentTo: input.submitterEmail.trim() };
 }
 
-/** Confirm from the emailed link. Idempotent; notifies staff once. */
+/**
+ * The hospital's receipt, with its edit link, and CPCQC's notice of the
+ * enrollment. Sent once, when the form starts to count.
+ */
+async function sendReceiptAndNotice(row: typeof schema.enrollmentForms.$inferSelect, token: string) {
+  const hospital = await db.query.hospitals.findFirst({
+    where: eq(schema.hospitals.id, row.hospitalId),
+  });
+  const window = await getEnrollmentStepWindow(row.programYear);
+  const editUrl = `${frontendBaseUrl()}/enrollment/${row.programYear}?token=${encodeURIComponent(token)}`;
+  const receipt = receiptEmail({
+    submitterName: row.submitterName,
+    hospitalName: hospital?.name ?? 'your hospital',
+    initiativeCode: row.initiativeCode as InitiativeCode,
+    programYear: row.programYear,
+    editUrl,
+    closesAt: window.closesAt,
+  });
+  await sendEmail({
+    toEmail: row.submitterEmail,
+    fromEmail: env.EMAIL_FROM_ENROLLMENT,
+    kind: 'enrollment.confirmation',
+    ...receipt,
+    // The edit link works like a password for this submission.
+    redact: [editUrl],
+  });
+
+  const champions = (row.champions as Champion[] | null) ?? [];
+  const named = champions.filter((c) => c.name?.trim());
+  const accessRequests = named.filter((c) => c.redcapAccess || c.dashboardAccess);
+  await sendEmail({
+    toEmail: 'qi@cpcqc.org',
+    fromEmail: env.EMAIL_FROM_ENROLLMENT,
+    kind: 'enrollment.staff_notification',
+    subject: `[${row.programYear} Enrollment] ${hospital?.name ?? 'A hospital'} — ${row.initiativeCode}`,
+    body: [
+      `${hospital?.name ?? 'A hospital'} enrolled in ${row.initiativeCode} for ${row.programYear}.`,
+      '',
+      `Submitted by: ${row.submitterName} (${row.submitterRole}) — ${row.submitterEmail}`,
+      row.initiativeCode === 'TTT'
+        ? 'Turning the Tide continuation attestation.'
+        : `EHR: ${row.ehrOther || row.ehr || '—'}`,
+      '',
+      named.length
+        ? `Champions:\n${named
+            .map((c) => `  ${c.role}: ${c.name} <${c.email}> — ${c.title}${c.isPrimary ? ' [PRIMARY]' : ''}`)
+            .join('\n')}`
+        : '',
+      accessRequests.length
+        ? `\nAccess requested (grant separately):\n${accessRequests
+            .map(
+              (c) =>
+                `  ${c.name}: ${[c.redcapAccess ? 'REDCap' : null, c.dashboardAccess ? 'QI dashboard' : null]
+                  .filter(Boolean)
+                  .join(' + ')}`,
+            )
+            .join('\n')}`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  });
+}
+
+/**
+ * Confirm from an emailed link. Forms no longer need confirming, since they
+ * count from submission, but links sent before that change still arrive here
+ * and finish the job. Idempotent; notifies staff once.
+ */
 export async function verifyEnrollmentForm(token: string) {
   const row = await db.query.enrollmentForms.findFirst({
     where: eq(schema.enrollmentForms.verificationTokenHash, hashToken(token)),
@@ -338,62 +387,7 @@ export async function verifyEnrollmentForm(token: string) {
       .update(schema.enrollmentForms)
       .set({ verifiedAt: new Date(), updatedAt: new Date() })
       .where(eq(schema.enrollmentForms.id, row.id));
-
-    // Confirmation to the hospital, in CPCQC's words.
-    await sendEmail({
-      toEmail: row.submitterEmail,
-      fromEmail: env.EMAIL_FROM_ENROLLMENT,
-      kind: 'enrollment.confirmation',
-      subject: `${row.initiativeCode} enrollment received — ${hospital?.name ?? 'your hospital'}`,
-      body: [
-        `Hi ${row.submitterName},`,
-        '',
-        'Your enrollment form has been received and the program manager will be in contact',
-        'with next steps. If you need support, please contact qi@cpcqc.org',
-        '',
-        `Hospital: ${hospital?.name ?? '—'}`,
-        `Initiative: ${row.initiativeCode}`,
-        `Program year: ${row.programYear}`,
-        '',
-        'Colorado Perinatal Care Quality Collaborative',
-      ].join('\n'),
-    });
-
-    const champions = (row.champions as Champion[] | null) ?? [];
-    const named = champions.filter((c) => c.name?.trim());
-    const accessRequests = named.filter((c) => c.redcapAccess || c.dashboardAccess);
-    await sendEmail({
-      toEmail: 'qi@cpcqc.org',
-      fromEmail: env.EMAIL_FROM_ENROLLMENT,
-      kind: 'enrollment.staff_notification',
-      subject: `[${row.programYear} Enrollment] ${hospital?.name ?? 'A hospital'} — ${row.initiativeCode}`,
-      body: [
-        `${hospital?.name ?? 'A hospital'} enrolled in ${row.initiativeCode} for ${row.programYear}.`,
-        '',
-        `Submitted by: ${row.submitterName} (${row.submitterRole}) — ${row.submitterEmail}`,
-        row.initiativeCode === 'TTT'
-          ? 'Turning the Tide continuation attestation.'
-          : `EHR: ${row.ehrOther || row.ehr || '—'}`,
-        '',
-        named.length
-          ? `Champions:\n${named
-              .map((c) => `  ${c.role}: ${c.name} <${c.email}> — ${c.title}${c.isPrimary ? ' [PRIMARY]' : ''}`)
-              .join('\n')}`
-          : '',
-        accessRequests.length
-          ? `\nAccess requested (grant separately):\n${accessRequests
-              .map(
-                (c) =>
-                  `  ${c.name}: ${[c.redcapAccess ? 'REDCap' : null, c.dashboardAccess ? 'QI dashboard' : null]
-                    .filter(Boolean)
-                    .join(' + ')}`,
-              )
-              .join('\n')}`
-          : '',
-      ]
-        .filter(Boolean)
-        .join('\n'),
-    });
+    await sendReceiptAndNotice(row, token);
   }
 
   return {
@@ -404,7 +398,6 @@ export async function verifyEnrollmentForm(token: string) {
     alreadyVerified: !firstConfirmation,
   };
 }
-
 
 /** A submission loaded for editing, plus whether editing is still allowed. */
 export interface EditableEnrollmentForm {

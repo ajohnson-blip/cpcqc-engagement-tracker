@@ -318,15 +318,16 @@ function EnrollmentForm() {
         <div className="rounded-2xl bg-white p-8 text-center shadow-card">
           <MailCheck className="mx-auto h-10 w-10 text-cpcqc-teal-dark" />
           <h2 className="mt-3 font-rounded text-xl font-bold text-cpcqc-purple-dark">
-            One more step — check your email
+            Thank you — you&rsquo;re enrolled
           </h2>
           <p className="mt-2 text-sm text-cpcqc-purple-dark/80">
-            We&rsquo;ve sent a confirmation link to <strong>{sentTo}</strong>. Enrollment
-            isn&rsquo;t complete until you open it.
+            {ctx?.hospitalName ?? 'Your hospital'} is enrolled in{' '}
+            {initiative ? INITIATIVE_NAME[initiative] : 'this initiative'} for {programYear}.
+            We&rsquo;ve emailed a receipt to <strong>{sentTo}</strong>
+            {win.closesAt ? <>, with a link to make changes until {fmtDate(win.closesAt)}</> : ''}.
           </p>
           <p className="mt-3 text-xs text-cpcqc-purple-dark/60">
-            Keep that email — the same link is how you edit this submission while the window is
-            open.
+            Keep that email — the link is how you edit this submission.
           </p>
         </div>
       </Shell>
@@ -344,9 +345,8 @@ function EnrollmentForm() {
         </h1>
         <p className="mt-2 max-w-2xl text-cpcqc-purple-dark/80">
           This is the step required under Colorado law — a hospital without a submitted enrollment
-          form is not enrolled, regardless of what it ranked on the interest form. Each initiative
-          has its own form, so repeat this for any other initiative you were accepted into. Each
-          form should be completed by one team member.
+          form is not enrolled. Each initiative has its own form, so repeat this for any other
+          initiative you were accepted into. Each form should be completed by one team member.
         </p>
       </header>
 
@@ -474,8 +474,7 @@ function EnrollmentForm() {
                   </Field>
                 </div>
                 <p className="mt-2 text-xs text-cpcqc-purple-dark/60">
-                  We&rsquo;ll email this address a link to confirm — it&rsquo;s also how you edit
-                  this submission later.
+                  We&rsquo;ll email this address a receipt, with a link for making changes later.
                 </p>
               </Section>
 

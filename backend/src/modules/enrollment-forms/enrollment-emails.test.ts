@@ -3,6 +3,7 @@ import {
   acceptanceEmail,
   enrollmentFormUrl,
   greetingFor,
+  receiptEmail,
   welcomeEmail,
 } from './enrollment-emails.js';
 
@@ -42,7 +43,7 @@ describe('welcomeEmail', () => {
         'Good news — Example Valley Hospital has been accepted into the following initiative(s) for 2027: SPARK, NEST.',
         '',
         'Next step: complete an enrollment form for each initiative. Each initiative has its own form, and your ' +
-          'hospital isn’t enrolled until each one is submitted and confirmed. Each form should be completed by one team member.',
+          'hospital isn’t enrolled until each one is submitted. Each form should be completed by one team member.',
         '',
         `– SPARK: Postpartum Discharge Transitions, ${link('SPARK').url}`,
         `– NEST: Infant Safe Sleep, ${link('NEST').url}`,
@@ -164,5 +165,25 @@ describe('greetingFor', () => {
     expect(greetingFor(['A', 'B', 'C'])).toBe('A, B and C');
     expect(greetingFor(['A', 'B', 'C', 'D'])).toBe('everyone');
     expect(greetingFor([' '])).toBeNull();
+  });
+});
+
+describe('receiptEmail', () => {
+  it('says the enrollment is received and links the form for changes', () => {
+    const editUrl = 'https://qi.example.org/enrollment/2027?token=ex-token';
+    const { subject, body, html } = receiptEmail({
+      submitterName: 'Jane Doe',
+      hospitalName: 'Example Valley Hospital',
+      initiativeCode: 'TTT',
+      programYear: 2027,
+      editUrl,
+      closesAt: '2026-12-01',
+    });
+    expect(subject).toBe('TtT enrollment received — Example Valley Hospital');
+    expect(body).toContain('Your enrollment form has been received and the program manager will be in contact');
+    expect(body).toContain('Initiative: Turning the Tide: Perinatal Substance Use');
+    expect(body).toContain(`To change anything before December 1, 2026, use this link: ${editUrl}`);
+    expect(html).toContain('>Edit your enrollment form</a>');
+    expect(body).not.toMatch(/confirm/i);
   });
 });
