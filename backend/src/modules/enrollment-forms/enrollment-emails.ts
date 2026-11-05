@@ -13,12 +13,15 @@
 
 export type FormInitiativeCode = 'SPARK' | 'SOAR' | 'NEST' | 'TTT';
 
-/** How the emails write each initiative's code. */
+/**
+ * How hospitals see each initiative named in short: its code, except Turning
+ * the Tide, which CPCQC always writes out to hospitals rather than "TtT".
+ */
 export const INITIATIVE_SHORT: Record<FormInitiativeCode, string> = {
   SPARK: 'SPARK',
   SOAR: 'SOAR',
   NEST: 'NEST',
-  TTT: 'TtT',
+  TTT: 'Turning the Tide',
 };
 
 /** Matches the labels on the public enrollment form. */
@@ -173,7 +176,9 @@ export function welcomeEmail(input: WelcomeEmailInput): RenderedEmail {
   const accepted = ORDER.filter((c) => (input.accepted ?? linked).includes(c) || linked.includes(c));
   const others = accepted.filter((c) => !linked.includes(c));
   const name = input.forTeam ? `${who} ${listCodes(linked)} champions` : input.recipientName?.trim();
-  const acceptedList = accepted.map((c) => (c === 'TTT' ? 'TtT (continuing)' : INITIATIVE_SHORT[c])).join(', ');
+  const acceptedList = accepted
+    .map((c) => (c === 'TTT' ? `${INITIATIVE_SHORT[c]} (continuing)` : INITIATIVE_SHORT[c]))
+    .join(', ');
 
   const paragraphs: Paragraph[] = [
     [[`Hi ${name || 'there'},`]],

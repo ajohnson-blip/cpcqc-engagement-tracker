@@ -79,9 +79,9 @@ describe('welcomeEmail', () => {
       closesAt: '2026-12-01',
     });
     expect(body.split('\n')[0]).toBe('Hi Example Valley Hospital NEST champions,');
-    expect(body).toContain('for 2027: SPARK, SOAR, NEST, TtT (continuing).');
+    expect(body).toContain('for 2027: SPARK, SOAR, NEST, Turning the Tide (continuing).');
     expect(body).toContain(
-      'This email has your NEST enrollment form. The SPARK, SOAR and TtT forms go to those initiatives’ teams.',
+      'This email has your NEST enrollment form. The SPARK, SOAR and Turning the Tide forms go to those initiatives’ teams.',
     );
     expect(html).toContain('>NEST Enrollment Form</a>');
     expect(html).not.toContain('SPARK Enrollment Form');
@@ -96,7 +96,7 @@ describe('welcomeEmail', () => {
       links: [at('TTT')],
       closesAt: '2026-12-01',
     });
-    expect(body).toContain('for 2027: TtT (continuing).');
+    expect(body).toContain('for 2027: Turning the Tide (continuing).');
     expect(body).toContain('– Turning the Tide: Perinatal Substance Use (continuation form), ');
     expect(body).toContain('Submitting it is still required by Colorado law.');
   });
@@ -116,7 +116,7 @@ describe('welcomeEmail', () => {
       programYear: 2027,
       links: [at('TTT', 'Example Central'), at('TTT', 'Example North')],
       closesAt: '2026-12-01',
-    }).html).toContain('>TtT Enrollment Form: Example North</a>');
+    }).html).toContain('>Turning the Tide Enrollment Form: Example North</a>');
     expect(body).toContain(
       'Example Central and Example North enrolled together as one hospital in 2026. For 2027, each needs its own enrollment form',
     );
@@ -179,7 +179,7 @@ describe('receiptEmail', () => {
       editUrl,
       closesAt: '2026-12-01',
     });
-    expect(subject).toBe('TtT enrollment received — Example Valley Hospital');
+    expect(subject).toBe('Turning the Tide enrollment received — Example Valley Hospital');
     expect(body).toContain('Your enrollment form has been received and the program manager will be in contact');
     expect(body).toContain('Initiative: Turning the Tide: Perinatal Substance Use');
     expect(body).toContain(`To change anything before December 1, 2026, use this link: ${editUrl}`);

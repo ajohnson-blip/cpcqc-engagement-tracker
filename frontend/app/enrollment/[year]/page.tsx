@@ -56,6 +56,9 @@ interface Ctx {
   needsTttRoster: boolean;
 }
 
+/** In short: the code, except Turning the Tide, which hospitals see written out. */
+const shortName = (code: string) => (code === 'TTT' ? 'Turning the Tide' : code);
+
 const INITIATIVE_NAME: Record<Code, string> = {
   SPARK: 'SPARK: Postpartum Discharge Transitions',
   SOAR: 'SOAR: Primary Cesarean Reduction',
@@ -440,7 +443,7 @@ function EnrollmentForm() {
               <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
               <p>
                 <strong>{ctx.hospitalName}</strong> has already submitted a {programYear}{' '}
-                {ctx.initiativeCode} enrollment form. To change it, use the link in your
+                {shortName(ctx.initiativeCode)} enrollment form. To change it, use the link in your
                 confirmation email, or contact{' '}
                 <a className="underline" href="mailto:qi@cpcqc.org">qi@cpcqc.org</a> — we
                 won&rsquo;t overwrite an existing enrollment.
@@ -460,8 +463,8 @@ function EnrollmentForm() {
               <Info size={16} className="mt-0.5 shrink-0" aria-hidden />
               <p>
                 Our records show {ctx.hospitalName} currently in{' '}
-                <strong>{ctx.currentlyEnrolled.join(', ')}</strong>. Enrollment is per
-                initiative, so this form covers {initiative} only.
+                <strong>{ctx.currentlyEnrolled.map(shortName).join(', ')}</strong>. Enrollment is per
+                initiative, so this form covers {shortName(initiative)} only.
               </p>
             </div>
           )}
@@ -564,7 +567,7 @@ function EnrollmentForm() {
                           onClick={() => void copyChampions(o.initiativeCode)}
                           className="rounded-full border border-cpcqc-purple px-3 py-1 text-xs font-bold text-cpcqc-purple transition hover:bg-cpcqc-purple/10"
                         >
-                          Copy champions from {o.initiativeCode}
+                          Copy champions from {shortName(o.initiativeCode)}
                         </button>
                       ))}
                     </div>
@@ -675,7 +678,7 @@ function EnrollmentForm() {
                     ? 'Save changes'
                     : isTtt
                       ? 'Submit continuation attestation'
-                      : `Enroll in ${initiative}`}
+                      : `Enroll in ${shortName(initiative)}`}
               </button>
             </>
           )}

@@ -101,7 +101,7 @@ describe('planWelcomeEmails', () => {
     // One email per initiative; a duplicate address and a blank one drop out.
     expect(theirs.map((e) => [e.recipients.map((r) => r.email), e.source, e.links.map((l) => l.code)])).toEqual([
       [['avery@example.test', 'blake@example.test'], 'SOAR roster', ['SOAR']],
-      [['riley@example.test'], 'TtT roster', ['TTT']],
+      [['riley@example.test'], 'Turning the Tide roster', ['TTT']],
     ]);
     // Each team hears everything the hospital was accepted into.
     expect(theirs.map((e) => [e.forTeam, e.accepted])).toEqual([
@@ -152,7 +152,7 @@ describe('planWelcomeEmails', () => {
         {
           hospital: 'Example North',
           initiative: 'TTT',
-          reason: "No one with an email address on Example Central's TtT roster.",
+          reason: "No one with an email address on Example Central's Turning the Tide roster.",
         },
       ]),
     );

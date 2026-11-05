@@ -18,7 +18,7 @@ import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
 import { env, frontendBaseUrl } from '@/config/env.js';
 import { sendEmail } from '@/modules/notifications/notifications.service.js';
-import { receiptEmail } from './enrollment-emails.js';
+import { INITIATIVE_SHORT, receiptEmail } from './enrollment-emails.js';
 
 const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
 
@@ -177,7 +177,7 @@ export async function getEnrollmentContext(
   let caution: string | null = null;
   if (initiativeCode === 'TTT' && !currentlyEnrolled.includes('TTT')) {
     caution =
-      `Our records don't show ${hospital.name} in Turning the Tide. TtT is a two-year cohort and ` +
+      `Our records don't show ${hospital.name} in Turning the Tide. Turning the Tide is a two-year cohort and ` +
       `CPCQC isn't enrolling new hospitals — if you believe this is wrong, contact qi@cpcqc.org before submitting.`;
   } else if (initiativeCode !== 'TTT' && decided && !decided.includes(initiativeCode)) {
     // Enrollment forms are sent per acceptance, so reaching this page for an
@@ -311,7 +311,7 @@ export async function submitEnrollmentForm(input: EnrollmentSubmitInput) {
     throw new HttpError(
       409,
       `${ctx.hospitalName} has already submitted a ${input.programYear} enrollment form for ` +
-        `${input.initiativeCode}. To change it, use the link in your receipt email, or contact qi@cpcqc.org.`,
+        `${INITIATIVE_SHORT[input.initiativeCode]}. To change it, use the link in your receipt email, or contact qi@cpcqc.org.`,
     );
   }
 
