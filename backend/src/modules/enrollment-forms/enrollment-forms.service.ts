@@ -12,7 +12,7 @@
  * (hospital, initiative) is refused and pointed at CPCQC.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
@@ -103,6 +103,12 @@ export interface EnrollmentContext {
   currentlyEnrolled: string[];
   /** Set when this pairing looks wrong, e.g. TtT for a hospital not in it. */
   caution: string | null;
+  /**
+   * TtT only: CPCQC has no TtT champions on file for this hospital (UCHealth
+   * Memorial North, new for 2027), so its continuation form asks for them as
+   * well as the attestation.
+   */
+  needsTttRoster: boolean;
   /** Other initiatives this hospital has already enrolled in this year — the
    *  source for "copy champions from…". */
   copyableFrom: Array<{ initiativeCode: string; championCount: number }>;
@@ -167,6 +173,16 @@ export async function getEnrollmentContext(
       `so this may be the wrong link.`;
   }
 
+  const tttRoster =
+    initiativeCode === 'TTT'
+      ? await db
+          .select({ id: schema.hospitalStaffMembers.id })
+          .from(schema.hospitalStaffMembers)
+          .innerJoin(schema.initiatives, eq(schema.initiatives.id, schema.hospitalStaffMembers.initiativeId))
+          .where(and(eq(schema.hospitalStaffMembers.hospitalId, hospitalId), eq(schema.initiatives.code, 'TTT')))
+          .limit(1)
+      : [];
+
   const others = await db
     .select()
     .from(schema.enrollmentForms)
@@ -185,6 +201,7 @@ export async function getEnrollmentContext(
     alreadySubmitted: !!existing,
     currentlyEnrolled,
     caution,
+    needsTttRoster: initiativeCode === 'TTT' && tttRoster.length === 0,
     copyableFrom: others
       .filter((o) => o.initiativeCode !== initiativeCode && o.initiativeCode !== 'TTT')
       .map((o) => ({
@@ -226,17 +243,22 @@ export interface EnrollmentSubmitInput {
   tttContinuationAttested?: boolean;
 }
 
-function validate(input: EnrollmentSubmitInput): void {
+/**
+ * `tttRoster`: a TtT form that must also list champions, because CPCQC has
+ * none on file for the hospital.
+ */
+function validate(input: EnrollmentSubmitInput, tttRoster: boolean): void {
   if (!input.submitterName.trim()) throw new HttpError(400, 'Your name is required.');
   if (!input.submitterRole.trim()) throw new HttpError(400, 'Your role is required.');
   if (!input.submitterEmail.trim()) throw new HttpError(400, 'Email is required.');
 
-  // TtT is a continuation: the attestation IS the submission, so no EHR or
-  // roster is collected and requiring them would be nonsense.
+  // TtT is a continuation: the attestation IS the submission, so no EHR is
+  // collected, and a roster only when CPCQC has none for the hospital.
   if (input.initiativeCode === 'TTT') {
     if (!input.tttContinuationAttested) {
       throw new HttpError(400, 'Confirm the continuation attestation to submit.');
     }
+    if (tttRoster) validateChampions(input.champions ?? []);
     return;
   }
 
@@ -244,8 +266,10 @@ function validate(input: EnrollmentSubmitInput): void {
   if (input.ehr === 'Other…' && !input.ehrOther?.trim()) {
     throw new HttpError(400, 'Tell us which EHR your hospital uses.');
   }
+  validateChampions(input.champions ?? []);
+}
 
-  const champions = input.champions ?? [];
+function validateChampions(champions: Champion[]): void {
   for (const role of CHAMPION_ROLES) {
     if (!role.required) continue;
     const c = champions.find((x) => x.role === role.key);
@@ -261,7 +285,7 @@ function validate(input: EnrollmentSubmitInput): void {
 
 export async function submitEnrollmentForm(input: EnrollmentSubmitInput) {
   const ctx = await getEnrollmentContext(input.hospitalId, input.initiativeCode, input.programYear);
-  validate(input);
+  validate(input, ctx.needsTttRoster);
 
   if (ctx.alreadySubmitted) {
     throw new HttpError(
@@ -282,7 +306,7 @@ export async function submitEnrollmentForm(input: EnrollmentSubmitInput) {
     initiativeCode: input.initiativeCode,
     ehr: isTtt ? null : (input.ehr ?? null),
     ehrOther: isTtt ? null : (input.ehrOther?.trim() || null),
-    champions: isTtt ? null : (input.champions ?? []),
+    champions: isTtt && !ctx.needsTttRoster ? null : (input.champions ?? []),
     tttContinuationAttested: isTtt ? !!input.tttContinuationAttested : false,
     submitterName: input.submitterName.trim(),
     submitterRole: input.submitterRole.trim(),
@@ -332,8 +356,10 @@ async function sendReceiptAndNotice(row: typeof schema.enrollmentForms.$inferSel
   const champions = (row.champions as Champion[] | null) ?? [];
   const named = champions.filter((c) => c.name?.trim());
   const accessRequests = named.filter((c) => c.redcapAccess || c.dashboardAccess);
+  const [firstPm, ...otherPms] = await programManagerEmails(row.initiativeCode);
   await sendEmail({
-    toEmail: 'qi@cpcqc.org',
+    toEmail: firstPm ?? 'qi@cpcqc.org',
+    alsoTo: otherPms,
     fromEmail: env.EMAIL_FROM_ENROLLMENT,
     kind: 'enrollment.staff_notification',
     subject: `[${row.programYear} Enrollment] ${hospital?.name ?? 'A hospital'} — ${row.initiativeCode}`,
@@ -364,6 +390,27 @@ async function sendReceiptAndNotice(row: typeof schema.enrollmentForms.$inferSel
       .filter(Boolean)
       .join('\n'),
   });
+}
+
+/**
+ * The initiative's program managers, who hear of each enrollment: active
+ * accounts assigned as PM on the Team page. Empty when none is assigned, and
+ * the notice then goes to qi@cpcqc.org.
+ */
+async function programManagerEmails(initiativeCode: string): Promise<string[]> {
+  const rows = await db
+    .select({ email: schema.users.email })
+    .from(schema.staffInitiativeAssignments)
+    .innerJoin(schema.users, eq(schema.users.id, schema.staffInitiativeAssignments.userId))
+    .innerJoin(schema.initiatives, eq(schema.initiatives.id, schema.staffInitiativeAssignments.initiativeId))
+    .where(
+      and(
+        eq(schema.initiatives.code, initiativeCode as InitiativeCode),
+        eq(schema.staffInitiativeAssignments.staffRole, 'program_manager'),
+        isNull(schema.users.deactivatedAt),
+      ),
+    );
+  return [...new Set(rows.map((r) => r.email.trim()).filter(Boolean))];
 }
 
 /**
@@ -475,9 +522,14 @@ export async function updateEnrollmentFormByToken(
     hospitalId: row.hospitalId,
     initiativeCode: row.initiativeCode as InitiativeCode,
   };
-  validate(full);
-
   const isTtt = row.initiativeCode === 'TTT';
+  // A TtT form that listed champions keeps needing them when edited.
+  const tttRoster =
+    isTtt &&
+    ((((row.champions as Champion[] | null) ?? []).length > 0) ||
+      (await getEnrollmentContext(row.hospitalId, 'TTT', row.programYear)).needsTttRoster);
+  validate(full, tttRoster);
+
   await db
     .update(schema.enrollmentForms)
     .set({
@@ -486,7 +538,7 @@ export async function updateEnrollmentFormByToken(
       submitterEmail: input.submitterEmail.trim(),
       ehr: isTtt ? null : (input.ehr ?? null),
       ehrOther: isTtt ? null : (input.ehrOther?.trim() || null),
-      champions: isTtt ? null : (input.champions ?? []),
+      champions: isTtt && !tttRoster ? null : (input.champions ?? []),
       tttContinuationAttested: isTtt ? !!input.tttContinuationAttested : false,
       updatedAt: new Date(),
     })
