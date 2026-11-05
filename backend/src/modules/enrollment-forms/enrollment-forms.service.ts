@@ -12,7 +12,7 @@
  * (hospital, initiative) is refused and pointed at CPCQC.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
@@ -26,6 +26,24 @@ export const ENROLLABLE = ['SPARK', 'SOAR', 'NEST', 'TTT'] as const;
 export type InitiativeCode = (typeof ENROLLABLE)[number];
 
 export const EHR_OPTIONS = ['Epic', 'Oracle Health (Cerner)', 'MEDITECH', 'Other…'] as const;
+
+/**
+ * Who hears of each enrollment: the initiative's program manager, as CPCQC
+ * named them on 2026-11-05. Change an address here when a PM changes.
+ */
+const ENROLLMENT_NOTICE_TO: Record<InitiativeCode, string> = {
+  SPARK: 'kricard@cpcqc.org',
+  SOAR: 'rbryan@cpcqc.org',
+  NEST: 'ssubudhiwarwick@cpcqc.org',
+  TTT: 'sbriley@cpcqc.org',
+};
+
+/**
+ * Hospitals whose TtT form always asks for champions. UCHealth Memorial
+ * Hospital North enrolls on its own from 2027 (it was part of Memorial in
+ * 2026), and its TtT team comes from this form, whatever is on file.
+ */
+const TTT_ROSTER_FROM_FORM = new Set(['uchealth memorial hospital north']);
 
 /** Roles CPCQC requires, with the descriptions the team signed off. */
 export const CHAMPION_ROLES = [
@@ -104,9 +122,9 @@ export interface EnrollmentContext {
   /** Set when this pairing looks wrong, e.g. TtT for a hospital not in it. */
   caution: string | null;
   /**
-   * TtT only: CPCQC has no TtT champions on file for this hospital (UCHealth
-   * Memorial North, new for 2027), so its continuation form asks for them as
-   * well as the attestation.
+   * TtT only: the continuation form asks for champions as well as the
+   * attestation, because CPCQC has none on file for this hospital, or it is
+   * UCHealth Memorial North, new for 2027.
    */
   needsTttRoster: boolean;
   /** Other initiatives this hospital has already enrolled in this year — the
@@ -201,7 +219,9 @@ export async function getEnrollmentContext(
     alreadySubmitted: !!existing,
     currentlyEnrolled,
     caution,
-    needsTttRoster: initiativeCode === 'TTT' && tttRoster.length === 0,
+    needsTttRoster:
+      initiativeCode === 'TTT' &&
+      (tttRoster.length === 0 || TTT_ROSTER_FROM_FORM.has(hospital.name.trim().toLowerCase())),
     copyableFrom: others
       .filter((o) => o.initiativeCode !== initiativeCode && o.initiativeCode !== 'TTT')
       .map((o) => ({
@@ -356,10 +376,8 @@ async function sendReceiptAndNotice(row: typeof schema.enrollmentForms.$inferSel
   const champions = (row.champions as Champion[] | null) ?? [];
   const named = champions.filter((c) => c.name?.trim());
   const accessRequests = named.filter((c) => c.redcapAccess || c.dashboardAccess);
-  const [firstPm, ...otherPms] = await programManagerEmails(row.initiativeCode);
   await sendEmail({
-    toEmail: firstPm ?? 'qi@cpcqc.org',
-    alsoTo: otherPms,
+    toEmail: ENROLLMENT_NOTICE_TO[row.initiativeCode as InitiativeCode] ?? 'qi@cpcqc.org',
     fromEmail: env.EMAIL_FROM_ENROLLMENT,
     kind: 'enrollment.staff_notification',
     subject: `[${row.programYear} Enrollment] ${hospital?.name ?? 'A hospital'} — ${row.initiativeCode}`,
@@ -390,27 +408,6 @@ async function sendReceiptAndNotice(row: typeof schema.enrollmentForms.$inferSel
       .filter(Boolean)
       .join('\n'),
   });
-}
-
-/**
- * The initiative's program managers, who hear of each enrollment: active
- * accounts assigned as PM on the Team page. Empty when none is assigned, and
- * the notice then goes to qi@cpcqc.org.
- */
-async function programManagerEmails(initiativeCode: string): Promise<string[]> {
-  const rows = await db
-    .select({ email: schema.users.email })
-    .from(schema.staffInitiativeAssignments)
-    .innerJoin(schema.users, eq(schema.users.id, schema.staffInitiativeAssignments.userId))
-    .innerJoin(schema.initiatives, eq(schema.initiatives.id, schema.staffInitiativeAssignments.initiativeId))
-    .where(
-      and(
-        eq(schema.initiatives.code, initiativeCode as InitiativeCode),
-        eq(schema.staffInitiativeAssignments.staffRole, 'program_manager'),
-        isNull(schema.users.deactivatedAt),
-      ),
-    );
-  return [...new Set(rows.map((r) => r.email.trim()).filter(Boolean))];
 }
 
 /**
