@@ -155,7 +155,11 @@ export interface WelcomeEmailInput {
    * full though it links only that team's form. Defaults to the linked ones.
    */
   accepted?: FormInitiativeCode[];
-  /** Sent to one initiative's team, whose colleagues get the other forms. */
+  /**
+   * Sent to one initiative's team, whose colleagues get the other forms. The
+   * greeting then names the team, "Hi Denver Health Medical Center NEST
+   * champions", not a person: no one of them is the one who must file it.
+   */
   forTeam?: boolean;
   /** The enrollment window's last day (ISO), or null when not yet set. */
   closesAt: string | null;
@@ -176,7 +180,7 @@ export function welcomeEmail(input: WelcomeEmailInput): RenderedEmail {
   const linked = ORDER.filter((c) => input.links.some((l) => l.code === c));
   const accepted = ORDER.filter((c) => (input.accepted ?? linked).includes(c) || linked.includes(c));
   const others = accepted.filter((c) => !linked.includes(c));
-  const name = input.recipientName?.trim();
+  const name = input.forTeam ? `${who} ${listCodes(linked)} champions` : input.recipientName?.trim();
   const acceptedList = accepted.map((c) => (c === 'TTT' ? 'TtT (continuing)' : INITIATIVE_SHORT[c])).join(', ');
 
   const paragraphs: Paragraph[] = [

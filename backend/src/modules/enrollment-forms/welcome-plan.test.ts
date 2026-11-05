@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cellValue,
   interestFormAcceptances,
   parseAcceptanceSheet,
   planWelcomeEmails,
@@ -196,5 +197,20 @@ describe('interestFormAcceptances', () => {
     ]);
     // Sample Hospital 01 says No form, so its interest form, if any, is left alone.
     expect(got.has('h-ex-002')).toBe(false);
+  });
+});
+
+describe('cellValue', () => {
+  it('reads formula results, and a formula with no result as blank', () => {
+    expect(cellValue({ sharedFormula: 'K10', result: 'Continuing' })).toBe('Continuing');
+    expect(cellValue({ sharedFormula: 'K10' })).toBe('');
+    expect(cellValue({ formula: 'IF(F10="Yes","Continuing","")', ref: 'K10:K60', shareType: 'shared' })).toBe('');
+    expect(cellValue({ richText: [{ text: 'Acc' }, { text: 'ept' }] })).toBe('Accept');
+    expect(cellValue({ text: 'Example Valley Hospital', hyperlink: 'https://example.test' })).toBe(
+      'Example Valley Hospital',
+    );
+    expect(cellValue({ error: '#N/A' })).toBe('');
+    expect(cellValue(' Accept ')).toBe('Accept');
+    expect(cellValue(2)).toBe('2');
   });
 });

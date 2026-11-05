@@ -26,6 +26,7 @@ import { enrollmentFormUrl, greetingFor, longDate, welcomeEmail } from './enroll
 const escapeHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 import {
+  cellValue,
   interestFormAcceptances,
   parseAcceptanceSheet,
   planWelcomeEmails,
@@ -85,17 +86,7 @@ async function sheetRows(buf: Buffer): Promise<unknown[][]> {
   sheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
     const cells: unknown[] = [];
     row.eachCell({ includeEmpty: true }, (cell, col) => {
-      const v = cell.value;
-      let out: unknown = v;
-      if (v && typeof v === 'object' && !(v instanceof Date)) {
-        // Formulas, hyperlinks and rich text arrive as objects.
-        if ('result' in v) out = (v as { result: unknown }).result;
-        else if ('text' in v && typeof v.text === 'string') out = v.text;
-        else if ('richText' in v) {
-          out = (v as { richText: Array<{ text: string }> }).richText.map((r) => r.text).join('');
-        } else out = String(v);
-      }
-      cells[col - 1] = out;
+      cells[col - 1] = cellValue(cell.value);
     });
     rows[rowNumber - 1] = cells;
   });

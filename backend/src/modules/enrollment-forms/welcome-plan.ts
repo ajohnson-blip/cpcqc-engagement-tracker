@@ -42,9 +42,28 @@ const SENDS = new Set(['accept', 'accepted', 'continuing', 'continue']);
 
 const headerKey = (v: unknown) => cellText(v).toLowerCase().replace(/[^a-z0-9]/g, '');
 
-function cellText(v: unknown): string {
+/**
+ * A spreadsheet cell as plain text. Workbooks give formulas, hyperlinks and
+ * rich text as objects. A formula whose result is blank comes with no result
+ * at all, which is how the Board's empty TtT cells arrive, so that is blank
+ * too, never "[object Object]".
+ */
+export function cellValue(v: unknown): string {
   if (v === null || v === undefined) return '';
-  return String(v).trim();
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v !== 'object') return String(v).trim();
+  const o = v as Record<string, unknown>;
+  if ('formula' in o || 'sharedFormula' in o || 'result' in o) return cellValue(o['result']);
+  if (Array.isArray(o['richText'])) {
+    return (o['richText'] as Array<{ text?: unknown }>).map((r) => String(r.text ?? '')).join('').trim();
+  }
+  if (typeof o['text'] === 'string') return (o['text'] as string).trim();
+  // An error value (#N/A) or anything else unrecognised reads as blank.
+  return '';
+}
+
+function cellText(v: unknown): string {
+  return cellValue(v);
 }
 
 /** Names as the sheet and the tracker write them, made comparable. */

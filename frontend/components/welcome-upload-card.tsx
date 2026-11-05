@@ -236,6 +236,10 @@ export function WelcomeUploadCard({
               <summary className="cursor-pointer text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/60">
                 Not sent ({preview.skipped.length})
               </summary>
+              <p className="mt-2 text-xs text-cpcqc-purple-dark/60">
+                Nothing to do here. These are what the sheet holds back (Withdrawing, Waitlist,
+                Decline or Discuss) and forms already sent or submitted. Blank cells aren&rsquo;t listed.
+              </p>
               <ul className="mt-2 list-disc space-y-0.5 pl-5">
                 {preview.skipped.map((s, i) => (
                   <li key={i}>

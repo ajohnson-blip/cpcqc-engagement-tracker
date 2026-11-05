@@ -78,6 +78,7 @@ describe('welcomeEmail', () => {
       forTeam: true,
       closesAt: '2026-12-01',
     });
+    expect(body.split('\n')[0]).toBe('Hi Example Valley Hospital NEST champions,');
     expect(body).toContain('for 2027: SPARK, SOAR, NEST, TtT (continuing).');
     expect(body).toContain(
       'This email has your NEST enrollment form. The SPARK, SOAR and TtT forms go to those initiatives’ teams.',
