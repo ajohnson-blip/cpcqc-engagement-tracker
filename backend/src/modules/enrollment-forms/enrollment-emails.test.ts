@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   acceptanceEmail,
   enrollmentFormUrl,
+  editLinkEmail,
   greetingFor,
   receiptEmail,
   welcomeEmail,
@@ -185,5 +186,24 @@ describe('receiptEmail', () => {
     expect(body).toContain(`To change anything before December 1, 2026, use this link: ${editUrl}`);
     expect(html).toContain('>Edit your enrollment form</a>');
     expect(body).not.toMatch(/confirm/i);
+  });
+});
+
+describe('editLinkEmail', () => {
+  it('gives a named link that replaces the old one, until the deadline', () => {
+    const editUrl = 'https://qi.example.org/enrollment/2027?token=ex-new-token';
+    const { subject, body, html } = editLinkEmail({
+      recipientName: null,
+      hospitalName: 'Example Valley Hospital',
+      initiativeCode: 'TTT',
+      programYear: 2027,
+      editUrl,
+      closesAt: '2026-12-01',
+    });
+    expect(subject).toBe("New link to edit Example Valley Hospital's 2027 Turning the Tide enrollment form");
+    expect(body).toContain('Hi there,');
+    expect(body).toContain(editUrl);
+    expect(body).toContain('You can make changes until December 1, 2026. This link replaces any earlier one');
+    expect(html).toContain('>Edit your enrollment form</a>');
   });
 });

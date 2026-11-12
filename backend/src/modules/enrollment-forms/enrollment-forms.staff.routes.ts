@@ -9,7 +9,7 @@ import express, { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import ExcelJS from 'exceljs';
 import { requireAuth, requireStaff } from '@/middleware/auth.js';
-import { CHAMPION_ROLES, ENROLLABLE } from './enrollment-forms.service.js';
+import { CHAMPION_ROLES, ENROLLABLE, sendNewEditLink } from './enrollment-forms.service.js';
 import {
   getRecipientSuggestions,
   getStaffEnrollmentOverview,
@@ -81,6 +81,18 @@ router.post('/reminders/send', requireAuth, requireStaff, async (req, res) => {
   const programYear = programYearSchema.parse(req.query.programYear);
   const max = z.coerce.number().int().min(1).max(50).parse(req.query.max ?? 20);
   res.json(await sendReminders(programYear, max, req.auth!));
+});
+
+/**
+ * A fresh edit link for a submitted form, to the submitter or another address
+ * at the hospital. The old link stops working.
+ */
+router.post('/:formId/edit-link', requireAuth, requireStaff, async (req, res) => {
+  const formId = z.string().min(1).parse(req.params.formId);
+  const body = z
+    .object({ toEmail: z.string().trim().email().max(254), toName: z.string().trim().max(200).optional() })
+    .parse(req.body);
+  res.json(await sendNewEditLink(formId, { email: body.toEmail, name: body.toName ?? null }, req.auth!));
 });
 
 /** Emails the hospital a link per initiative and adds it to each chase list. */

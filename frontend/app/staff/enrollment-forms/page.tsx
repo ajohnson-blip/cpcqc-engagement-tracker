@@ -474,6 +474,89 @@ function SentList({
   );
 }
 
+/**
+ * Sends a fresh edit link, for a hospital that asks to change its form but no
+ * longer has its receipt, or wants someone else to make the change. The
+ * hospital still makes the change itself; its earlier link stops working.
+ */
+function NewEditLinkForm({ form }: { form: StaffEnrollmentForm }) {
+  const [toEmail, setToEmail] = useState(form.submitterEmail);
+  const [toName, setToName] = useState(form.submitterName);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ text: string; ok: boolean } | null>(null);
+  const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail.trim());
+
+  async function send() {
+    const to = toEmail.trim();
+    if (!window.confirm(`Send a new edit link to ${to}? The hospital's earlier edit link will stop working.`)) {
+      return;
+    }
+    setBusy(true);
+    setNote(null);
+    try {
+      const r = await api.post<{ sentTo: string; emailSent: boolean }>(
+        `/staff/enrollment-forms/${form.id}/edit-link`,
+        { toEmail: to, ...(toName.trim() ? { toName: toName.trim() } : {}) },
+      );
+      setNote({
+        ok: true,
+        text: r.emailSent
+          ? `New edit link sent to ${r.sentTo}.`
+          : `New edit link logged for ${r.sentTo}, but not emailed (no email service on this server).`,
+      });
+    } catch (err) {
+      setNote({ ok: false, text: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const input =
+    'rounded-lg border border-cpcqc-purple-dark/20 bg-white px-2.5 py-1.5 text-sm text-cpcqc-purple-dark';
+  return (
+    <div className="mb-4 rounded-xl border border-cpcqc-purple-dark/10 bg-white p-3">
+      <p className="text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/70">
+        Send a new edit link
+      </p>
+      <p className="mt-0.5 text-xs text-cpcqc-purple-dark/60">
+        For a hospital that needs to change this form. They make the change themselves, and their
+        earlier link stops working.
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <input
+          value={toName}
+          onChange={(e) => setToName(e.target.value)}
+          placeholder="Name"
+          aria-label="Recipient name"
+          className={clsx(input, 'w-44')}
+        />
+        <input
+          type="email"
+          value={toEmail}
+          onChange={(e) => setToEmail(e.target.value)}
+          placeholder="Email"
+          aria-label="Recipient email"
+          className={clsx(input, 'w-64')}
+        />
+        <button
+          type="button"
+          onClick={() => void send()}
+          disabled={!valid || busy}
+          className="inline-flex items-center gap-1.5 rounded-full bg-cpcqc-purple px-3.5 py-1.5 text-xs font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90 disabled:opacity-50"
+        >
+          <Send size={12} aria-hidden />
+          {busy ? 'Sending…' : 'Send new edit link'}
+        </button>
+      </div>
+      {note && (
+        <p className={clsx('mt-2 text-xs', note.ok ? 'text-cpcqc-teal-dark' : 'text-cpcqc-pink-dark')}>
+          {note.text}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function FormRows({
   form,
   expanded,
@@ -566,6 +649,8 @@ function FormRows({
                 </span>
               )}
             </div>
+
+            <NewEditLinkForm form={form} />
 
             {form.tttContinuationAttested && form.champions.length === 0 ? (
               <p className="text-sm text-cpcqc-purple-dark/80">

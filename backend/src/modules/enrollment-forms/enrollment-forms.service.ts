@@ -18,7 +18,8 @@ import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
 import { env, frontendBaseUrl } from '@/config/env.js';
 import { sendEmail } from '@/modules/notifications/notifications.service.js';
-import { INITIATIVE_SHORT, receiptEmail } from './enrollment-emails.js';
+import { INITIATIVE_SHORT, editLinkEmail, receiptEmail } from './enrollment-emails.js';
+import type { AuthContext } from '@/middleware/auth.js';
 
 const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
 
@@ -441,6 +442,67 @@ export async function verifyEnrollmentForm(token: string) {
     submitterName: row.submitterName,
     alreadyVerified: !firstConfirmation,
   };
+}
+
+/**
+ * Email a fresh edit link for a submitted form, when a hospital asks a PM to
+ * change something and no longer has its receipt, or someone else at the
+ * hospital is making the change. Staff only. The hospital still makes the
+ * change itself: the new link replaces the old one, which stops working, and
+ * like any edit link it works only until the deadline.
+ */
+export async function sendNewEditLink(
+  formId: string,
+  to: { email: string; name?: string | null },
+  ctx: AuthContext,
+): Promise<{ sentTo: string; emailSent: boolean }> {
+  if (ctx.role !== 'cpcqc_staff' && ctx.role !== 'cpcqc_admin') throw new HttpError(403, 'Staff only.');
+  const row = await db.query.enrollmentForms.findFirst({ where: eq(schema.enrollmentForms.id, formId) });
+  if (!row) throw new HttpError(404, 'Enrollment form not found.');
+  const window = await getEnrollmentStepWindow(row.programYear);
+  const today = new Date().toISOString().slice(0, 10);
+  if (!window.closesAt || today > window.closesAt) {
+    throw new HttpError(
+      409,
+      `The ${row.programYear} enrollment deadline has passed, so this form can no longer be changed.`,
+    );
+  }
+  const hospital = await db.query.hospitals.findFirst({ where: eq(schema.hospitals.id, row.hospitalId) });
+
+  const token = randomBytes(32).toString('base64url');
+  await db
+    .update(schema.enrollmentForms)
+    .set({ verificationTokenHash: hashToken(token) })
+    .where(eq(schema.enrollmentForms.id, row.id));
+
+  const editUrl = `${frontendBaseUrl()}/enrollment/${row.programYear}?token=${encodeURIComponent(token)}`;
+  const email = to.email.trim();
+  const result = await sendEmail({
+    toEmail: email,
+    fromEmail: env.EMAIL_FROM_ENROLLMENT,
+    kind: 'enrollment.edit_link',
+    ...editLinkEmail({
+      recipientName: to.name ?? null,
+      hospitalName: hospital?.name ?? 'your hospital',
+      initiativeCode: row.initiativeCode as InitiativeCode,
+      programYear: row.programYear,
+      editUrl,
+      closesAt: window.closesAt,
+    }),
+    // The edit link works like a password for this submission.
+    redact: [editUrl],
+  });
+  await db.insert(schema.auditLog).values({
+    id: uuid(),
+    actorUserId: ctx.userId ?? null,
+    actorRole: ctx.role,
+    action: 'enrollment_form.edit_link_sent',
+    entityType: 'enrollment_form',
+    entityId: row.id,
+    diff: { toEmail: email },
+    note: `Sent a new edit link for ${hospital?.name ?? 'a hospital'}'s ${row.initiativeCode} form to ${email}.`,
+  });
+  return { sentTo: email, emailSent: result.sent };
 }
 
 /** A submission loaded for editing, plus whether editing is still allowed. */

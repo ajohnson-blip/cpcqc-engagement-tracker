@@ -374,3 +374,36 @@ export function receiptEmail(input: ReceiptEmailInput): RenderedEmail {
     [['Colorado Perinatal Care Quality Collaborative']],
   ]);
 }
+
+export interface EditLinkEmailInput {
+  /** Blank when staff typed only an address. */
+  recipientName: string | null;
+  hospitalName: string;
+  initiativeCode: FormInitiativeCode;
+  programYear: number;
+  /** Reopens the submitted form for changes. */
+  editUrl: string;
+  /** The enrollment window's last day (ISO). */
+  closesAt: string | null;
+}
+
+/**
+ * A fresh link to change a submitted enrollment form, sent by a PM when a
+ * hospital asks. The hospital still makes the change itself; the new link
+ * replaces the one in its receipt.
+ */
+export function editLinkEmail(input: EditLinkEmailInput): RenderedEmail {
+  const form = `${input.hospitalName}'s ${input.programYear} ${INITIATIVE_SHORT[input.initiativeCode]} enrollment form`;
+  return render(`New link to edit ${form}`, [
+    [[`Hi ${input.recipientName?.trim() || 'there'},`]],
+    [[`Here is a new link to make changes to ${form}: `, { label: 'Edit your enrollment form', url: input.editUrl }]],
+    [
+      [
+        (input.closesAt ? `You can make changes until ${longDate(input.closesAt)}. ` : '') +
+          'This link replaces any earlier one, so earlier links no longer work.',
+      ],
+    ],
+    [['If you didn’t ask for this, please let us know at qi@cpcqc.org.']],
+    [['Colorado Perinatal Care Quality Collaborative']],
+  ]);
+}
