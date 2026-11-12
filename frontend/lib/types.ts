@@ -1090,6 +1090,27 @@ export interface WelcomePreview {
   skipped: WelcomePlanNote[];
 }
 
+/** One reminder to a hospital that still owes an enrollment form. */
+export interface ReminderPreviewEmail {
+  recipients: Array<{ name: string; email: string }>;
+  hospitals: Array<{ id: string; name: string }>;
+  links: Array<{ code: EnrollableInitiativeCode; hospitalId: string; hospitalName: string }>;
+  /** The latest earlier reminder for any of its forms, YYYY-MM-DD. */
+  lastReminded: string | null;
+  subject: string;
+  body: string;
+  html: string;
+}
+
+export interface ReminderPreview {
+  programYear: number;
+  window: { opensAt: string | null; closesAt: string | null; state: 'before' | 'open' | 'after' };
+  blocker: string | null;
+  emails: ReminderPreviewEmail[];
+  held: WelcomePlanNote[];
+  skipped: WelcomePlanNote[];
+}
+
 export interface WelcomeSendResult {
   sent: number;
   failed: Array<{ hospital: string; toEmail: string; error: string | null }>;

@@ -240,6 +240,59 @@ export function welcomeEmail(input: WelcomeEmailInput): RenderedEmail {
   );
 }
 
+export interface ReminderEmailInput {
+  /** Blank when only an address is known. */
+  recipientName: string | null;
+  programYear: number;
+  /** The forms still owed; usually one hospital's. */
+  links: WelcomeLink[];
+  /** Sent to one initiative's team: the greeting names the team, not a person. */
+  forTeam?: boolean;
+  /** The enrollment window's last day (ISO). */
+  closesAt: string | null;
+}
+
+/**
+ * A reminder that a hospital's enrollment form is still owed, with the same
+ * named link as its welcome email. Goes to whoever the form was sent to.
+ */
+export function reminderEmail(input: ReminderEmailInput): RenderedEmail {
+  const hospitals = [...new Set(input.links.map((l) => l.hospitalName))];
+  const who = hospitals.join(' and ');
+  const several = hospitals.length > 1;
+  const linked = ORDER.filter((c) => input.links.some((l) => l.code === c));
+  const plural = input.links.length > 1;
+  const name = input.forTeam ? `${who} ${listCodes(linked)} champions` : input.recipientName?.trim();
+  const due = input.closesAt ? longDate(input.closesAt) : null;
+
+  const paragraphs: Paragraph[] = [
+    [[`Hi ${name || 'there'},`]],
+    [
+      [
+        `This is a friendly reminder that ${who}${several ? ' have' : ' has'} not yet submitted ` +
+          `${plural ? 'the' : 'its'} ${input.programYear} ${listCodes(linked)} enrollment form` +
+          `${plural ? 's' : ''}.` +
+          (due ? ` Enrollment forms must be submitted by ${due} to meet Colorado law.` : ''),
+      ],
+    ],
+    input.links.map((l) => [
+      `– ${INITIATIVE_NAMES[l.code]}${l.code === 'TTT' ? ' (continuation form)' : ''}` +
+        `${several ? ` for ${l.hospitalName}` : ''}, `,
+      {
+        label: `${INITIATIVE_SHORT[l.code]} Enrollment Form${several ? `: ${l.hospitalName}` : ''}`,
+        url: l.url,
+      },
+    ]),
+    [[`${ONE_PERSON} If it has been submitted since this reminder was sent, thank you, and please disregard it.`]],
+    ...(linked.includes('TTT') ? [[[TTT_REQUIRED]]] : []),
+    [['If anything has changed or if you have additional questions, please contact qi@cpcqc.org.']],
+  ];
+  return render(
+    `Reminder: ${who} ${input.programYear} enrollment form${plural ? 's' : ''}${due ? ` due ${due}` : ''}`,
+    paragraphs,
+  );
+}
+
 export interface AcceptanceEmailInput {
   submitterName: string;
   hospitalName: string;

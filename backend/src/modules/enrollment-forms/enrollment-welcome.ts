@@ -33,6 +33,7 @@ import {
   planWelcomeEmails,
   type PlanNote,
   type PlannedEmail,
+  type SheetRow,
 } from './welcome-plan.js';
 import type { FormInitiativeCode } from './enrollment-emails.js';
 
@@ -44,7 +45,7 @@ const escapeHtml = (s: string) =>
  * North each file their own forms, and both go to the champions on the
  * combined roster, which stayed with Central when the record was split.
  */
-const SHARED_ROSTER: Record<string, string> = {
+export const SHARED_ROSTER: Record<string, string> = {
   'UCHealth Memorial Hospital North': 'UCHealth Memorial Hospital Central',
 };
 
@@ -151,6 +152,12 @@ export async function saveWelcomeSheet(
 /** The preview from the saved sheet, or null before anything is uploaded. */
 export async function previewWelcome(programYear: number, ctx: AuthContext): Promise<WelcomePreview | null> {
   return (await prepareWelcome(programYear, null, ctx))?.preview ?? null;
+}
+
+/** The saved sheet, parsed, or null before anything is uploaded. */
+export async function savedSheetRows(programYear: number): Promise<SheetRow[] | null> {
+  const saved = await latestSheet(programYear);
+  return saved ? parseAcceptanceSheet(saved.sheet.rows as unknown[][]) : null;
 }
 
 /**

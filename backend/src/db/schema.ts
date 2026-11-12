@@ -772,6 +772,33 @@ export const enrollmentAcceptanceSheets = pgTable(
   }),
 );
 
+/**
+ * Reminders sent to hospitals that still owe an enrollment form, one row per
+ * person per form. Shows staff when each was last reminded, and keeps one
+ * day's reminders from going twice.
+ */
+export const enrollmentFormReminders = pgTable(
+  'enrollment_form_reminders',
+  {
+    id: idCol(),
+    programYear: integer('program_year').notNull(),
+    hospitalId: text('hospital_id')
+      .notNull()
+      .references(() => hospitals.id, { onDelete: 'cascade' }),
+    /** 'SPARK' | 'SOAR' | 'NEST' | 'TTT' */
+    initiativeCode: text('initiative_code').notNull(),
+    toEmail: text('to_email').notNull(),
+    toName: text('to_name'),
+    sentByUserId: text('sent_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    /** False when SendGrid refused it, or in dev with no SendGrid key. */
+    emailSent: boolean('email_sent').notNull(),
+    ...timestamps,
+  },
+  (t) => ({
+    yearIdx: index('enrollment_form_reminders_year_idx').on(t.programYear),
+  }),
+);
+
 export const auditLog = pgTable(
   'audit_log',
   {

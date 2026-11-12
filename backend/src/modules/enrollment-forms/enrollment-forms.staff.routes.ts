@@ -16,6 +16,7 @@ import {
   sendEnrollmentForms,
 } from './enrollment-forms.staff.js';
 import { previewWelcome, saveWelcomeSheet, sendWelcome, sendWelcomeTest } from './enrollment-welcome.js';
+import { previewReminders, sendReminderTest, sendReminders } from './enrollment-reminders.js';
 
 const router = Router();
 
@@ -61,6 +62,25 @@ router.post('/welcome/send', requireAuth, requireStaff, async (req, res) => {
   const sheetId = z.string().min(1).parse(req.query.sheetId);
   const max = z.coerce.number().int().min(1).max(50).parse(req.query.max ?? 20);
   res.json(await sendWelcome(programYear, sheetId, max, req.auth!));
+});
+
+// Reminders to hospitals that still owe a form: preview, a test copy to the
+// caller, then the send in batches (the page calls until none remain).
+router.get('/reminders', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  res.json({ preview: await previewReminders(programYear, req.auth!) });
+});
+
+router.post('/reminders/test', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const index = z.coerce.number().int().min(0).parse(req.query.index ?? 0);
+  res.json(await sendReminderTest(programYear, index, req.auth!));
+});
+
+router.post('/reminders/send', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const max = z.coerce.number().int().min(1).max(50).parse(req.query.max ?? 20);
+  res.json(await sendReminders(programYear, max, req.auth!));
 });
 
 /** Emails the hospital a link per initiative and adds it to each chase list. */
