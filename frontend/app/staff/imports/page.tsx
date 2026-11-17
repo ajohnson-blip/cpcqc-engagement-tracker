@@ -522,15 +522,23 @@ function daysBetween(from: string, to: string): number {
  * hospital that missed by a day from one that missed by three weeks, and the
  * deadline moves per period, so it can't be carried in your head. Two of the
  * four programs showed a bare date and two showed nothing at all.
+ *
+ * SOAR also passes `lastDate`. Its records are entered case by case, and the
+ * status is judged on the first, so the first alone can read "on time" while
+ * later cases came in after the deadline. When the two differ both are shown,
+ * and a last entry past the due date is called out. Display only: the status
+ * does not change.
  */
 function SubmittedCell({
   submissionDate,
+  lastDate,
   submitted,
   onTime,
   deadline,
   daysFromDeadline,
 }: {
   submissionDate: string | null;
+  lastDate?: string | null;
   submitted: boolean;
   onTime: boolean | null;
   deadline: string;
@@ -543,14 +551,31 @@ function SubmittedCell({
   }
   const late = onTime === false;
   const days = daysFromDeadline ?? daysBetween(deadline, submissionDate);
+  const span = !!lastDate && lastDate.slice(0, 10) !== submissionDate.slice(0, 10);
+  // Worth flagging only when the status reads on time: a late month is late already.
+  const lastPastDue = span && !late && lastDate!.slice(0, 10) > deadline.slice(0, 10);
   return (
     <td className="px-3 py-2">
       <div className={late ? 'font-semibold text-cpcqc-orange-dark' : 'text-cpcqc-purple-dark/80'}>
+        {span && <span className="text-xs font-normal text-cpcqc-purple-dark/60">First </span>}
         {fmtDay(submissionDate)}
       </div>
       {late && (
         <div className="text-xs text-cpcqc-orange-dark/80">
           {days}d late · due {fmtDay(deadline)}
+        </div>
+      )}
+      {span && (
+        <div
+          className={`text-xs ${lastPastDue ? 'font-semibold text-amber-700' : 'text-cpcqc-purple-dark/60'}`}
+          title={
+            lastPastDue
+              ? 'The status is judged on the first record. This last record came in after the due date.'
+              : undefined
+          }
+        >
+          Last {fmtDay(lastDate!)}
+          {lastPastDue && ` · ${daysBetween(deadline, lastDate!)}d after due ${fmtDay(deadline)}`}
         </div>
       )}
     </td>
@@ -1430,7 +1455,9 @@ function SoarRedcapSync() {
         <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
           Pull SOAR monthly NTSV cesarean data straight from REDCap. A month counts when{' '}
           <strong>every NTSV case is complete and on time</strong> — or when the hospital files a{' '}
-          <strong>zero-case attestation</strong> (No-NTSV). In the preview you can{' '}
+          <strong>zero-case attestation</strong> (No-NTSV). On time is judged on the{' '}
+          <strong>first case entered</strong> for the month; when cases came in on different
+          days, the last entry date shows beneath it. In the preview you can{' '}
           <strong>override any status</strong> and add a rationale before applying; nothing is
           written until you apply.
         </p>
@@ -1614,6 +1641,7 @@ function SoarRedcapSync() {
                               </td>
                               <SubmittedCell
                                 submissionDate={r.submissionDate}
+                                lastDate={r.lastSubmissionDate}
                                 submitted={r.ntsvSubmitted || r.noNtsvSubmitted}
                                 onTime={r.onTime}
                                 deadline={r.deadline}

@@ -338,6 +338,8 @@ export interface FormRollup {
   pctComplete: number;
   allComplete: boolean;
   earliestDate: string | null;
+  /** The newest valid submission date: when the last record was entered. */
+  latestDate: string | null;
   /** True when a row's date field held a value that wasn't a valid date. */
   invalidDate: boolean;
   /**
@@ -352,7 +354,7 @@ export interface FormRollup {
 
 function rollup(rows: RedcapRow[], check: (r: RedcapRow) => RowCheck): FormRollup {
   if (rows.length === 0) {
-    return { submitted: false, nRows: 0, nComplete: 0, pctComplete: 0, allComplete: false, earliestDate: null, invalidDate: false, incompleteRows: [] };
+    return { submitted: false, nRows: 0, nComplete: 0, pctComplete: 0, allComplete: false, earliestDate: null, latestDate: null, invalidDate: false, incompleteRows: [] };
   }
   const nComplete = rows.reduce((n, r) => n + (check(r).complete ? 1 : 0), 0);
   // Identify each incomplete row so staff can open it in REDCap. Repeating
@@ -379,6 +381,7 @@ function rollup(rows: RedcapRow[], check: (r: RedcapRow) => RowCheck): FormRollu
     pctComplete: Math.round((nComplete / rows.length) * 1000) / 10,
     allComplete: nComplete === rows.length,
     earliestDate: valid[0] ?? null,
+    latestDate: valid[valid.length - 1] ?? null,
     invalidDate: valid.length < filled.length,
     incompleteRows,
   };
@@ -395,7 +398,14 @@ export interface SoarCell {
   dataComplete: boolean;
   /** NTSV rows whose delivery_date is after "today" — likely typos. */
   futureDated: number;
+  /** The first record's date. Timeliness is judged on this one. */
   earliestSubmissionDate: string | null;
+  /**
+   * The last record's date. Shown beside the first, never scored: records are
+   * entered case by case, so the first can come before the month even ends
+   * while later cases arrive after the deadline.
+   */
+  latestSubmissionDate: string | null;
   /** A row on either form had a filled-but-invalid submission date. */
   invalidDate: boolean;
   onTime: boolean | null;
@@ -469,6 +479,8 @@ export function buildSoarGrid(rows: RedcapRow[], opts: BuildGridOptions): Map<st
 
     const candidateDates = [ntsv.earliestDate, noNtsv.earliestDate].filter((d): d is string => d !== null);
     const earliest = candidateDates.length ? candidateDates.sort()[0]! : null;
+    const latestDates = [ntsv.latestDate, noNtsv.latestDate].filter((d): d is string => d !== null).sort();
+    const latest = latestDates[latestDates.length - 1] ?? null;
     const deadline = monthDeadline(pYear, pMonth);
     const days = earliest ? dayDiff(earliest, deadline) : null;
 
@@ -482,6 +494,7 @@ export function buildSoarGrid(rows: RedcapRow[], opts: BuildGridOptions): Map<st
       dataComplete,
       futureDated,
       earliestSubmissionDate: earliest,
+      latestSubmissionDate: latest,
       invalidDate: ntsv.invalidDate || noNtsv.invalidDate,
       onTime: days === null ? null : days <= 0,
       daysFromDeadline: days,

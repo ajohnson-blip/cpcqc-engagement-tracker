@@ -273,7 +273,10 @@ export interface SoarSyncRow {
   daysFromDeadline: number | null;
   /** The deadline this submission was judged against. */
   deadline: string;
+  /** The first record's date, which timeliness is judged on. */
   submissionDate: string | null;
+  /** The last record's date. Display only. */
+  lastSubmissionDate?: string | null;
   /** Incomplete rows grouped by REDCap record — which record is missing what.
    *  Empty unless the row is incomplete. */
   incompleteGroups: Array<{

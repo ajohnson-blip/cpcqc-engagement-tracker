@@ -163,7 +163,10 @@ export interface SoarSyncRow {
   /** The deadline this submission was judged against — shown beside a late
    *  date so a PM can weigh an exception without recomputing it. */
   deadline: string;
+  /** The first record's date, which timeliness is judged on. */
   submissionDate: string | null;
+  /** The last record's date. Display only: it does not change the status. */
+  lastSubmissionDate: string | null;
   /** Incomplete rows grouped by REDCap record — which record is missing what.
    *  Empty unless the cell is incomplete. */
   /** Distinct patterns of missing fields, with how many records share each.
@@ -679,6 +682,7 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
         daysFromDeadline: effCell?.daysFromDeadline ?? null,
         deadline,
         submissionDate: subDate,
+        lastSubmissionDate: cell?.latestSubmissionDate ?? null,
         currentStatus: ti.status,
         currentOutcome: ti.outcome,
         newStatus: finalStatus,
@@ -708,6 +712,7 @@ export async function runSoarRedcapSync(opts: RunSoarSyncOptions): Promise<SoarS
               onTime: effCell?.onTime ?? null,
               daysFromDeadline: effCell?.daysFromDeadline ?? null,
               submissionDate: subDate,
+              lastSubmissionDate: cell?.latestSubmissionDate ?? null,
               syncedAt: fetchedAt,
               ...(override
                 ? {
