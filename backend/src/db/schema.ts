@@ -799,6 +799,70 @@ export const enrollmentFormReminders = pgTable(
   }),
 );
 
+/**
+ * Each initiative's onboarding dates and registration links for a program
+ * year, written by its PM on the enrollment-forms page. Once set, enrollment
+ * receipts carry them, and staff send them to hospitals that enrolled before.
+ * Every save bumps `version`, so a hospital sent an earlier version can be
+ * told what changed.
+ */
+export const enrollmentOnboardingDetails = pgTable(
+  'enrollment_onboarding_details',
+  {
+    id: idCol(),
+    programYear: integer('program_year').notNull(),
+    /** 'SPARK' | 'SOAR' | 'NEST' | 'TTT' */
+    initiativeCode: text('initiative_code').notNull(),
+    /** [{ title, when, registrationUrl }], in the order hospitals see them. */
+    sessions: jsonb('sessions').notNull().default([]),
+    note: text('note'),
+    version: integer('version').notNull().default(1),
+    updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => ({
+    uniqYearInitiative: uniqueIndex('enrollment_onboarding_details_year_initiative_uniq').on(
+      t.programYear,
+      t.initiativeCode,
+    ),
+  }),
+);
+
+/**
+ * Every time a hospital was sent its onboarding details, one row per person
+ * per form: in the submitter's receipt, to the form's champions on
+ * submission, or from the staff page. Keeps anyone from getting the same
+ * version twice, and shows who got an earlier one.
+ */
+export const enrollmentOnboardingSends = pgTable(
+  'enrollment_onboarding_sends',
+  {
+    id: idCol(),
+    programYear: integer('program_year').notNull(),
+    enrollmentFormId: text('enrollment_form_id')
+      .notNull()
+      .references(() => enrollmentForms.id, { onDelete: 'cascade' }),
+    hospitalId: text('hospital_id')
+      .notNull()
+      .references(() => hospitals.id, { onDelete: 'cascade' }),
+    /** 'SPARK' | 'SOAR' | 'NEST' | 'TTT' */
+    initiativeCode: text('initiative_code').notNull(),
+    toEmail: text('to_email').notNull(),
+    toName: text('to_name'),
+    /** Which save of the details went out. */
+    detailsVersion: integer('details_version').notNull(),
+    /** 'receipt' | 'submit' | 'send' */
+    via: text('via').notNull(),
+    sentByUserId: text('sent_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    /** False when SendGrid refused it, or in dev with no SendGrid key. */
+    emailSent: boolean('email_sent').notNull(),
+    ...timestamps,
+  },
+  (t) => ({
+    yearIdx: index('enrollment_onboarding_sends_year_idx').on(t.programYear),
+  }),
+);
+
 export const auditLog = pgTable(
   'audit_log',
   {

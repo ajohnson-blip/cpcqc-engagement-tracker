@@ -331,6 +331,100 @@ export function acceptanceEmail(input: AcceptanceEmailInput): RenderedEmail {
   ]);
 }
 
+// -------- Onboarding --------
+
+/** One onboarding date, as the PM wrote it. */
+export interface OnboardingSession {
+  /** e.g. "Onboarding webinar". */
+  title: string;
+  /** Free text, so PMs can write dates and times their own way. */
+  when: string;
+  registrationUrl: string | null;
+}
+
+/** An initiative's onboarding details, as staff saved them. */
+export interface OnboardingContent {
+  sessions: OnboardingSession[];
+  note: string | null;
+}
+
+/** Set when there is anything to tell a hospital. */
+export const hasOnboarding = (o: OnboardingContent | null | undefined): o is OnboardingContent =>
+  !!o && (o.sessions.length > 0 || !!o.note?.trim());
+
+const URL_IN_TEXT = /(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]])/g;
+
+/** A line of the PM's note, with any web address it contains made a link. */
+function noteLine(text: string): Line {
+  const line: Line = [];
+  let last = 0;
+  for (const m of text.matchAll(URL_IN_TEXT)) {
+    if (m.index! > last) line.push(text.slice(last, m.index));
+    line.push({ label: m[0], url: m[0] });
+    last = m.index! + m[0].length;
+  }
+  if (last < text.length) line.push(text.slice(last));
+  return line.length ? line : [''];
+}
+
+/**
+ * The dates and registration links, then the PM's note. Each date is its own
+ * paragraph, with a named link to register; the plain-text part carries the
+ * bare address. The note keeps the PM's own paragraphs.
+ */
+function onboardingParagraphs(o: OnboardingContent): Paragraph[] {
+  const sessions: Paragraph[] = o.sessions.map((s) => [
+    [`${s.title.trim()}: ${s.when.trim()}`],
+    ...(s.registrationUrl ? [[{ label: `Register for ${s.title.trim()}`, url: s.registrationUrl.trim() }]] : []),
+  ]);
+  const note: Paragraph[] = (o.note ?? '')
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => p.split('\n').map((l) => noteLine(l.trim())));
+  return [...sessions, ...note];
+}
+
+export interface OnboardingEmailInput {
+  /** One person's name; ignored for a team. */
+  recipientName: string | null;
+  /** Several people at the hospital: greeted as its team for this initiative. */
+  forTeam: boolean;
+  hospitalName: string;
+  initiativeCode: FormInitiativeCode;
+  programYear: number;
+  onboarding: OnboardingContent;
+  /** They were sent an earlier version: say it changed. */
+  update?: boolean;
+}
+
+/**
+ * An initiative's onboarding dates and registration, for the people at a
+ * hospital that has submitted its enrollment form: its champions when it
+ * submits, and everyone when staff send them later.
+ */
+export function onboardingEmail(input: OnboardingEmailInput): RenderedEmail {
+  const short = INITIATIVE_SHORT[input.initiativeCode];
+  const hello = input.forTeam
+    ? `Hi ${input.hospitalName} ${short} team,`
+    : `Hi ${input.recipientName?.trim() || 'there'},`;
+  const intro = input.update
+    ? `The ${input.programYear} ${short} onboarding details have changed. Here are the current dates and ` +
+      `registration for ${input.hospitalName}.`
+    : `Thank you for submitting ${input.hospitalName}'s ${input.programYear} ${short} enrollment form. ` +
+      'Here are your onboarding dates and how to register.';
+  return render(
+    `${input.update ? 'Updated: ' : ''}${short} ${input.programYear} onboarding dates and registration — ${input.hospitalName}`,
+    [
+      [[hello]],
+      [[intro]],
+      ...onboardingParagraphs(input.onboarding),
+      [['If you have questions, please contact qi@cpcqc.org.']],
+      [['Colorado Perinatal Care Quality Collaborative']],
+    ],
+  );
+}
+
 export interface ReceiptEmailInput {
   submitterName: string;
   hospitalName: string;
@@ -340,6 +434,8 @@ export interface ReceiptEmailInput {
   editUrl: string;
   /** The enrollment window's last day (ISO), or null when not yet set. */
   closesAt: string | null;
+  /** The initiative's onboarding details, once its PM has written them. */
+  onboarding?: OnboardingContent | null;
 }
 
 /**
@@ -350,15 +446,20 @@ export interface ReceiptEmailInput {
  */
 export function receiptEmail(input: ReceiptEmailInput): RenderedEmail {
   const code = INITIATIVE_SHORT[input.initiativeCode];
+  const onboarding = hasOnboarding(input.onboarding) ? input.onboarding : null;
   return render(`${code} enrollment received — ${input.hospitalName}`, [
     [[`Hi ${input.submitterName.trim()},`]],
     [
       [
-        'Your enrollment form has been received and the program manager will be in contact ' +
-          'with next steps. If you need support, please contact qi@cpcqc.org',
+        onboarding
+          ? 'Your enrollment form has been received. Your onboarding dates and registration are below. ' +
+            'If you need support, please contact qi@cpcqc.org'
+          : 'Your enrollment form has been received and the program manager will be in contact ' +
+            'with next steps. If you need support, please contact qi@cpcqc.org',
       ],
     ],
     [[`Hospital: ${input.hospitalName}`], [`Initiative: ${INITIATIVE_NAMES[input.initiativeCode]}`], [`Program year: ${input.programYear}`]],
+    ...(onboarding ? [[['Onboarding dates and registration:']], ...onboardingParagraphs(onboarding)] : []),
     [
       [
         `To change anything${input.closesAt ? ` before ${longDate(input.closesAt)}` : ''}, use this link: `,

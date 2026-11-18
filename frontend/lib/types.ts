@@ -1121,6 +1121,53 @@ export interface WelcomeSendResult {
   remaining: number;
 }
 
+/** One onboarding date, as the PM wrote it. */
+export interface OnboardingSession {
+  title: string;
+  when: string;
+  registrationUrl: string | null;
+}
+
+/** An initiative's onboarding details for a program year. */
+export interface OnboardingDetails {
+  initiativeCode: 'SPARK' | 'SOAR' | 'NEST' | 'TTT';
+  sessions: OnboardingSession[];
+  note: string | null;
+  /** Null until first saved. */
+  version: number | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  /** What a hospital team would get, with an example hospital. */
+  sample: { subject: string; html: string } | null;
+}
+
+export interface OnboardingPreviewEmail {
+  formId: string;
+  hospital: { id: string; name: string };
+  code: 'SPARK' | 'SOAR' | 'NEST' | 'TTT';
+  recipients: Array<{ name: string; email: string }>;
+  kind: 'new' | 'update' | 'retry';
+  update: boolean;
+  version: number;
+  subject: string;
+  body: string;
+  html: string;
+}
+
+export interface OnboardingPreview {
+  programYear: number;
+  emails: OnboardingPreviewEmail[];
+  held: WelcomePlanNote[];
+  skipped: WelcomePlanNote[];
+  updated: WelcomePlanNote[];
+  failed: WelcomePlanNote[];
+}
+
+export interface OnboardingSendResult extends WelcomeSendResult {
+  /** When the run started, by the server's clock; passed back with each batch. */
+  since: string;
+}
+
 // ---------- Funder-facing engagement metrics ----------
 
 export type EngagementMetricKey =

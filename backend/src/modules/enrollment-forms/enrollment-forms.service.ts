@@ -17,8 +17,10 @@ import { v4 as uuid } from 'uuid';
 import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
 import { env, frontendBaseUrl } from '@/config/env.js';
+import { logger } from '@/config/logger.js';
 import { sendEmail } from '@/modules/notifications/notifications.service.js';
 import { INITIATIVE_SHORT, editLinkEmail, receiptEmail } from './enrollment-emails.js';
+import { currentOnboarding, deliverOnboardingOnSubmit } from './enrollment-onboarding.js';
 import type { AuthContext } from '@/middleware/auth.js';
 
 const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
@@ -349,13 +351,16 @@ export async function submitEnrollmentForm(input: EnrollmentSubmitInput) {
 
 /**
  * The hospital's receipt, with its edit link, and CPCQC's notice of the
- * enrollment. Sent once, when the form starts to count.
+ * enrollment. Sent once, when the form starts to count. Once the initiative's
+ * PM has written its onboarding details, the receipt carries them and the
+ * form's other champions get them in their own email.
  */
 async function sendReceiptAndNotice(row: typeof schema.enrollmentForms.$inferSelect, token: string) {
   const hospital = await db.query.hospitals.findFirst({
     where: eq(schema.hospitals.id, row.hospitalId),
   });
   const window = await getEnrollmentStepWindow(row.programYear);
+  const onboarding = await currentOnboarding(row.programYear, row.initiativeCode as InitiativeCode);
   const editUrl = `${frontendBaseUrl()}/enrollment/${row.programYear}?token=${encodeURIComponent(token)}`;
   const receipt = receiptEmail({
     submitterName: row.submitterName,
@@ -364,8 +369,9 @@ async function sendReceiptAndNotice(row: typeof schema.enrollmentForms.$inferSel
     programYear: row.programYear,
     editUrl,
     closesAt: window.closesAt,
+    onboarding: onboarding?.content ?? null,
   });
-  await sendEmail({
+  const sent = await sendEmail({
     toEmail: row.submitterEmail,
     fromEmail: env.EMAIL_FROM_ENROLLMENT,
     kind: 'enrollment.confirmation',
@@ -373,6 +379,12 @@ async function sendReceiptAndNotice(row: typeof schema.enrollmentForms.$inferSel
     // The edit link works like a password for this submission.
     redact: [editUrl],
   });
+  if (onboarding) {
+    // Never at the cost of the PM's notice below: the form already counts.
+    await deliverOnboardingOnSubmit(row, hospital?.name ?? 'your hospital', onboarding, sent.sent).catch(
+      (err: unknown) => logger.error({ err, formId: row.id }, 'Onboarding email on submission failed'),
+    );
+  }
 
   const champions = (row.champions as Champion[] | null) ?? [];
   const named = champions.filter((c) => c.name?.trim());

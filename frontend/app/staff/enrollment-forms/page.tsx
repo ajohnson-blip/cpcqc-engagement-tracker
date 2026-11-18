@@ -37,6 +37,7 @@ import { fmtDate } from '@/lib/format';
 import { SendEnrollmentFormDialog } from '@/components/send-enrollment-form-dialog';
 import { WelcomeUploadCard } from '@/components/welcome-upload-card';
 import { EnrollmentRemindersCard } from '@/components/enrollment-reminders-card';
+import { EnrollmentOnboardingCard } from '@/components/enrollment-onboarding-card';
 
 const PROGRAM_YEAR = 2027;
 
@@ -181,6 +182,11 @@ export default function StaffEnrollmentFormsPage() {
       />
 
       <EnrollmentRemindersCard
+        programYear={PROGRAM_YEAR}
+        onSent={(text, ok) => setNotice({ text, ok })}
+      />
+
+      <EnrollmentOnboardingCard
         programYear={PROGRAM_YEAR}
         onSent={(text, ok) => setNotice({ text, ok })}
       />
