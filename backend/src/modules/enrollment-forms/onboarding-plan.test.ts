@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { onboardingRecipients, planOnboarding, type OnboardingForm, type OnboardingPlanInput } from './onboarding-plan.js';
-import { ONBOARDING_TEMPLATE, onboardingEmail, onboardingProblem, receiptEmail } from './enrollment-emails.js';
+import { onboardingEmail, onboardingProblem, onboardingTemplate, receiptEmail } from './enrollment-emails.js';
 
 const form = (over: Partial<OnboardingForm> = {}): OnboardingForm => ({
   formId: 'f-ex-001-spark',
@@ -187,7 +187,10 @@ describe('onboardingEmail', () => {
 
 describe('onboardingProblem', () => {
   it('refuses the template until every {placeholder} is replaced', () => {
-    expect(onboardingProblem(ONBOARDING_TEMPLATE)).toBe('Replace {day, date and time} with your own text before saving.');
+    const template = onboardingTemplate(2027);
+    expect(template).toContain('Onboarding attendance is required and your team only needs to attend one.');
+    expect(template).toContain('to support your success in 2027!');
+    expect(onboardingProblem(template)).toBe('Replace {day, date and time} with your own text before saving.');
     expect(onboardingProblem(onboarding.message)).toBeNull();
   });
 

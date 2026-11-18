@@ -350,23 +350,27 @@ export const hasOnboarding = (o: OnboardingContent | null | undefined): o is Onb
   !!o && !!o.message.trim();
 
 /**
- * Where PMs start. Anything in {curly brackets} is theirs to replace, and a
- * message still holding any is refused (onboardingProblem), so a template
- * can't reach a hospital half filled in.
+ * Where PMs start, in CPCQC's wording (2026-11-18). Anything in {curly
+ * brackets} is theirs to replace, and a message still holding any is refused
+ * (onboardingProblem), so a template can't reach a hospital half filled in.
  */
-export const ONBOARDING_TEMPLATE = [
-  'Please register your team for one of the two onboarding sessions below. Your team only needs to attend one.',
-  '',
-  'Option 1: {day, date and time} – [Register for option 1]({registration link})',
-  'Option 2: {day, date and time} – [Register for option 2]({registration link})',
-  '',
-  '{Anything else your team should know before onboarding, such as who should attend.}',
-  '',
-  'If you have questions, please contact me at {your email}.',
-  '',
-  '{Your name}',
-  '{Your title}',
-].join('\n');
+export function onboardingTemplate(programYear: number): string {
+  return [
+    'Please register for at least one of the two onboarding sessions below. Onboarding attendance is required ' +
+      'and your team only needs to attend one.',
+    '',
+    'Option 1: {day, date and time} – [Register for option 1]({registration link})',
+    'Option 2: {day, date and time} – [Register for option 2]({registration link})',
+    '',
+    'Please have all of your initiative champions attend if possible. Onboarding covers valuable information ' +
+      `to support your success in ${programYear}!`,
+    '',
+    'If you have questions, please contact me at {your email}.',
+    '',
+    '{Your name}',
+    '{Your title}',
+  ].join('\n');
+}
 
 const PLACEHOLDER = /\{[^{}\n]{1,120}\}/;
 const NAMED_LINK = /\[([^\]\n]+)\]\(([^)\s]*)\)/g;

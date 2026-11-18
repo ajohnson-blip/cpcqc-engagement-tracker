@@ -17,7 +17,7 @@ import {
 } from './enrollment-forms.staff.js';
 import { previewWelcome, saveWelcomeSheet, sendWelcome, sendWelcomeTest } from './enrollment-welcome.js';
 import { previewReminders, sendReminderTest, sendReminders } from './enrollment-reminders.js';
-import { ONBOARDING_TEMPLATE } from './enrollment-emails.js';
+import { onboardingTemplate } from './enrollment-emails.js';
 import {
   getOnboardingDetails,
   previewOnboarding,
@@ -96,7 +96,7 @@ router.post('/reminders/send', requireAuth, requireStaff, async (req, res) => {
 // already submitted. New submissions get them in their receipts.
 router.get('/onboarding/details', requireAuth, requireStaff, async (req, res) => {
   const programYear = programYearSchema.parse(req.query.programYear);
-  res.json({ details: await getOnboardingDetails(programYear), template: ONBOARDING_TEMPLATE });
+  res.json({ details: await getOnboardingDetails(programYear), template: onboardingTemplate(programYear) });
 });
 
 // The message's own checks (template text left in, a link without an
