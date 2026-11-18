@@ -31,6 +31,24 @@ const KIND: Record<OnboardingPreview['emails'][number]['kind'], string> = {
   retry: 'Retry',
 };
 
+/**
+ * What the box starts with: the saved message, or, before one is saved, the
+ * template, so a PM sees where to begin without hunting for a button. Not an
+ * unsaved change: nothing is lost by leaving it, and the {placeholders} keep
+ * it from being saved as is.
+ */
+function startingText(saved: OnboardingDetails | undefined, template: Template | undefined): string {
+  if (saved?.message.trim()) return saved.message;
+  return template?.startsFilledIn ? template.text : '';
+}
+
+/** Each initiative's starting point, from the server. */
+interface Template {
+  text: string;
+  /** False for Turning the Tide, whose PM decides whether to send anything. */
+  startsFilledIn: boolean;
+}
+
 export function EnrollmentOnboardingCard({
   programYear,
   onSent,
@@ -39,7 +57,7 @@ export function EnrollmentOnboardingCard({
   onSent: (text: string, ok: boolean) => void;
 }) {
   const [details, setDetails] = useState<OnboardingDetails[] | null>(null);
-  const [template, setTemplate] = useState('');
+  const [templates, setTemplates] = useState<Partial<Record<Code, Template>>>({});
   const [active, setActive] = useState<Code>('SPARK');
   const [message, setMessage] = useState('');
   const [dirty, setDirty] = useState(false);
@@ -53,11 +71,13 @@ export function EnrollmentOnboardingCard({
 
   useEffect(() => {
     api
-      .get<{ details: OnboardingDetails[]; template: string }>(`/staff/enrollment-forms/onboarding/details?${q}`)
+      .get<{ details: OnboardingDetails[]; templates?: Partial<Record<Code, Template>> }>(
+        `/staff/enrollment-forms/onboarding/details?${q}`,
+      )
       .then((r) => {
         setDetails(r.details);
-        setTemplate(r.template);
-        setMessage(r.details.find((d) => d.initiativeCode === 'SPARK')?.message ?? '');
+        setTemplates(r.templates ?? {});
+        setMessage(startingText(r.details.find((d) => d.initiativeCode === 'SPARK'), r.templates?.SPARK));
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [q]);
@@ -68,7 +88,7 @@ export function EnrollmentOnboardingCard({
     if (code === active) return;
     if (dirty && !window.confirm(`Discard your unsaved changes to the ${LABEL[active]} message?`)) return;
     setActive(code);
-    setMessage(details?.find((d) => d.initiativeCode === code)?.message ?? '');
+    setMessage(startingText(details?.find((d) => d.initiativeCode === code), templates[code]));
     setDirty(false);
     setSaved(null);
     setError(null);
@@ -81,8 +101,16 @@ export function EnrollmentOnboardingCard({
     setSaved(null);
   }
 
+  const template = templates[active]?.text ?? '';
+
   function useTemplate() {
-    if (message.trim() && !window.confirm('Replace what you have written with the template?')) return;
+    if (!template) {
+      setError("The template didn't load. Refresh the page and try again.");
+      return;
+    }
+    if (message.trim() && message !== template && !window.confirm('Replace what you have written with the template?')) {
+      return;
+    }
     change(template);
     box.current?.focus();
   }
@@ -200,13 +228,6 @@ export function EnrollmentOnboardingCard({
               className="mt-1 w-full rounded-lg border border-cpcqc-purple-dark/20 px-3 py-2 text-sm font-normal leading-relaxed text-cpcqc-purple-dark"
             />
           </label>
-          <p className="text-xs text-cpcqc-purple-dark/60">
-            Replace everything in {'{curly brackets}'}; the message can&rsquo;t be saved until you do. A link is
-            written <code>[link text](https://…)</code>, which hospitals see as just the link text; use{' '}
-            <strong>Add a link</strong> to insert one. A bare web address becomes a link too. Hospitals see a
-            greeting and a line naming their hospital above your message, and CPCQC&rsquo;s name below it.
-          </p>
-
           {error && <p className="rounded-lg bg-cpcqc-pink-dark/10 px-3 py-2 text-sm text-cpcqc-pink-dark">{error}</p>}
           {saved && <p className="text-sm text-cpcqc-teal-dark">{saved}</p>}
 
