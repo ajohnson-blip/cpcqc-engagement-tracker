@@ -23,6 +23,7 @@ import {
   Download,
   Mail,
   Send,
+  UserMinus,
 } from 'lucide-react';
 import { api, apiFetch } from '@/lib/api';
 import type {
@@ -32,6 +33,7 @@ import type {
   StaffEnrollmentForm,
   StaffEnrollmentFormSent,
   StaffEnrollmentOverview,
+  StaffEnrollmentWithdrawal,
 } from '@/lib/types';
 import { fmtDate } from '@/lib/format';
 import { SendEnrollmentFormDialog } from '@/components/send-enrollment-form-dialog';
@@ -243,7 +245,12 @@ export default function StaffEnrollmentFormsPage() {
                   key={code}
                   coverage={c}
                   sent={data.sent}
+                  withdrawals={data.withdrawals ?? []}
                   onSend={(hospitalId) => setSendFor({ hospitalId, initiative: code })}
+                  onChanged={(text, ok) => {
+                    setNotice({ text, ok });
+                    if (ok) setReloadKey((k) => k + 1);
+                  }}
                 />
               ) : null;
             })}
@@ -358,21 +365,76 @@ export default function StaffEnrollmentFormsPage() {
  * find out which three, and in the last week of the window that round trip is
  * the difference between chasing them and not. Each name says when its form
  * was last sent, and sends it (again) in one click.
+ *
+ * A hospital that won't be enrolling after all — say it switched initiatives
+ * before submitting — can be taken off the list, so it stops counting and
+ * stops getting reminders. It is listed underneath with an undo.
  */
 function CoverageCard({
   coverage,
   sent,
+  withdrawals,
   onSend,
+  onChanged,
 }: {
   coverage: EnrollmentCoverage;
   sent: StaffEnrollmentFormSent[];
+  withdrawals: StaffEnrollmentWithdrawal[];
   onSend: (hospitalId: string) => void;
+  onChanged: (text: string, ok: boolean) => void;
 }) {
   const { initiativeCode, expected, submittedCount, outstanding, unexpectedCount } = coverage;
+  const withdrawn = coverage.withdrawn ?? [];
   const done = expected.length > 0 && outstanding.length === 0;
   // `sent` is newest first, so the first match is the latest send.
   const lastSent = (hospitalId: string) =>
     sent.find((s) => s.hospital.id === hospitalId && s.initiativeCode === initiativeCode);
+  const withdrawalFor = (hospitalId: string) =>
+    withdrawals.find((w) => w.hospital.id === hospitalId && w.initiativeCode === initiativeCode);
+
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function takeOff(h: { id: string; name: string }) {
+    setBusy(true);
+    try {
+      await api.post('/staff/enrollment-forms/withdrawals', {
+        programYear: PROGRAM_YEAR,
+        hospitalId: h.id,
+        initiativeCode,
+        reason: reason.trim() || undefined,
+      });
+      setRemoving(null);
+      setReason('');
+      onChanged(`Took ${h.name} off the ${initiativeCode} list.`, true);
+    } catch (err) {
+      onChanged((err as Error).message, false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function putBack(h: { id: string; name: string }) {
+    const w = withdrawalFor(h.id);
+    if (!w) return;
+    if (
+      !window.confirm(
+        `Put ${h.name} back on the ${initiativeCode} list?\n\n` +
+          `It will count toward ${initiativeCode} again and get ${initiativeCode} reminders until it submits the form.`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await api.del(`/staff/enrollment-forms/withdrawals/${w.id}`);
+      onChanged(`Put ${h.name} back on the ${initiativeCode} list.`, true);
+    } catch (err) {
+      onChanged((err as Error).message, false);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div
@@ -409,24 +471,113 @@ function CoverageCard({
             {outstanding.map((h) => {
               const last = lastSent(h.id);
               return (
+                <li key={h.id}>
+                  <div className="flex items-start justify-between gap-2">
+                    <span>
+                      {h.name}
+                      {last && (
+                        <span className="block text-xs text-cpcqc-purple-dark/50">
+                          {last.emailSent ? 'Sent' : 'Send failed'} {fmtDate(last.sentAt)} to{' '}
+                          {last.toEmail}
+                        </span>
+                      )}
+                    </span>
+                    <span className="flex shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => onSend(h.id)}
+                        title={`Send ${h.name} its ${initiativeCode} enrollment form`}
+                        className="rounded-full p-1 text-cpcqc-purple-dark/50 hover:bg-cpcqc-purple-dark/5 hover:text-cpcqc-purple-dark"
+                        aria-label={`Send ${h.name} its ${initiativeCode} enrollment form`}
+                      >
+                        <Send size={13} aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRemoving(removing === h.id ? null : h.id);
+                          setReason('');
+                        }}
+                        title={`Take ${h.name} off the ${initiativeCode} list`}
+                        className="rounded-full p-1 text-cpcqc-purple-dark/50 hover:bg-cpcqc-purple-dark/5 hover:text-cpcqc-purple-dark"
+                        aria-label={`Take ${h.name} off the ${initiativeCode} list`}
+                        aria-expanded={removing === h.id}
+                      >
+                        <UserMinus size={13} aria-hidden />
+                      </button>
+                    </span>
+                  </div>
+                  {removing === h.id && (
+                    <div className="mt-1.5 rounded-lg bg-cpcqc-purple-dark/5 p-2.5 text-xs text-cpcqc-purple-dark/80">
+                      <p>
+                        Take {h.name} off the {initiativeCode} list? It won&rsquo;t count toward{' '}
+                        {initiativeCode} or get {initiativeCode} reminders. No email is sent, and you can
+                        undo this.
+                      </p>
+                      <label className="mt-2 block">
+                        <span className="sr-only">Reason (optional)</span>
+                        <input
+                          type="text"
+                          value={reason}
+                          onChange={(e) => setReason(e.target.value)}
+                          maxLength={500}
+                          placeholder="Reason (optional), e.g. switched to NEST"
+                          className="w-full rounded-md border border-cpcqc-purple-dark/15 bg-white px-2 py-1 text-xs"
+                        />
+                      </label>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void takeOff(h)}
+                          className="rounded-full bg-cpcqc-purple px-3 py-1 font-bold text-white hover:bg-cpcqc-purple-dark disabled:opacity-50"
+                        >
+                          {busy ? 'Taking off…' : 'Take off list'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRemoving(null)}
+                          className="rounded-full px-3 py-1 font-bold text-cpcqc-purple hover:underline"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {withdrawn.length > 0 && (
+        <div className="mt-3 border-t border-cpcqc-purple-dark/5 pt-2">
+          <p className="text-xs font-bold uppercase tracking-wide text-cpcqc-purple-dark/50">
+            Taken off this list
+          </p>
+          <ul className="mt-1 space-y-1 text-xs text-cpcqc-purple-dark/60">
+            {withdrawn.map((h) => {
+              const w = withdrawalFor(h.id);
+              return (
                 <li key={h.id} className="flex items-start justify-between gap-2">
                   <span>
                     {h.name}
-                    {last && (
-                      <span className="block text-xs text-cpcqc-purple-dark/50">
-                        {last.emailSent ? 'Sent' : 'Send failed'} {fmtDate(last.sentAt)} to{' '}
-                        {last.toEmail}
+                    {w && (
+                      <span className="block text-cpcqc-purple-dark/50">
+                        {w.reason ? `${w.reason} · ` : ''}
+                        {fmtDate(w.withdrawnAt)}
+                        {w.withdrawnBy ? ` by ${w.withdrawnBy}` : ''}
                       </span>
                     )}
                   </span>
                   <button
                     type="button"
-                    onClick={() => onSend(h.id)}
-                    title={`Send ${h.name} its ${initiativeCode} enrollment form`}
-                    className="shrink-0 rounded-full p-1 text-cpcqc-purple-dark/50 hover:bg-cpcqc-purple-dark/5 hover:text-cpcqc-purple-dark"
-                    aria-label={`Send ${h.name} its ${initiativeCode} enrollment form`}
+                    disabled={busy}
+                    onClick={() => void putBack(h)}
+                    className="shrink-0 font-bold text-cpcqc-purple hover:underline disabled:opacity-50"
                   >
-                    <Send size={13} aria-hidden />
+                    Undo
                   </button>
                 </li>
               );

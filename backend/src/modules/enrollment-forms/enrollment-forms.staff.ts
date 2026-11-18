@@ -71,6 +71,8 @@ export interface EnrollmentCoverage {
   submittedCount: number;
   /** Expected hospitals with nothing filed — the chase list. */
   outstanding: Array<{ id: string; name: string }>;
+  /** Taken off this initiative's list by staff, and not filed. */
+  withdrawn: Array<{ id: string; name: string }>;
   /**
    * Forms from hospitals not on the expected list. Not an error: a hospital
    * can be accepted after the interest deadline, or a PM can wave one through.
@@ -98,6 +100,18 @@ export interface StaffEnrollmentOverview {
   coverage: EnrollmentCoverage[];
   /** Newest first. */
   sent: StaffEnrollmentFormSent[];
+  /** Hospitals taken off an initiative's list, newest first. */
+  withdrawals: StaffEnrollmentWithdrawal[];
+}
+
+/** A hospital staff took off one initiative's enrollment list. */
+export interface StaffEnrollmentWithdrawal {
+  id: string;
+  hospital: { id: string; name: string };
+  initiativeCode: InitiativeCode;
+  reason: string | null;
+  withdrawnAt: string;
+  withdrawnBy: string | null;
 }
 
 function shape(
@@ -158,7 +172,7 @@ export async function getStaffEnrollmentOverview(
 ): Promise<StaffEnrollmentOverview> {
   assertStaff(ctx);
 
-  const [formRows, interestRows, window, tttIds, sentRows] = await Promise.all([
+  const [formRows, interestRows, window, tttIds, sentRows, withdrawnRows] = await Promise.all([
     db
       .select()
       .from(schema.enrollmentForms)
@@ -185,6 +199,17 @@ export async function getStaffEnrollmentOverview(
       .leftJoin(schema.users, eq(schema.users.id, schema.enrollmentFormInvitations.sentByUserId))
       .where(eq(schema.enrollmentFormInvitations.programYear, programYear))
       .orderBy(desc(schema.enrollmentFormInvitations.createdAt)),
+    db
+      .select({
+        row: schema.enrollmentFormWithdrawals,
+        firstName: schema.users.firstName,
+        lastName: schema.users.lastName,
+        email: schema.users.email,
+      })
+      .from(schema.enrollmentFormWithdrawals)
+      .leftJoin(schema.users, eq(schema.users.id, schema.enrollmentFormWithdrawals.withdrawnByUserId))
+      .where(eq(schema.enrollmentFormWithdrawals.programYear, programYear))
+      .orderBy(desc(schema.enrollmentFormWithdrawals.createdAt)),
   ]);
 
   // One lookup for every hospital either side of the comparison, so an
@@ -195,6 +220,7 @@ export async function getStaffEnrollmentOverview(
       ...interestRows.map((r) => r.hospitalId),
       ...tttIds,
       ...sentRows.map((s) => s.row.hospitalId),
+      ...withdrawnRows.map((w) => w.row.hospitalId),
     ]),
   );
   const hospitals = hospitalIds.length
@@ -229,6 +255,7 @@ export async function getStaffEnrollmentOverview(
     })),
     tttContinuing: continuingTtt,
     sent: sentRows.map((s) => s.row),
+    withdrawn: withdrawnRows.map((w) => w.row),
     nameOf,
   });
 
@@ -251,7 +278,128 @@ export async function getStaffEnrollmentOverview(
     forms,
     coverage,
     sent,
+    withdrawals: withdrawnRows.map(({ row, firstName, lastName, email }) => ({
+      id: row.id,
+      hospital: { id: row.hospitalId, name: nameOf(row.hospitalId) },
+      initiativeCode: row.initiativeCode as InitiativeCode,
+      reason: row.reason,
+      withdrawnAt: row.createdAt.toISOString(),
+      withdrawnBy: [firstName, lastName].filter(Boolean).join(' ') || email || null,
+    })),
   };
+}
+
+/**
+ * Take a hospital off one initiative's enrollment list: it was accepted for
+ * it, or sent its form, but won't be enrolling in it — say it switched to
+ * another initiative. It stops counting toward that initiative's total, leaves
+ * the outstanding list and gets no more reminders for it. Nothing is emailed,
+ * and the acceptance and earlier sends stay as the record.
+ *
+ * Refused once the hospital has submitted that form: a submitted form is the
+ * enrollment record, and taking it back is a different matter.
+ */
+export async function withdrawFromList(
+  input: { programYear: number; hospitalId: string; initiativeCode: InitiativeCode; reason?: string | null },
+  ctx: AuthContext,
+): Promise<StaffEnrollmentWithdrawal> {
+  assertStaff(ctx);
+  const hospital = await db.query.hospitals.findFirst({
+    where: eq(schema.hospitals.id, input.hospitalId),
+  });
+  if (!hospital) throw new HttpError(404, 'Hospital not found.');
+
+  const filed = await db.query.enrollmentForms.findFirst({
+    where: and(
+      eq(schema.enrollmentForms.programYear, input.programYear),
+      eq(schema.enrollmentForms.hospitalId, hospital.id),
+      eq(schema.enrollmentForms.initiativeCode, input.initiativeCode),
+    ),
+  });
+  if (filed) {
+    throw new HttpError(
+      409,
+      `${hospital.name} has already submitted its ${input.programYear} ${input.initiativeCode} enrollment form, ` +
+        'so it stays on the list.',
+    );
+  }
+
+  const reason = input.reason?.trim() || null;
+  const now = new Date();
+  const [row] = await db
+    .insert(schema.enrollmentFormWithdrawals)
+    .values({
+      id: uuid(),
+      programYear: input.programYear,
+      hospitalId: hospital.id,
+      initiativeCode: input.initiativeCode,
+      reason,
+      withdrawnByUserId: ctx.userId ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    // Already off the list: keep the first removal, but take a new reason.
+    .onConflictDoUpdate({
+      target: [
+        schema.enrollmentFormWithdrawals.programYear,
+        schema.enrollmentFormWithdrawals.hospitalId,
+        schema.enrollmentFormWithdrawals.initiativeCode,
+      ],
+      set: { reason, updatedAt: now },
+    })
+    .returning();
+  await db.insert(schema.auditLog).values({
+    id: uuid(),
+    actorUserId: ctx.userId ?? null,
+    actorRole: ctx.role,
+    action: 'enrollment_form.withdrawn_from_list',
+    entityType: 'hospital',
+    entityId: hospital.id,
+    diff: { programYear: input.programYear, initiativeCode: input.initiativeCode, reason },
+    note: `Took ${hospital.name} off the ${input.programYear} ${input.initiativeCode} enrollment list.`,
+  });
+  return {
+    id: row!.id,
+    hospital: { id: hospital.id, name: hospital.name },
+    initiativeCode: input.initiativeCode,
+    reason: row!.reason,
+    withdrawnAt: row!.createdAt.toISOString(),
+    withdrawnBy: null,
+  };
+}
+
+/** Undo a removal: the hospital is back on the initiative's list. */
+export async function restoreToList(withdrawalId: string, ctx: AuthContext): Promise<void> {
+  assertStaff(ctx);
+  const [row] = await db
+    .delete(schema.enrollmentFormWithdrawals)
+    .where(eq(schema.enrollmentFormWithdrawals.id, withdrawalId))
+    .returning();
+  if (!row) throw new HttpError(404, 'That hospital is already back on the list.');
+  await db.insert(schema.auditLog).values({
+    id: uuid(),
+    actorUserId: ctx.userId ?? null,
+    actorRole: ctx.role,
+    action: 'enrollment_form.restored_to_list',
+    entityType: 'hospital',
+    entityId: row.hospitalId,
+    diff: { programYear: row.programYear, initiativeCode: row.initiativeCode, reason: row.reason },
+    note: `Put the hospital back on the ${row.programYear} ${row.initiativeCode} enrollment list.`,
+  });
+}
+
+/** The initiatives a hospital was taken off this year. */
+export async function withdrawnCodes(programYear: number, hospitalId: string): Promise<string[]> {
+  const rows = await db
+    .select({ code: schema.enrollmentFormWithdrawals.initiativeCode })
+    .from(schema.enrollmentFormWithdrawals)
+    .where(
+      and(
+        eq(schema.enrollmentFormWithdrawals.programYear, programYear),
+        eq(schema.enrollmentFormWithdrawals.hospitalId, hospitalId),
+      ),
+    );
+  return rows.map((r) => r.code);
 }
 
 export interface SendEnrollmentFormsInput {
@@ -328,6 +476,13 @@ export async function sendEnrollmentForms(
   // original: every initiative the sheet accepted the hospital into, and, for
   // a hospital with no interest form, addressed to that initiative's team.
   const decision = await sheetDecisionFor(input.programYear, hospital.name);
+  // Sending a form is the decision that the hospital owes it, so it undoes a
+  // removal from that initiative's list. Initiatives it is still off are left
+  // out of the "accepted into" line, so a hospital that switched initiatives
+  // isn't told it is in the one it left.
+  const stillOff = (await withdrawnCodes(input.programYear, hospital.id)).filter(
+    (c) => !codes.includes(c as InitiativeCode),
+  );
   const interest = decision
     ? null
     : await db.query.annualInterestForms.findFirst({
@@ -344,7 +499,7 @@ export async function sendEnrollmentForms(
       hospitalName: hospital.name,
       url: enrollmentFormUrl(frontendBaseUrl(), input.programYear, hospital.id, code),
     })),
-    accepted: decision?.accepted,
+    accepted: decision?.accepted.filter((c) => !stillOff.includes(c)),
     forTeam: decision ? decision.filedInterestForm === false : !interest,
     closesAt: window.closesAt,
   });
@@ -374,6 +529,15 @@ export async function sendEnrollmentForms(
       updatedAt: now,
     })),
   );
+  await db
+    .delete(schema.enrollmentFormWithdrawals)
+    .where(
+      and(
+        eq(schema.enrollmentFormWithdrawals.programYear, input.programYear),
+        eq(schema.enrollmentFormWithdrawals.hospitalId, hospital.id),
+        inArray(schema.enrollmentFormWithdrawals.initiativeCode, codes),
+      ),
+    );
   await db.insert(schema.auditLog).values({
     id: uuid(),
     actorUserId: ctx.userId ?? null,
