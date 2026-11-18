@@ -31,6 +31,16 @@ const KIND: Record<OnboardingPreview['emails'][number]['kind'], string> = {
   retry: 'Retry',
 };
 
+/**
+ * What the box starts with: the saved message, or, before one is saved, the
+ * template, so a PM sees where to begin without hunting for a button. Not an
+ * unsaved change: nothing is lost by leaving it, and the {placeholders} keep
+ * it from being saved as is.
+ */
+function startingText(saved: OnboardingDetails | undefined, template: string): string {
+  return saved?.message.trim() ? saved.message : template;
+}
+
 export function EnrollmentOnboardingCard({
   programYear,
   onSent,
@@ -56,8 +66,8 @@ export function EnrollmentOnboardingCard({
       .get<{ details: OnboardingDetails[]; template: string }>(`/staff/enrollment-forms/onboarding/details?${q}`)
       .then((r) => {
         setDetails(r.details);
-        setTemplate(r.template);
-        setMessage(r.details.find((d) => d.initiativeCode === 'SPARK')?.message ?? '');
+        setTemplate(r.template ?? '');
+        setMessage(startingText(r.details.find((d) => d.initiativeCode === 'SPARK'), r.template ?? ''));
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [q]);
@@ -68,7 +78,7 @@ export function EnrollmentOnboardingCard({
     if (code === active) return;
     if (dirty && !window.confirm(`Discard your unsaved changes to the ${LABEL[active]} message?`)) return;
     setActive(code);
-    setMessage(details?.find((d) => d.initiativeCode === code)?.message ?? '');
+    setMessage(startingText(details?.find((d) => d.initiativeCode === code), template));
     setDirty(false);
     setSaved(null);
     setError(null);
@@ -82,7 +92,13 @@ export function EnrollmentOnboardingCard({
   }
 
   function useTemplate() {
-    if (message.trim() && !window.confirm('Replace what you have written with the template?')) return;
+    if (!template) {
+      setError("The template didn't load. Refresh the page and try again.");
+      return;
+    }
+    if (message.trim() && message !== template && !window.confirm('Replace what you have written with the template?')) {
+      return;
+    }
     change(template);
     box.current?.focus();
   }
@@ -209,6 +225,11 @@ export function EnrollmentOnboardingCard({
 
           {error && <p className="rounded-lg bg-cpcqc-pink-dark/10 px-3 py-2 text-sm text-cpcqc-pink-dark">{error}</p>}
           {saved && <p className="text-sm text-cpcqc-teal-dark">{saved}</p>}
+          {!current?.sample && !dirty && message === template && template && (
+            <p className="text-sm text-cpcqc-purple-dark/70">
+              This is the template. Replace everything in {'{curly brackets}'}, then save.
+            </p>
+          )}
 
           <div className="flex flex-wrap items-center gap-3">
             <button
