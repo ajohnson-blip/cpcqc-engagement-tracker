@@ -219,10 +219,25 @@ describe('buildSoarGrid', () => {
     expect(grid.get(`${dag}::2026-03`)!.onTime).toBe(false); // past 2026-04-17
   });
 
+  it('keeps the last entry date beside the first, and judges timeliness on the first', () => {
+    // Cases entered as they happen: the first before the month is out, the last
+    // after the deadline (2026-04-10).
+    const grid = soarGrid([
+      ntsv('2026-03-04', '2026-03-05'),
+      ntsv('2026-03-28', '2026-04-22'),
+      ntsv('2026-03-15', '2026-03-16'),
+    ]);
+    const cell = grid.get(`${dag}::2026-03`)!;
+    expect(cell.earliestSubmissionDate).toBe('2026-03-05');
+    expect(cell.latestSubmissionDate).toBe('2026-04-22');
+    expect(cell.onTime).toBe(true);
+  });
+
   it('ignores a corrupt submission date (invalidDate flag, timeliness N/A)', () => {
     const cell = soarGrid([ntsv('2026-03-10', '#C@9J&ikv$fU%!KF')]).get(`${dag}::2026-03`)!;
     expect(cell.invalidDate).toBe(true);
     expect(cell.earliestSubmissionDate).toBeNull();
+    expect(cell.latestSubmissionDate).toBeNull();
     expect(cell.onTime).toBeNull();
   });
 

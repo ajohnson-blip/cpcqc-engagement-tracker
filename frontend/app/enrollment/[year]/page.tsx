@@ -50,10 +50,14 @@ interface Ctx {
   isTttContinuation: boolean;
   alreadySubmitted: boolean;
   currentlyEnrolled: string[];
-  inSoarSustainability: boolean;
   caution: string | null;
   copyableFrom: Array<{ initiativeCode: string; championCount: number }>;
+  /** TtT only: CPCQC has no TtT champions for this hospital, so the form asks for them. */
+  needsTttRoster: boolean;
 }
+
+/** In short: the code, except Turning the Tide, which hospitals see written out. */
+const shortName = (code: string) => (code === 'TTT' ? 'Turning the Tide' : code);
 
 const INITIATIVE_NAME: Record<Code, string> = {
   SPARK: 'SPARK: Postpartum Discharge Transitions',
@@ -95,9 +99,14 @@ export default function PublicEnrollmentFormPage() {
 
 function EnrollmentForm() {
   const programYear = parseInt(useParams<{ year: string }>().year, 10);
+  const searchParams = useSearchParams();
   // ?token= reopens an existing enrollment; the emailed link is the only proof
   // of being the original submitter.
-  const editToken = useSearchParams().get('token');
+  const editToken = searchParams.get('token');
+  // ?hospital=&initiative= come from the links CPCQC emails. They only make the
+  // first choice for the hospital, which can still change either one.
+  const presetHospital = searchParams.get('hospital');
+  const presetInitiative = searchParams.get('initiative');
   const [editing, setEditing] = useState<EditableEnrollment | null>(null);
   const [editClosed, setEditClosed] = useState<string | null>(null);
 
@@ -206,6 +215,18 @@ function EnrollmentForm() {
     if (editing) void loadCtx(editing.hospitalId, editing.initiativeCode);
   }, [editing, loadCtx]);
 
+  // Runs once the hospital list and config arrive. A value that isn't on the
+  // list (a stale or hand-edited link) is ignored rather than trusted.
+  useEffect(() => {
+    if (editToken || !config || hospitals.length === 0) return;
+    const hid = hospitals.some((h) => h.id === presetHospital) ? presetHospital! : '';
+    const code = config.initiatives.find((c) => c === presetInitiative) ?? '';
+    if (!hid && !code) return;
+    setHospitalId(hid);
+    setInitiative(code);
+    void loadCtx(hid, code);
+  }, [editToken, config, hospitals, presetHospital, presetInitiative, loadCtx]);
+
   const isTtt = initiative === 'TTT';
   const isOpen = win?.state === 'open';
 
@@ -218,6 +239,8 @@ function EnrollmentForm() {
   if (ctx && !isTtt) {
     if (!ehr) errors.push('Select your hospital EHR.');
     if (ehr === 'Other…' && !ehrOther.trim()) errors.push('Tell us which EHR your hospital uses.');
+  }
+  if (ctx && (!isTtt || ctx.needsTttRoster)) {
     for (const r of config?.championRoles ?? []) {
       if (!r.required) continue;
       const c = champions.find((x) => x.role === r.key);
@@ -238,6 +261,13 @@ function EnrollmentForm() {
     !submitting &&
     (editToken ? !editClosed : isOpen && !ctx?.alreadySubmitted);
 
+  // TtT sends its attestation, and its roster when CPCQC asked for one.
+  function tttOrFullFields() {
+    const roster = { champions: champions.filter((c) => c.name.trim() || c.isPrimary) };
+    if (!isTtt) return { ehr, ehrOther, ...roster };
+    return { tttContinuationAttested: attested, ...(ctx?.needsTttRoster ? roster : {}) };
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitting(true);
@@ -249,9 +279,7 @@ function EnrollmentForm() {
           submitterName: name,
           submitterRole: role,
           submitterEmail: email,
-          ...(isTtt
-            ? { tttContinuationAttested: attested }
-            : { ehr, ehrOther, champions: champions.filter((c) => c.name.trim() || c.isPrimary) }),
+          ...tttOrFullFields(),
         });
         setSentTo('__updated__');
         return;
@@ -263,9 +291,7 @@ function EnrollmentForm() {
         submitterName: name,
         submitterRole: role,
         submitterEmail: email,
-        ...(isTtt
-          ? { tttContinuationAttested: attested }
-          : { ehr, ehrOther, champions: champions.filter((c) => c.name.trim() || c.isPrimary) }),
+        ...tttOrFullFields(),
       });
       setSentTo(res.sentTo);
     } catch (e) {
@@ -302,15 +328,16 @@ function EnrollmentForm() {
         <div className="rounded-2xl bg-white p-8 text-center shadow-card">
           <MailCheck className="mx-auto h-10 w-10 text-cpcqc-teal-dark" />
           <h2 className="mt-3 font-rounded text-xl font-bold text-cpcqc-purple-dark">
-            One more step — check your email
+            Thank you — you&rsquo;re enrolled
           </h2>
           <p className="mt-2 text-sm text-cpcqc-purple-dark/80">
-            We&rsquo;ve sent a confirmation link to <strong>{sentTo}</strong>. Enrollment
-            isn&rsquo;t complete until you open it.
+            {ctx?.hospitalName ?? 'Your hospital'} is enrolled in{' '}
+            {initiative ? INITIATIVE_NAME[initiative] : 'this initiative'} for {programYear}.
+            We&rsquo;ve emailed a receipt to <strong>{sentTo}</strong>
+            {win.closesAt ? <>, with a link to make changes until {fmtDate(win.closesAt)}</> : ''}.
           </p>
           <p className="mt-3 text-xs text-cpcqc-purple-dark/60">
-            Keep that email — the same link is how you edit this submission while the window is
-            open.
+            Keep that email — the link is how you edit this submission.
           </p>
         </div>
       </Shell>
@@ -328,8 +355,8 @@ function EnrollmentForm() {
         </h1>
         <p className="mt-2 max-w-2xl text-cpcqc-purple-dark/80">
           This is the step required under Colorado law — a hospital without a submitted enrollment
-          form is not enrolled, regardless of what it ranked on the interest form. Each initiative
-          has its own form, so repeat this for any other initiative you were accepted into.
+          form is not enrolled. Each initiative has its own form, so repeat this for any other
+          initiative you were accepted into. Each form should be completed by one team member.
         </p>
       </header>
 
@@ -416,7 +443,7 @@ function EnrollmentForm() {
               <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
               <p>
                 <strong>{ctx.hospitalName}</strong> has already submitted a {programYear}{' '}
-                {ctx.initiativeCode} enrollment form. To change it, use the link in your
+                {shortName(ctx.initiativeCode)} enrollment form. To change it, use the link in your
                 confirmation email, or contact{' '}
                 <a className="underline" href="mailto:qi@cpcqc.org">qi@cpcqc.org</a> — we
                 won&rsquo;t overwrite an existing enrollment.
@@ -436,9 +463,8 @@ function EnrollmentForm() {
               <Info size={16} className="mt-0.5 shrink-0" aria-hidden />
               <p>
                 Our records show {ctx.hospitalName} currently in{' '}
-                <strong>{ctx.currentlyEnrolled.join(', ')}</strong>
-                {ctx.inSoarSustainability && ' (SOAR as a sustainability year)'}. Enrollment is per
-                initiative, so this form covers {initiative} only.
+                <strong>{ctx.currentlyEnrolled.map(shortName).join(', ')}</strong>. Enrollment is per
+                initiative, so this form covers {shortName(initiative)} only.
               </p>
             </div>
           )}
@@ -458,15 +484,14 @@ function EnrollmentForm() {
                   </Field>
                 </div>
                 <p className="mt-2 text-xs text-cpcqc-purple-dark/60">
-                  We&rsquo;ll email this address a link to confirm — it&rsquo;s also how you edit
-                  this submission later.
+                  We&rsquo;ll email this address a receipt, with a link for making changes later.
                 </p>
               </Section>
 
-              {isTtt ? (
+              {isTtt && (
                 <Section
                   title="Continuation attestation"
-                  description="Turning the Tide runs as a single two-year cohort, so there's nothing to re-enroll — just confirm you're continuing."
+                  description="Turning the Tide runs as a single two-year cohort, so there's nothing to re-enroll — just confirm you're continuing. This confirmation is still required by Colorado law."
                 >
                   <label className="flex cursor-pointer gap-3 rounded-xl border-2 border-cpcqc-purple/40 bg-white p-4">
                     <input
@@ -485,142 +510,149 @@ function EnrollmentForm() {
                     </span>
                   </label>
                 </Section>
-              ) : (
-                <>
-                  <Section title="Hospital EHR">
-                    <Field label="Hospital EHR" required>
-                      <select value={ehr} onChange={(e) => setEhr(e.target.value)} className="form-input">
-                        <option value="">Select…</option>
-                        {config.ehrOptions.map((o) => <option key={o} value={o}>{o}</option>)}
-                      </select>
-                    </Field>
-                    {ehr === 'Other…' && (
-                      <input
-                        value={ehrOther}
-                        onChange={(e) => setEhrOther(e.target.value)}
-                        placeholder="Which EHR does your hospital use?"
-                        className="form-input mt-2"
-                      />
-                    )}
-                  </Section>
+              )}
 
-                  <Section
-                    title="Key champions"
-                    description="Name, email and hospital title are required for each starred role. Mark exactly one person as the primary contact — this is the individual the CPCQC team will consider the first line of contact for communication."
-                  >
-                    <div className="mb-3 space-y-1 rounded-lg bg-cpcqc-cream-dark/20 px-3 py-2 text-xs text-cpcqc-purple-dark/80">
-                      <p>
-                        <strong>
-                          CPCQC strongly encourages a multidisciplinary team with diverse support.
-                          If possible, recruit a champion for each role.
-                        </strong>{' '}
-                        Where that isn&rsquo;t possible, one person may hold more than one — enter
-                        them in both and use <em>Same as…</em> to copy their details across.
-                      </p>
-                      <p>
-                        Please be as accurate and complete as possible with names and email
-                        addresses. This information is used for communication and to provide access
-                        to REDCap and QI data dashboards.
-                      </p>
-                    </div>
-                    {ctx.copyableFrom.length > 0 && (
-                      <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-cpcqc-cream-dark/30 px-3 py-2">
-                        <Copy size={14} className="text-cpcqc-purple-dark/70" aria-hidden />
-                        <span className="text-xs text-cpcqc-purple-dark/80">Already enrolled elsewhere?</span>
-                        {ctx.copyableFrom.map((o) => (
-                          <button
-                            key={o.initiativeCode}
-                            type="button"
-                            onClick={() => void copyChampions(o.initiativeCode)}
-                            className="rounded-full border border-cpcqc-purple px-3 py-1 text-xs font-bold text-cpcqc-purple transition hover:bg-cpcqc-purple/10"
-                          >
-                            Copy champions from {o.initiativeCode}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {copyNote && <p className="mb-3 text-xs text-cpcqc-teal-dark">{copyNote}</p>}
+              {!isTtt && (
+                <Section title="Hospital EHR">
+                  <Field label="Hospital EHR" required>
+                    <select value={ehr} onChange={(e) => setEhr(e.target.value)} className="form-input">
+                      <option value="">Select…</option>
+                      {config.ehrOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </Field>
+                  {ehr === 'Other…' && (
+                    <input
+                      value={ehrOther}
+                      onChange={(e) => setEhrOther(e.target.value)}
+                      placeholder="Which EHR does your hospital use?"
+                      className="form-input mt-2"
+                    />
+                  )}
+                </Section>
+              )}
 
-                    <div className="space-y-3">
-                      {config.championRoles.map((r) => {
-                        const c = champions.find((x) => x.role === r.key) ?? emptyChampion(r.key);
-                        return (
-                          <div key={r.key} className="rounded-xl border-2 border-cpcqc-purple-dark/15 bg-white p-3">
-                            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                              <span className="font-rounded text-sm font-bold text-cpcqc-purple-dark">
-                                {r.label}
-                                {r.required
-                                  ? <span className="ml-0.5 text-cpcqc-pink-dark">*</span>
-                                  : <span className="ml-1 text-xs font-normal text-cpcqc-purple-dark/50">(optional)</span>}
-                              </span>
-                              <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-cpcqc-purple-dark/80">
-                                <input
-                                  type="radio"
-                                  name="primary"
-                                  checked={c.isPrimary}
-                                  onChange={() => setChampion(r.key, { isPrimary: true })}
-                                  className="h-3.5 w-3.5"
-                                />
-                                Primary contact
-                              </label>
-                            </div>
-                            {r.description && (
-                              <p className="mb-2 text-xs text-cpcqc-purple-dark/60">{r.description}</p>
-                            )}
-                            {champions.some((x) => x.role !== r.key && x.name.trim()) && (
-                              <label className="mb-2 flex items-center gap-2 text-xs text-cpcqc-purple-dark/70">
-                                Same as
-                                <select
-                                  value=""
-                                  onChange={(e) => {
-                                    const src = champions.find((x) => x.role === e.target.value);
-                                    if (!src) return;
-                                    // Copy the person, not their access requests or primary
-                                    // flag — those are per-role decisions.
-                                    setChampion(r.key, {
-                                      name: src.name,
-                                      email: src.email,
-                                      title: src.title,
-                                    });
-                                  }}
-                                  className="rounded border border-cpcqc-purple-dark/20 px-2 py-0.5 text-xs"
-                                >
-                                  <option value="">choose…</option>
-                                  {champions
-                                    .filter((x) => x.role !== r.key && x.name.trim())
-                                    .map((x) => (
-                                      <option key={x.role} value={x.role}>
-                                        {config.championRoles.find((cr) => cr.key === x.role)?.label}
-                                      </option>
-                                    ))}
-                                </select>
-                              </label>
-                            )}
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                              <input value={c.name} onChange={(e) => setChampion(r.key, { name: e.target.value })} placeholder="Name" className="form-input" />
-                              <input type="email" value={c.email} onChange={(e) => setChampion(r.key, { email: e.target.value })} placeholder="Email" className="form-input" />
-                              <input value={c.title} onChange={(e) => setChampion(r.key, { title: e.target.value })} placeholder="Hospital title" className="form-input" />
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
-                              <label className="inline-flex items-center gap-2 text-xs text-cpcqc-purple-dark/80">
-                                <input type="checkbox" checked={c.redcapAccess} onChange={(e) => setChampion(r.key, { redcapAccess: e.target.checked })} className="h-3.5 w-3.5" />
-                                Needs REDCap access for data entry
-                              </label>
-                              <label className="inline-flex items-center gap-2 text-xs text-cpcqc-purple-dark/80">
-                                <input type="checkbox" checked={c.dashboardAccess} onChange={(e) => setChampion(r.key, { dashboardAccess: e.target.checked })} className="h-3.5 w-3.5" />
-                                Needs access to your hospital&rsquo;s QI data dashboard
-                              </label>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <p className="mt-3 text-xs text-cpcqc-purple-dark/60">
-                      Access is requested here and granted by CPCQC separately — we&rsquo;ll follow
-                      up with anyone marked above.
+              {(!isTtt || ctx.needsTttRoster) && (
+                <Section
+                  title="Key champions"
+                  description={
+                    (isTtt
+                      ? `CPCQC doesn't have Turning the Tide champions on file for ${ctx.hospitalName} yet, so please list them here. `
+                      : '') +
+                    'Name, email and hospital title are required for each starred role. Mark exactly one person as the primary contact — this is the individual the CPCQC team will consider the first line of contact for communication.'
+                  }
+                >
+                  <div className="mb-3 space-y-1 rounded-lg bg-cpcqc-cream-dark/20 px-3 py-2 text-xs text-cpcqc-purple-dark/80">
+                    <p>
+                      <strong>
+                        CPCQC strongly encourages a multidisciplinary team with diverse support.
+                        If possible, recruit a champion for each role.
+                      </strong>{' '}
+                      Where that isn&rsquo;t possible, one person may hold more than one — enter
+                      them in both and use <em>Same as…</em> to copy their details across.
                     </p>
-                  </Section>
-                </>
+                    <p>
+                      Please be as accurate and complete as possible with names and email
+                      addresses. This information is used for communication and to provide access
+                      to REDCap and QI data dashboards.
+                    </p>
+                  </div>
+                  {ctx.copyableFrom.length > 0 && (
+                    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-cpcqc-cream-dark/30 px-3 py-2">
+                      <Copy size={14} className="text-cpcqc-purple-dark/70" aria-hidden />
+                      <span className="text-xs text-cpcqc-purple-dark/80">Already enrolled elsewhere?</span>
+                      {ctx.copyableFrom.map((o) => (
+                        <button
+                          key={o.initiativeCode}
+                          type="button"
+                          onClick={() => void copyChampions(o.initiativeCode)}
+                          className="rounded-full border border-cpcqc-purple px-3 py-1 text-xs font-bold text-cpcqc-purple transition hover:bg-cpcqc-purple/10"
+                        >
+                          Copy champions from {shortName(o.initiativeCode)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {copyNote && <p className="mb-3 text-xs text-cpcqc-teal-dark">{copyNote}</p>}
+
+                  <div className="space-y-3">
+                    {config.championRoles.map((r) => {
+                      const c = champions.find((x) => x.role === r.key) ?? emptyChampion(r.key);
+                      return (
+                        <div key={r.key} className="rounded-xl border-2 border-cpcqc-purple-dark/15 bg-white p-3">
+                          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-rounded text-sm font-bold text-cpcqc-purple-dark">
+                              {r.label}
+                              {r.required
+                                ? <span className="ml-0.5 text-cpcqc-pink-dark">*</span>
+                                : <span className="ml-1 text-xs font-normal text-cpcqc-purple-dark/50">(optional)</span>}
+                            </span>
+                            <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-cpcqc-purple-dark/80">
+                              <input
+                                type="radio"
+                                name="primary"
+                                checked={c.isPrimary}
+                                onChange={() => setChampion(r.key, { isPrimary: true })}
+                                className="h-3.5 w-3.5"
+                              />
+                              Primary contact
+                            </label>
+                          </div>
+                          {r.description && (
+                            <p className="mb-2 text-xs text-cpcqc-purple-dark/60">{r.description}</p>
+                          )}
+                          {champions.some((x) => x.role !== r.key && x.name.trim()) && (
+                            <label className="mb-2 flex items-center gap-2 text-xs text-cpcqc-purple-dark/70">
+                              Same as
+                              <select
+                                value=""
+                                onChange={(e) => {
+                                  const src = champions.find((x) => x.role === e.target.value);
+                                  if (!src) return;
+                                  // Copy the person, not their access requests or primary
+                                  // flag — those are per-role decisions.
+                                  setChampion(r.key, {
+                                    name: src.name,
+                                    email: src.email,
+                                    title: src.title,
+                                  });
+                                }}
+                                className="rounded border border-cpcqc-purple-dark/20 px-2 py-0.5 text-xs"
+                              >
+                                <option value="">choose…</option>
+                                {champions
+                                  .filter((x) => x.role !== r.key && x.name.trim())
+                                  .map((x) => (
+                                    <option key={x.role} value={x.role}>
+                                      {config.championRoles.find((cr) => cr.key === x.role)?.label}
+                                    </option>
+                                  ))}
+                              </select>
+                            </label>
+                          )}
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <input value={c.name} onChange={(e) => setChampion(r.key, { name: e.target.value })} placeholder="Name" className="form-input" />
+                            <input type="email" value={c.email} onChange={(e) => setChampion(r.key, { email: e.target.value })} placeholder="Email" className="form-input" />
+                            <input value={c.title} onChange={(e) => setChampion(r.key, { title: e.target.value })} placeholder="Hospital title" className="form-input" />
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
+                            <label className="inline-flex items-center gap-2 text-xs text-cpcqc-purple-dark/80">
+                              <input type="checkbox" checked={c.redcapAccess} onChange={(e) => setChampion(r.key, { redcapAccess: e.target.checked })} className="h-3.5 w-3.5" />
+                              Needs REDCap access for data entry
+                            </label>
+                            <label className="inline-flex items-center gap-2 text-xs text-cpcqc-purple-dark/80">
+                              <input type="checkbox" checked={c.dashboardAccess} onChange={(e) => setChampion(r.key, { dashboardAccess: e.target.checked })} className="h-3.5 w-3.5" />
+                              Needs access to your hospital&rsquo;s QI data dashboard
+                            </label>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-3 text-xs text-cpcqc-purple-dark/60">
+                    Access is requested here and granted by CPCQC separately — we&rsquo;ll follow
+                    up with anyone marked above.
+                  </p>
+                </Section>
               )}
 
               {errors.length > 0 && isOpen && (
@@ -646,7 +678,7 @@ function EnrollmentForm() {
                     ? 'Save changes'
                     : isTtt
                       ? 'Submit continuation attestation'
-                      : `Enroll in ${initiative}`}
+                      : `Enroll in ${shortName(initiative)}`}
               </button>
             </>
           )}

@@ -62,14 +62,9 @@ export default function StaffHospitalDetailPage() {
 
   async function handleDeleteMember(memberId: string, displayName: string) {
     // Plain window.confirm — accessible, keyboard-friendly, no extra modal.
-    // The destructive copy is explicit so a misclick isn't an accidental data
-    // loss; the importer never restores hand-deleted rows, so this is final
-    // unless the same name shows up again in the next workbook upload.
-    if (
-      !window.confirm(
-        `Remove ${displayName} from this hospital's roster? The PM workbook importer will not bring them back unless their name reappears in the next upload.`,
-      )
-    ) {
+    // Explicit so a misclick isn't an accidental removal. Nothing brings a
+    // removed entry back automatically; someone would have to add them again.
+    if (!window.confirm(`Remove ${displayName} from this hospital's roster?`)) {
       return;
     }
     setDeletingMemberId(memberId);

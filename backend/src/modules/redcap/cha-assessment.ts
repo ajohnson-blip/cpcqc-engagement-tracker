@@ -34,6 +34,9 @@ function rollup(nRows: number, nComplete: number, earliest: string | null): Form
     pctComplete: nRows === 0 ? 0 : Math.round((nComplete / nRows) * 100),
     allComplete: nRows > 0 && nComplete === nRows,
     earliestDate: earliest,
+    // CHA's file carries only the first submission date, so the preview shows
+    // that one alone.
+    latestDate: null,
     // CHA reports these as assessment notes instead — see `notes` below.
     invalidDate: false,
     // Empty by design — CHA sends grouped missing fields instead, which carry
@@ -93,6 +96,8 @@ export function soarCellsFromAssessments(
       // Reported in `notes`, as counts, rather than as these flags.
       futureDated: 0,
       earliestSubmissionDate: earliest,
+      // Not in CHA's file (contract v2): the preview shows the first date only.
+      latestSubmissionDate: null,
       invalidDate: false,
       onTime: days === null ? null : days <= 0,
       daysFromDeadline: days,

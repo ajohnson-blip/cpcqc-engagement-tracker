@@ -40,6 +40,7 @@ interface PmImportResult {
   stagesChanged: number;
   touchedEnrollmentIds: string[];
   missingSheets: string[];
+  ignoredSheets: string[];
 }
 
 /**
@@ -167,21 +168,19 @@ export default function StaffImportsPage() {
       <RedcapPauseBanner />
       <header className="mb-8">
         <h1 className="font-rounded text-3xl font-extrabold text-cpcqc-purple-dark">
-          PM workbook import
+          Monthly Meeting and QI 1:1 Attendance Upload
         </h1>
         <p className="mt-1 max-w-2xl text-cpcqc-purple-dark/70">
-          Upload an updated PM engagement-data workbook (.xlsx) — Enrollment Forms,
-          Meeting Attendance, QI Advising, Data Submissions, and HRA Completions sheets
-          all flow through in one pass. Safe to upload the same file more than once:
-          rows that already exist get updated to match the workbook, and nothing is
-          ever deleted. If you fix a typo in the workbook and re-upload, the tracker
-          will pick up the correction.
+          Upload the updated spreadsheet (.xlsx) to record monthly meeting attendance and
+          1:1 QI advising sessions, from its Meeting Attendance and QI Advising sheets. Safe
+          to upload the same file more than once: rows that already exist are updated to
+          match it, and nothing is ever deleted, so a corrected re-upload fixes a typo.
         </p>
       </header>
 
       <section className="rounded-2xl bg-white p-6 shadow-card ring-1 ring-cpcqc-purple-dark/5">
         <h2 className="font-rounded text-lg font-extrabold text-cpcqc-purple-dark">
-          1. Choose a workbook
+          1. Choose a spreadsheet
         </h2>
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
           <input
@@ -304,6 +303,13 @@ function ResultPanel({ result }: { result: PmImportResult }) {
       {result.missingSheets.length > 0 && (
         <p className="mt-4 text-xs text-cpcqc-purple-dark/70">
           Sheets not found in the upload (skipped): {result.missingSheets.join(', ')}.
+        </p>
+      )}
+
+      {(result.ignoredSheets ?? []).length > 0 && (
+        <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-amber-200">
+          Not imported: {result.ignoredSheets.join(', ')}. This upload records monthly meetings
+          and QI 1:1s only — record those in each hospital&rsquo;s tasks in the tracker.
         </p>
       )}
 
@@ -566,15 +572,23 @@ function daysBetween(from: string, to: string): number {
  * hospital that missed by a day from one that missed by three weeks, and the
  * deadline moves per period, so it can't be carried in your head. Two of the
  * four programs showed a bare date and two showed nothing at all.
+ *
+ * SOAR also passes `lastDate`. Its records are entered case by case, and the
+ * status is judged on the first, so the first alone can read "on time" while
+ * later cases came in after the deadline. When the two differ both are shown,
+ * and a last entry past the due date is called out. Display only: the status
+ * does not change.
  */
 function SubmittedCell({
   submissionDate,
+  lastDate,
   submitted,
   onTime,
   deadline,
   daysFromDeadline,
 }: {
   submissionDate: string | null;
+  lastDate?: string | null;
   submitted: boolean;
   onTime: boolean | null;
   deadline: string;
@@ -587,14 +601,31 @@ function SubmittedCell({
   }
   const late = onTime === false;
   const days = daysFromDeadline ?? daysBetween(deadline, submissionDate);
+  const span = !!lastDate && lastDate.slice(0, 10) !== submissionDate.slice(0, 10);
+  // Worth flagging only when the status reads on time: a late month is late already.
+  const lastPastDue = span && !late && lastDate!.slice(0, 10) > deadline.slice(0, 10);
   return (
     <td className="px-3 py-2">
       <div className={late ? 'font-semibold text-cpcqc-orange-dark' : 'text-cpcqc-purple-dark/80'}>
+        {span && <span className="text-xs font-normal text-cpcqc-purple-dark/60">First </span>}
         {fmtDay(submissionDate)}
       </div>
       {late && (
         <div className="text-xs text-cpcqc-orange-dark/80">
           {days}d late · due {fmtDay(deadline)}
+        </div>
+      )}
+      {span && (
+        <div
+          className={`text-xs ${lastPastDue ? 'font-semibold text-amber-700' : 'text-cpcqc-purple-dark/60'}`}
+          title={
+            lastPastDue
+              ? 'The status is judged on the first record. This last record came in after the due date.'
+              : undefined
+          }
+        >
+          Last {fmtDay(lastDate!)}
+          {lastPastDue && ` · ${daysBetween(deadline, lastDate!)}d after due ${fmtDay(deadline)}`}
         </div>
       )}
     </td>
@@ -1542,7 +1573,9 @@ function SoarRedcapSync() {
             : 'Pull SOAR monthly NTSV cesarean data straight from REDCap. '}
           A month counts when{' '}
           <strong>every NTSV case is complete and on time</strong> — or when the hospital files a{' '}
-          <strong>zero-case attestation</strong> (No-NTSV). In the preview you can{' '}
+          <strong>zero-case attestation</strong> (No-NTSV). On time is judged on the{' '}
+          <strong>first case entered</strong> for the month; when cases came in on different
+          days, the last entry date shows beneath it. In the preview you can{' '}
           <strong>override any status</strong> and add a rationale before applying; nothing is
           written until you apply.
         </p>
@@ -1730,6 +1763,7 @@ function SoarRedcapSync() {
                               </td>
                               <SubmittedCell
                                 submissionDate={r.submissionDate}
+                                lastDate={r.lastSubmissionDate}
                                 submitted={r.ntsvSubmitted || r.noNtsvSubmitted}
                                 onTime={r.onTime}
                                 deadline={r.deadline}

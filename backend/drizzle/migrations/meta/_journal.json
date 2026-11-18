@@ -199,10 +199,45 @@
       "breakpoints": true
     },
     {
-      "idx": 28,
+      "idx": 29,
       "version": "7",
-      "when": 1787500000002,
-      "tag": "0028_cha_snapshots",
+      "when": 1787500000003,
+      "tag": "0029_enrollment_form_invitations",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1787500000004,
+      "tag": "0030_open_2027_enrollment",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1787500000005,
+      "tag": "0031_enrollment_acceptance_sheets",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1787500000006,
+      "tag": "0032_enrollment_form_reminders",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1787500000007,
+      "tag": "0033_enrollment_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1787500000008,
+      "tag": "0034_cha_snapshots",
       "breakpoints": true
     }
   ]

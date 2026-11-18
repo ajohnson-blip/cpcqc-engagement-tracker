@@ -1,16 +1,30 @@
 /**
  * Staff enrollment-form endpoints, mounted at /staff/enrollment-forms.
  *
- * Read-only. Enrollment is the record that satisfies the statute, so staff
- * review it rather than edit it — corrections go back through the hospital's
- * own emailed edit link.
+ * Staff review enrollment forms and send them out, but never edit one.
+ * Enrollment is the record that satisfies the statute, so corrections go back
+ * through the hospital's own emailed edit link.
  */
-import { Router } from 'express';
+import express, { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import ExcelJS from 'exceljs';
-import { requireAuth } from '@/middleware/auth.js';
-import { CHAMPION_ROLES } from './enrollment-forms.service.js';
-import { getStaffEnrollmentOverview } from './enrollment-forms.staff.js';
+import { requireAuth, requireStaff } from '@/middleware/auth.js';
+import { CHAMPION_ROLES, ENROLLABLE, sendNewEditLink } from './enrollment-forms.service.js';
+import {
+  getRecipientSuggestions,
+  getStaffEnrollmentOverview,
+  sendEnrollmentForms,
+} from './enrollment-forms.staff.js';
+import { previewWelcome, saveWelcomeSheet, sendWelcome, sendWelcomeTest } from './enrollment-welcome.js';
+import { previewReminders, sendReminderTest, sendReminders } from './enrollment-reminders.js';
+import { onboardingTemplate } from './enrollment-emails.js';
+import {
+  getOnboardingDetails,
+  previewOnboarding,
+  saveOnboardingDetails,
+  sendOnboarding,
+  sendOnboardingTest,
+} from './enrollment-onboarding.js';
 
 const router = Router();
 
@@ -19,6 +33,133 @@ const programYearSchema = z.coerce.number().int().min(2026).max(2100);
 router.get('/', requireAuth, async (req, res) => {
   const programYear = programYearSchema.parse(req.query.programYear);
   res.json(await getStaffEnrollmentOverview(programYear, req.auth!));
+});
+
+router.get('/recipients', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const hospitalId = z.string().min(1).parse(req.query.hospitalId);
+  res.json(await getRecipientSuggestions(hospitalId, programYear, req.auth!));
+});
+
+// The welcome-to-enroll send. The acceptances sheet (.xlsx or .csv) is
+// uploaded once as the raw request body and saved; the preview, test and send
+// then work from the saved copy, so a page refresh loses nothing. Test and
+// send name the sheet they were previewed from.
+const rawSheetBody: RequestHandler = express.raw({ type: () => true, limit: '10mb' });
+
+router.get('/welcome', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  res.json({ preview: await previewWelcome(programYear, req.auth!) });
+});
+
+router.post('/welcome/sheet', requireAuth, requireStaff, rawSheetBody, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const fileName = z.string().max(300).optional().parse(req.query.fileName);
+  res.json({ preview: await saveWelcomeSheet(req.body as Buffer, fileName ?? null, programYear, req.auth!) });
+});
+
+router.post('/welcome/test', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const sheetId = z.string().min(1).parse(req.query.sheetId);
+  const index = z.coerce.number().int().min(0).parse(req.query.index ?? 0);
+  res.json(await sendWelcomeTest(programYear, sheetId, index, req.auth!));
+});
+
+router.post('/welcome/send', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const sheetId = z.string().min(1).parse(req.query.sheetId);
+  const max = z.coerce.number().int().min(1).max(50).parse(req.query.max ?? 20);
+  res.json(await sendWelcome(programYear, sheetId, max, req.auth!));
+});
+
+// Reminders to hospitals that still owe a form: preview, a test copy to the
+// caller, then the send in batches (the page calls until none remain).
+router.get('/reminders', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  res.json({ preview: await previewReminders(programYear, req.auth!) });
+});
+
+router.post('/reminders/test', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const index = z.coerce.number().int().min(0).parse(req.query.index ?? 0);
+  res.json(await sendReminderTest(programYear, index, req.auth!));
+});
+
+router.post('/reminders/send', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const max = z.coerce.number().int().min(1).max(50).parse(req.query.max ?? 20);
+  res.json(await sendReminders(programYear, max, req.auth!));
+});
+
+// Onboarding dates and registration: each initiative's details, written by
+// its PM, then a preview, test copy and batched send to hospitals that have
+// already submitted. New submissions get them in their receipts.
+router.get('/onboarding/details', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  res.json({ details: await getOnboardingDetails(programYear), template: onboardingTemplate(programYear) });
+});
+
+// The message's own checks (template text left in, a link without an
+// address) are in saveOnboardingDetails, so they read as plain sentences.
+const onboardingDetailsSchema = z.object({ message: z.string().max(6000) });
+
+router.put('/onboarding/details/:code', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const code = z.enum(ENROLLABLE).parse(req.params.code);
+  const body = onboardingDetailsSchema.parse(req.body);
+  res.json({
+    details: await saveOnboardingDetails(programYear, code, { message: body.message }, req.auth!),
+  });
+});
+
+const onboardingOptions = (q: Record<string, unknown>) => ({
+  includeUpdated: q.includeUpdated === 'true',
+  includeFailed: q.includeFailed === 'true',
+  attemptedSince: z.string().datetime().optional().parse(q.since) ?? null,
+  initiative: z.enum(ENROLLABLE).optional().parse(q.initiative || undefined) ?? null,
+});
+
+router.get('/onboarding', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  res.json({ preview: await previewOnboarding(programYear, onboardingOptions(req.query)) });
+});
+
+router.post('/onboarding/test', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const index = z.coerce.number().int().min(0).parse(req.query.index ?? 0);
+  res.json(await sendOnboardingTest(programYear, index, onboardingOptions(req.query), req.auth!));
+});
+
+router.post('/onboarding/send', requireAuth, requireStaff, async (req, res) => {
+  const programYear = programYearSchema.parse(req.query.programYear);
+  const max = z.coerce.number().int().min(1).max(50).parse(req.query.max ?? 20);
+  res.json(await sendOnboarding(programYear, max, onboardingOptions(req.query), req.auth!));
+});
+
+/**
+ * A fresh edit link for a submitted form, to the submitter or another address
+ * at the hospital. The old link stops working.
+ */
+router.post('/:formId/edit-link', requireAuth, requireStaff, async (req, res) => {
+  const formId = z.string().min(1).parse(req.params.formId);
+  const body = z
+    .object({ toEmail: z.string().trim().email().max(254), toName: z.string().trim().max(200).optional() })
+    .parse(req.body);
+  res.json(await sendNewEditLink(formId, { email: body.toEmail, name: body.toName ?? null }, req.auth!));
+});
+
+/** Emails the hospital a link per initiative and adds it to each chase list. */
+router.post('/send', requireAuth, requireStaff, async (req, res) => {
+  const body = z
+    .object({
+      programYear: programYearSchema,
+      hospitalId: z.string().min(1),
+      initiatives: z.array(z.enum(ENROLLABLE)).min(1).max(ENROLLABLE.length),
+      toEmail: z.string().trim().email().max(254),
+      toName: z.string().trim().max(200).optional(),
+    })
+    .parse(req.body);
+  res.json(await sendEnrollmentForms(body, req.auth!));
 });
 
 /**

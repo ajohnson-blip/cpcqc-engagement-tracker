@@ -277,7 +277,10 @@ export interface SoarSyncRow {
   daysFromDeadline: number | null;
   /** The deadline this submission was judged against. */
   deadline: string;
+  /** The first record's date, which timeliness is judged on. */
   submissionDate: string | null;
+  /** The last record's date. Display only. */
+  lastSubmissionDate?: string | null;
   /** Incomplete rows grouped by REDCap record — which record is missing what.
    *  Empty unless the row is incomplete. */
   incompleteGroups: Array<{
@@ -1039,11 +1042,143 @@ export interface EnrollmentCoverage {
   unexpectedCount: number;
 }
 
+/** One initiative's form, sent by staff from the enrollment-forms screen. */
+export interface StaffEnrollmentFormSent {
+  hospital: { id: string; name: string };
+  initiativeCode: EnrollableInitiativeCode;
+  toEmail: string;
+  toName: string | null;
+  /** False when SendGrid refused it, or in dev with no SendGrid key. */
+  emailSent: boolean;
+  sentAt: string;
+  sentBy: string | null;
+}
+
 export interface StaffEnrollmentOverview {
   programYear: number;
   window: { opensAt: string | null; closesAt: string | null };
   forms: StaffEnrollmentForm[];
   coverage: EnrollmentCoverage[];
+  /** Newest first. */
+  sent: StaffEnrollmentFormSent[];
+}
+
+export interface EnrollmentRecipientSuggestion {
+  name: string | null;
+  email: string;
+  /** Where the address came from: "Default contact", "Interest form", a roster role… */
+  source: string;
+}
+
+export interface SendEnrollmentFormsResult {
+  sentTo: string;
+  initiatives: EnrollableInitiativeCode[];
+  emailSent: boolean;
+  error: string | null;
+}
+
+/** One welcome-to-enroll email, as the uploaded acceptances would send it. */
+export interface WelcomePreviewEmail {
+  /** Everyone on the To line: the submitter, or an initiative's champions. */
+  recipients: Array<{ name: string; email: string }>;
+  /** "Interest form", or the roster the addresses came from. */
+  source: string;
+  hospitals: Array<{ id: string; name: string }>;
+  links: Array<{ code: EnrollableInitiativeCode; hospitalId: string; hospitalName: string }>;
+  warning: string | null;
+  /** Everything the hospital was accepted into; a team's email links only its own form. */
+  accepted: EnrollableInitiativeCode[];
+  forTeam: boolean;
+  subject: string;
+  body: string;
+  /** What recipients see: the email with each link named. */
+  html: string;
+}
+
+export interface WelcomePlanNote {
+  hospital: string;
+  initiative: EnrollableInitiativeCode | null;
+  reason: string;
+}
+
+export interface WelcomePreview {
+  programYear: number;
+  /** The saved sheet this preview is from; test and send name it. */
+  sheet: { id: string; fileName: string | null; uploadedAt: string; uploadedBy: string | null };
+  window: { opensAt: string | null; closesAt: string | null; state: 'before' | 'open' | 'after' };
+  /** Why sending is refused right now, or null when it can go. */
+  blocker: string | null;
+  emails: WelcomePreviewEmail[];
+  held: WelcomePlanNote[];
+  skipped: WelcomePlanNote[];
+}
+
+/** One reminder to a hospital that still owes an enrollment form. */
+export interface ReminderPreviewEmail {
+  recipients: Array<{ name: string; email: string }>;
+  hospitals: Array<{ id: string; name: string }>;
+  links: Array<{ code: EnrollableInitiativeCode; hospitalId: string; hospitalName: string }>;
+  /** The latest earlier reminder for any of its forms, YYYY-MM-DD. */
+  lastReminded: string | null;
+  subject: string;
+  body: string;
+  html: string;
+}
+
+export interface ReminderPreview {
+  programYear: number;
+  window: { opensAt: string | null; closesAt: string | null; state: 'before' | 'open' | 'after' };
+  blocker: string | null;
+  emails: ReminderPreviewEmail[];
+  held: WelcomePlanNote[];
+  skipped: WelcomePlanNote[];
+}
+
+export interface WelcomeSendResult {
+  sent: number;
+  failed: Array<{ hospital: string; toEmail: string; error: string | null }>;
+  /** Still to send; the page calls again until it is 0. */
+  remaining: number;
+}
+
+/** An initiative's onboarding message for a program year. */
+export interface OnboardingDetails {
+  initiativeCode: 'SPARK' | 'SOAR' | 'NEST' | 'TTT';
+  /** The PM's text: paragraphs, with [link text](https://…) links. */
+  message: string;
+  /** Null until first saved. */
+  version: number | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  /** What a hospital team would get, with an example hospital. */
+  sample: { subject: string; html: string } | null;
+}
+
+export interface OnboardingPreviewEmail {
+  formId: string;
+  hospital: { id: string; name: string };
+  code: 'SPARK' | 'SOAR' | 'NEST' | 'TTT';
+  recipients: Array<{ name: string; email: string }>;
+  kind: 'new' | 'update' | 'retry';
+  update: boolean;
+  version: number;
+  subject: string;
+  body: string;
+  html: string;
+}
+
+export interface OnboardingPreview {
+  programYear: number;
+  emails: OnboardingPreviewEmail[];
+  held: WelcomePlanNote[];
+  skipped: WelcomePlanNote[];
+  updated: WelcomePlanNote[];
+  failed: WelcomePlanNote[];
+}
+
+export interface OnboardingSendResult extends WelcomeSendResult {
+  /** When the run started, by the server's clock; passed back with each batch. */
+  since: string;
 }
 
 // ---------- Funder-facing engagement metrics ----------

@@ -2,8 +2,8 @@
  * Step 2 of annual enrollment — the legally mandated enrollment form.
  *
  * Public, like the interest form: hospitals must be able to complete this
- * without a portal account. Identity rests on an emailed token that confirms
- * the address and is the only route to editing afterwards.
+ * without a portal account. A submission counts at once, and its emailed
+ * receipt carries a token that is the only route to editing afterwards.
  *
  * That guard matters more here than on the interest form. This is the record
  * that satisfies the statute, and the table is unique on (year, hospital,
@@ -17,7 +17,11 @@ import { v4 as uuid } from 'uuid';
 import { db, schema } from '@/db/index.js';
 import { HttpError } from '@/middleware/errors.js';
 import { env, frontendBaseUrl } from '@/config/env.js';
+import { logger } from '@/config/logger.js';
 import { sendEmail } from '@/modules/notifications/notifications.service.js';
+import { INITIATIVE_SHORT, editLinkEmail, receiptEmail } from './enrollment-emails.js';
+import { currentOnboarding, deliverOnboardingOnSubmit } from './enrollment-onboarding.js';
+import type { AuthContext } from '@/middleware/auth.js';
 
 const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
 
@@ -25,6 +29,24 @@ export const ENROLLABLE = ['SPARK', 'SOAR', 'NEST', 'TTT'] as const;
 export type InitiativeCode = (typeof ENROLLABLE)[number];
 
 export const EHR_OPTIONS = ['Epic', 'Oracle Health (Cerner)', 'MEDITECH', 'Other…'] as const;
+
+/**
+ * Who hears of each enrollment: the initiative's program manager, as CPCQC
+ * named them on 2026-11-05. Change an address here when a PM changes.
+ */
+const ENROLLMENT_NOTICE_TO: Record<InitiativeCode, string> = {
+  SPARK: 'kricard@cpcqc.org',
+  SOAR: 'rbryan@cpcqc.org',
+  NEST: 'ssubudhiwarwick@cpcqc.org',
+  TTT: 'sbriley@cpcqc.org',
+};
+
+/**
+ * Hospitals whose TtT form always asks for champions. UCHealth Memorial
+ * Hospital North enrolls on its own from 2027 (it was part of Memorial in
+ * 2026), and its TtT team comes from this form, whatever is on file.
+ */
+const TTT_ROSTER_FROM_FORM = new Set(['uchealth memorial hospital north']);
 
 /** Roles CPCQC requires, with the descriptions the team signed off. */
 export const CHAMPION_ROLES = [
@@ -100,9 +122,14 @@ export interface EnrollmentContext {
    * SOAR it had just graduated from — with nothing on screen to say so.
    */
   currentlyEnrolled: string[];
-  inSoarSustainability: boolean;
   /** Set when this pairing looks wrong, e.g. TtT for a hospital not in it. */
   caution: string | null;
+  /**
+   * TtT only: the continuation form asks for champions as well as the
+   * attestation, because CPCQC has none on file for this hospital, or it is
+   * UCHealth Memorial North, new for 2027.
+   */
+  needsTttRoster: boolean;
   /** Other initiatives this hospital has already enrolled in this year — the
    *  source for "copy champions from…". */
   copyableFrom: Array<{ initiativeCode: string; championCount: number }>;
@@ -127,15 +154,14 @@ export async function getEnrollmentContext(
   });
 
   const enrollments = await db
-    .select({ code: schema.initiatives.code, track: schema.cohorts.track })
+    .select({ code: schema.initiatives.code })
     .from(schema.enrollments)
     .innerJoin(schema.cohorts, eq(schema.cohorts.id, schema.enrollments.cohortId))
     .innerJoin(schema.initiatives, eq(schema.initiatives.id, schema.cohorts.initiativeId))
     .where(and(eq(schema.enrollments.hospitalId, hospitalId), eq(schema.enrollments.status, 'enrolled')));
+  // SOAR enrollment is one form whatever the track: CPCQC assigns active or
+  // sustainability after enrollment, so the form never mentions either.
   const currentlyEnrolled = enrollments.map((e) => e.code);
-  const inSoarSustainability = enrollments.some(
-    (e) => e.code === 'SOAR' && e.track === 'sustainability',
-  );
 
   // What CPCQC decided on this hospital's interest form, if anything yet.
   // Null decidedInitiatives means undecided — a very different thing from an
@@ -154,12 +180,8 @@ export async function getEnrollmentContext(
   let caution: string | null = null;
   if (initiativeCode === 'TTT' && !currentlyEnrolled.includes('TTT')) {
     caution =
-      `Our records don't show ${hospital.name} in Turning the Tide. TtT is a two-year cohort and ` +
+      `Our records don't show ${hospital.name} in Turning the Tide. Turning the Tide is a two-year cohort and ` +
       `CPCQC isn't enrolling new hospitals — if you believe this is wrong, contact qi@cpcqc.org before submitting.`;
-  } else if (initiativeCode === 'SOAR' && inSoarSustainability) {
-    caution =
-      `${hospital.name} is completing a SOAR sustainability year. Sustainability is capped at one year, and ` +
-      `hospitals that meet their metrics graduate from SOAR — check with CPCQC before enrolling in SOAR again.`;
   } else if (initiativeCode !== 'TTT' && decided && !decided.includes(initiativeCode)) {
     // Enrollment forms are sent per acceptance, so reaching this page for an
     // initiative CPCQC didn't accept usually means a wrong link or a shared
@@ -171,6 +193,16 @@ export async function getEnrollmentContext(
       `If you were told otherwise, email qi@cpcqc.org before submitting — enrollment forms are sent per initiative, ` +
       `so this may be the wrong link.`;
   }
+
+  const tttRoster =
+    initiativeCode === 'TTT'
+      ? await db
+          .select({ id: schema.hospitalStaffMembers.id })
+          .from(schema.hospitalStaffMembers)
+          .innerJoin(schema.initiatives, eq(schema.initiatives.id, schema.hospitalStaffMembers.initiativeId))
+          .where(and(eq(schema.hospitalStaffMembers.hospitalId, hospitalId), eq(schema.initiatives.code, 'TTT')))
+          .limit(1)
+      : [];
 
   const others = await db
     .select()
@@ -189,8 +221,10 @@ export async function getEnrollmentContext(
     isTttContinuation: initiativeCode === 'TTT',
     alreadySubmitted: !!existing,
     currentlyEnrolled,
-    inSoarSustainability,
     caution,
+    needsTttRoster:
+      initiativeCode === 'TTT' &&
+      (tttRoster.length === 0 || TTT_ROSTER_FROM_FORM.has(hospital.name.trim().toLowerCase())),
     copyableFrom: others
       .filter((o) => o.initiativeCode !== initiativeCode && o.initiativeCode !== 'TTT')
       .map((o) => ({
@@ -232,17 +266,22 @@ export interface EnrollmentSubmitInput {
   tttContinuationAttested?: boolean;
 }
 
-function validate(input: EnrollmentSubmitInput): void {
+/**
+ * `tttRoster`: a TtT form that must also list champions, because CPCQC has
+ * none on file for the hospital.
+ */
+function validate(input: EnrollmentSubmitInput, tttRoster: boolean): void {
   if (!input.submitterName.trim()) throw new HttpError(400, 'Your name is required.');
   if (!input.submitterRole.trim()) throw new HttpError(400, 'Your role is required.');
   if (!input.submitterEmail.trim()) throw new HttpError(400, 'Email is required.');
 
-  // TtT is a continuation: the attestation IS the submission, so no EHR or
-  // roster is collected and requiring them would be nonsense.
+  // TtT is a continuation: the attestation IS the submission, so no EHR is
+  // collected, and a roster only when CPCQC has none for the hospital.
   if (input.initiativeCode === 'TTT') {
     if (!input.tttContinuationAttested) {
       throw new HttpError(400, 'Confirm the continuation attestation to submit.');
     }
+    if (tttRoster) validateChampions(input.champions ?? []);
     return;
   }
 
@@ -250,8 +289,10 @@ function validate(input: EnrollmentSubmitInput): void {
   if (input.ehr === 'Other…' && !input.ehrOther?.trim()) {
     throw new HttpError(400, 'Tell us which EHR your hospital uses.');
   }
+  validateChampions(input.champions ?? []);
+}
 
-  const champions = input.champions ?? [];
+function validateChampions(champions: Champion[]): void {
   for (const role of CHAMPION_ROLES) {
     if (!role.required) continue;
     const c = champions.find((x) => x.role === role.key);
@@ -267,13 +308,13 @@ function validate(input: EnrollmentSubmitInput): void {
 
 export async function submitEnrollmentForm(input: EnrollmentSubmitInput) {
   const ctx = await getEnrollmentContext(input.hospitalId, input.initiativeCode, input.programYear);
-  validate(input);
+  validate(input, ctx.needsTttRoster);
 
   if (ctx.alreadySubmitted) {
     throw new HttpError(
       409,
       `${ctx.hospitalName} has already submitted a ${input.programYear} enrollment form for ` +
-        `${input.initiativeCode}. To change it, use the link in your confirmation email, or contact qi@cpcqc.org.`,
+        `${INITIATIVE_SHORT[input.initiativeCode]}. To change it, use the link in your receipt email, or contact qi@cpcqc.org.`,
     );
   }
 
@@ -288,47 +329,105 @@ export async function submitEnrollmentForm(input: EnrollmentSubmitInput) {
     initiativeCode: input.initiativeCode,
     ehr: isTtt ? null : (input.ehr ?? null),
     ehrOther: isTtt ? null : (input.ehrOther?.trim() || null),
-    champions: isTtt ? null : (input.champions ?? []),
+    champions: isTtt && !ctx.needsTttRoster ? null : (input.champions ?? []),
     tttContinuationAttested: isTtt ? !!input.tttContinuationAttested : false,
     submitterName: input.submitterName.trim(),
     submitterRole: input.submitterRole.trim(),
     submitterEmail: input.submitterEmail.trim(),
     submitterUserId: null,
     verificationTokenHash: hashToken(token),
-    verifiedAt: null,
+    // A submission counts at once: the links go to people CPCQC chose, staff
+    // see every form, and an extra confirm click only left enrollments
+    // half-done.
+    verifiedAt: new Date(),
     submittedVia: 'public',
   });
 
-  const verifyUrl = `${frontendBaseUrl()}/enrollment/verify?token=${encodeURIComponent(token)}`;
-  await sendEmail({
-    toEmail: input.submitterEmail.trim(),
-    fromEmail: env.EMAIL_FROM_ENROLLMENT,
-    kind: 'enrollment.verify',
-    subject: `Confirm ${ctx.hospitalName}'s ${input.programYear} ${input.initiativeCode} enrollment`,
-    body: [
-      `Hi ${input.submitterName.trim()},`,
-      '',
-      `We've received a ${input.programYear} enrollment form for ${ctx.hospitalName} — ${input.initiativeCode}.`,
-      '',
-      'Please confirm it by opening this link:',
-      verifyUrl,
-      '',
-      'Enrollment is not complete until you confirm by clicking the link.',
-      '',
-      'Keep this email. The same link reopens this form if you need to change it —',
-      'right up until the enrollment deadline. After that it is the record that',
-      'satisfies the statute, so contact qi@cpcqc.org instead.',
-      '',
-      "If you didn't fill in this form, you can ignore this email and nothing will be recorded.",
-      '',
-      'Colorado Perinatal Care Quality Collaborative',
-    ].join('\n'),
-  });
+  const row = (await db.query.enrollmentForms.findFirst({ where: eq(schema.enrollmentForms.id, id) }))!;
+  await sendReceiptAndNotice(row, token);
 
   return { formId: id, sentTo: input.submitterEmail.trim() };
 }
 
-/** Confirm from the emailed link. Idempotent; notifies staff once. */
+/**
+ * The hospital's receipt, with its edit link, and CPCQC's notice of the
+ * enrollment. Sent once, when the form starts to count. Once the initiative's
+ * PM has written its onboarding details, the receipt carries them and the
+ * form's other champions get them in their own email.
+ */
+async function sendReceiptAndNotice(row: typeof schema.enrollmentForms.$inferSelect, token: string) {
+  const hospital = await db.query.hospitals.findFirst({
+    where: eq(schema.hospitals.id, row.hospitalId),
+  });
+  const window = await getEnrollmentStepWindow(row.programYear);
+  const onboarding = await currentOnboarding(row.programYear, row.initiativeCode as InitiativeCode);
+  const editUrl = `${frontendBaseUrl()}/enrollment/${row.programYear}?token=${encodeURIComponent(token)}`;
+  const receipt = receiptEmail({
+    submitterName: row.submitterName,
+    hospitalName: hospital?.name ?? 'your hospital',
+    initiativeCode: row.initiativeCode as InitiativeCode,
+    programYear: row.programYear,
+    editUrl,
+    closesAt: window.closesAt,
+    onboarding: onboarding?.content ?? null,
+  });
+  const sent = await sendEmail({
+    toEmail: row.submitterEmail,
+    fromEmail: env.EMAIL_FROM_ENROLLMENT,
+    kind: 'enrollment.confirmation',
+    ...receipt,
+    // The edit link works like a password for this submission.
+    redact: [editUrl],
+  });
+  if (onboarding) {
+    // Never at the cost of the PM's notice below: the form already counts.
+    await deliverOnboardingOnSubmit(row, hospital?.name ?? 'your hospital', onboarding, sent.sent).catch(
+      (err: unknown) => logger.error({ err, formId: row.id }, 'Onboarding email on submission failed'),
+    );
+  }
+
+  const champions = (row.champions as Champion[] | null) ?? [];
+  const named = champions.filter((c) => c.name?.trim());
+  const accessRequests = named.filter((c) => c.redcapAccess || c.dashboardAccess);
+  await sendEmail({
+    toEmail: ENROLLMENT_NOTICE_TO[row.initiativeCode as InitiativeCode] ?? 'qi@cpcqc.org',
+    fromEmail: env.EMAIL_FROM_ENROLLMENT,
+    kind: 'enrollment.staff_notification',
+    subject: `[${row.programYear} Enrollment] ${hospital?.name ?? 'A hospital'} — ${row.initiativeCode}`,
+    body: [
+      `${hospital?.name ?? 'A hospital'} enrolled in ${row.initiativeCode} for ${row.programYear}.`,
+      '',
+      `Submitted by: ${row.submitterName} (${row.submitterRole}) — ${row.submitterEmail}`,
+      row.initiativeCode === 'TTT'
+        ? 'Turning the Tide continuation attestation.'
+        : `EHR: ${row.ehrOther || row.ehr || '—'}`,
+      '',
+      named.length
+        ? `Champions:\n${named
+            .map((c) => `  ${c.role}: ${c.name} <${c.email}> — ${c.title}${c.isPrimary ? ' [PRIMARY]' : ''}`)
+            .join('\n')}`
+        : '',
+      accessRequests.length
+        ? `\nAccess requested (grant separately):\n${accessRequests
+            .map(
+              (c) =>
+                `  ${c.name}: ${[c.redcapAccess ? 'REDCap' : null, c.dashboardAccess ? 'QI dashboard' : null]
+                  .filter(Boolean)
+                  .join(' + ')}`,
+            )
+            .join('\n')}`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+  });
+}
+
+/**
+ * Confirm from an emailed link. Forms no longer need confirming, since they
+ * count from submission, but links sent before that change still arrive here
+ * and finish the job. Idempotent; notifies staff once.
+ */
 export async function verifyEnrollmentForm(token: string) {
   const row = await db.query.enrollmentForms.findFirst({
     where: eq(schema.enrollmentForms.verificationTokenHash, hashToken(token)),
@@ -345,62 +444,7 @@ export async function verifyEnrollmentForm(token: string) {
       .update(schema.enrollmentForms)
       .set({ verifiedAt: new Date(), updatedAt: new Date() })
       .where(eq(schema.enrollmentForms.id, row.id));
-
-    // Confirmation to the hospital, in CPCQC's words.
-    await sendEmail({
-      toEmail: row.submitterEmail,
-      fromEmail: env.EMAIL_FROM_ENROLLMENT,
-      kind: 'enrollment.confirmation',
-      subject: `${row.initiativeCode} enrollment received — ${hospital?.name ?? 'your hospital'}`,
-      body: [
-        `Hi ${row.submitterName},`,
-        '',
-        'Your enrollment form has been received and the program manager will be in contact',
-        'with next steps. If you need support, please contact qi@cpcqc.org',
-        '',
-        `Hospital: ${hospital?.name ?? '—'}`,
-        `Initiative: ${row.initiativeCode}`,
-        `Program year: ${row.programYear}`,
-        '',
-        'Colorado Perinatal Care Quality Collaborative',
-      ].join('\n'),
-    });
-
-    const champions = (row.champions as Champion[] | null) ?? [];
-    const named = champions.filter((c) => c.name?.trim());
-    const accessRequests = named.filter((c) => c.redcapAccess || c.dashboardAccess);
-    await sendEmail({
-      toEmail: 'qi@cpcqc.org',
-      fromEmail: env.EMAIL_FROM_ENROLLMENT,
-      kind: 'enrollment.staff_notification',
-      subject: `[${row.programYear} Enrollment] ${hospital?.name ?? 'A hospital'} — ${row.initiativeCode}`,
-      body: [
-        `${hospital?.name ?? 'A hospital'} enrolled in ${row.initiativeCode} for ${row.programYear}.`,
-        '',
-        `Submitted by: ${row.submitterName} (${row.submitterRole}) — ${row.submitterEmail}`,
-        row.initiativeCode === 'TTT'
-          ? 'Turning the Tide continuation attestation.'
-          : `EHR: ${row.ehrOther || row.ehr || '—'}`,
-        '',
-        named.length
-          ? `Champions:\n${named
-              .map((c) => `  ${c.role}: ${c.name} <${c.email}> — ${c.title}${c.isPrimary ? ' [PRIMARY]' : ''}`)
-              .join('\n')}`
-          : '',
-        accessRequests.length
-          ? `\nAccess requested (grant separately):\n${accessRequests
-              .map(
-                (c) =>
-                  `  ${c.name}: ${[c.redcapAccess ? 'REDCap' : null, c.dashboardAccess ? 'QI dashboard' : null]
-                    .filter(Boolean)
-                    .join(' + ')}`,
-              )
-              .join('\n')}`
-          : '',
-      ]
-        .filter(Boolean)
-        .join('\n'),
-    });
+    await sendReceiptAndNotice(row, token);
   }
 
   return {
@@ -412,6 +456,66 @@ export async function verifyEnrollmentForm(token: string) {
   };
 }
 
+/**
+ * Email a fresh edit link for a submitted form, when a hospital asks a PM to
+ * change something and no longer has its receipt, or someone else at the
+ * hospital is making the change. Staff only. The hospital still makes the
+ * change itself: the new link replaces the old one, which stops working, and
+ * like any edit link it works only until the deadline.
+ */
+export async function sendNewEditLink(
+  formId: string,
+  to: { email: string; name?: string | null },
+  ctx: AuthContext,
+): Promise<{ sentTo: string; emailSent: boolean }> {
+  if (ctx.role !== 'cpcqc_staff' && ctx.role !== 'cpcqc_admin') throw new HttpError(403, 'Staff only.');
+  const row = await db.query.enrollmentForms.findFirst({ where: eq(schema.enrollmentForms.id, formId) });
+  if (!row) throw new HttpError(404, 'Enrollment form not found.');
+  const window = await getEnrollmentStepWindow(row.programYear);
+  const today = new Date().toISOString().slice(0, 10);
+  if (!window.closesAt || today > window.closesAt) {
+    throw new HttpError(
+      409,
+      `The ${row.programYear} enrollment deadline has passed, so this form can no longer be changed.`,
+    );
+  }
+  const hospital = await db.query.hospitals.findFirst({ where: eq(schema.hospitals.id, row.hospitalId) });
+
+  const token = randomBytes(32).toString('base64url');
+  await db
+    .update(schema.enrollmentForms)
+    .set({ verificationTokenHash: hashToken(token) })
+    .where(eq(schema.enrollmentForms.id, row.id));
+
+  const editUrl = `${frontendBaseUrl()}/enrollment/${row.programYear}?token=${encodeURIComponent(token)}`;
+  const email = to.email.trim();
+  const result = await sendEmail({
+    toEmail: email,
+    fromEmail: env.EMAIL_FROM_ENROLLMENT,
+    kind: 'enrollment.edit_link',
+    ...editLinkEmail({
+      recipientName: to.name ?? null,
+      hospitalName: hospital?.name ?? 'your hospital',
+      initiativeCode: row.initiativeCode as InitiativeCode,
+      programYear: row.programYear,
+      editUrl,
+      closesAt: window.closesAt,
+    }),
+    // The edit link works like a password for this submission.
+    redact: [editUrl],
+  });
+  await db.insert(schema.auditLog).values({
+    id: uuid(),
+    actorUserId: ctx.userId ?? null,
+    actorRole: ctx.role,
+    action: 'enrollment_form.edit_link_sent',
+    entityType: 'enrollment_form',
+    entityId: row.id,
+    diff: { toEmail: email },
+    note: `Sent a new edit link for ${hospital?.name ?? 'a hospital'}'s ${row.initiativeCode} form to ${email}.`,
+  });
+  return { sentTo: email, emailSent: result.sent };
+}
 
 /** A submission loaded for editing, plus whether editing is still allowed. */
 export interface EditableEnrollmentForm {
@@ -489,9 +593,14 @@ export async function updateEnrollmentFormByToken(
     hospitalId: row.hospitalId,
     initiativeCode: row.initiativeCode as InitiativeCode,
   };
-  validate(full);
-
   const isTtt = row.initiativeCode === 'TTT';
+  // A TtT form that listed champions keeps needing them when edited.
+  const tttRoster =
+    isTtt &&
+    ((((row.champions as Champion[] | null) ?? []).length > 0) ||
+      (await getEnrollmentContext(row.hospitalId, 'TTT', row.programYear)).needsTttRoster);
+  validate(full, tttRoster);
+
   await db
     .update(schema.enrollmentForms)
     .set({
@@ -500,7 +609,7 @@ export async function updateEnrollmentFormByToken(
       submitterEmail: input.submitterEmail.trim(),
       ehr: isTtt ? null : (input.ehr ?? null),
       ehrOther: isTtt ? null : (input.ehrOther?.trim() || null),
-      champions: isTtt ? null : (input.champions ?? []),
+      champions: isTtt && !tttRoster ? null : (input.champions ?? []),
       tttContinuationAttested: isTtt ? !!input.tttContinuationAttested : false,
       updatedAt: new Date(),
     })

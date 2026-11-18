@@ -720,6 +720,148 @@ export const enrollmentForms = pgTable(
   }),
 );
 
+/**
+ * Enrollment forms staff sent a hospital, one row per initiative per send.
+ * Sending is a staff decision that the hospital owes that form, so it puts the
+ * hospital on the chase list — the only route there for a hospital CPCQC
+ * enrolls without an interest form. Re-sends add rows rather than replace them:
+ * which address got the link, and when, is what a PM checks when a hospital
+ * says it never arrived.
+ */
+export const enrollmentFormInvitations = pgTable(
+  'enrollment_form_invitations',
+  {
+    id: idCol(),
+    programYear: integer('program_year').notNull(),
+    hospitalId: text('hospital_id')
+      .notNull()
+      .references(() => hospitals.id, { onDelete: 'cascade' }),
+    /** 'SPARK' | 'SOAR' | 'NEST' | 'TTT' */
+    initiativeCode: text('initiative_code').notNull(),
+    toEmail: text('to_email').notNull(),
+    toName: text('to_name'),
+    sentByUserId: text('sent_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    /** False when SendGrid refused it, or in dev with no SendGrid key. */
+    emailSent: boolean('email_sent').notNull(),
+    ...timestamps,
+  },
+  (t) => ({
+    yearIdx: index('enrollment_form_invitations_year_idx').on(t.programYear),
+  }),
+);
+
+/**
+ * The enrollment-decisions sheet staff uploaded for the welcome-to-enroll
+ * emails, kept so the preview, test and send survive a page refresh and work
+ * from any computer. The latest upload for a year is the one in use; earlier
+ * ones stay as the record of what was sent from. `rows` is the sheet as text,
+ * one array of cells per spreadsheet row.
+ */
+export const enrollmentAcceptanceSheets = pgTable(
+  'enrollment_acceptance_sheets',
+  {
+    id: idCol(),
+    programYear: integer('program_year').notNull(),
+    fileName: text('file_name'),
+    rows: jsonb('rows').notNull(),
+    uploadedByUserId: text('uploaded_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => ({
+    yearIdx: index('enrollment_acceptance_sheets_year_idx').on(t.programYear),
+  }),
+);
+
+/**
+ * Reminders sent to hospitals that still owe an enrollment form, one row per
+ * person per form. Shows staff when each was last reminded, and keeps one
+ * day's reminders from going twice.
+ */
+export const enrollmentFormReminders = pgTable(
+  'enrollment_form_reminders',
+  {
+    id: idCol(),
+    programYear: integer('program_year').notNull(),
+    hospitalId: text('hospital_id')
+      .notNull()
+      .references(() => hospitals.id, { onDelete: 'cascade' }),
+    /** 'SPARK' | 'SOAR' | 'NEST' | 'TTT' */
+    initiativeCode: text('initiative_code').notNull(),
+    toEmail: text('to_email').notNull(),
+    toName: text('to_name'),
+    sentByUserId: text('sent_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    /** False when SendGrid refused it, or in dev with no SendGrid key. */
+    emailSent: boolean('email_sent').notNull(),
+    ...timestamps,
+  },
+  (t) => ({
+    yearIdx: index('enrollment_form_reminders_year_idx').on(t.programYear),
+  }),
+);
+
+/**
+ * Each initiative's onboarding message for a program year, written by its PM
+ * on the enrollment-forms page from a template. Once set, enrollment receipts
+ * carry it, and staff send it to hospitals that enrolled before. Every save
+ * bumps `version`, so a hospital sent an earlier version can be told it
+ * changed.
+ */
+export const enrollmentOnboardingDetails = pgTable(
+  'enrollment_onboarding_details',
+  {
+    id: idCol(),
+    programYear: integer('program_year').notNull(),
+    /** 'SPARK' | 'SOAR' | 'NEST' | 'TTT' */
+    initiativeCode: text('initiative_code').notNull(),
+    /** The PM's text: paragraphs, with [link text](https://…) links. */
+    message: text('message').notNull().default(''),
+    version: integer('version').notNull().default(1),
+    updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => ({
+    uniqYearInitiative: uniqueIndex('enrollment_onboarding_details_year_initiative_uniq').on(
+      t.programYear,
+      t.initiativeCode,
+    ),
+  }),
+);
+
+/**
+ * Every time a hospital was sent its onboarding details, one row per person
+ * per form: in the submitter's receipt, to the form's champions on
+ * submission, or from the staff page. Keeps anyone from getting the same
+ * version twice, and shows who got an earlier one.
+ */
+export const enrollmentOnboardingSends = pgTable(
+  'enrollment_onboarding_sends',
+  {
+    id: idCol(),
+    programYear: integer('program_year').notNull(),
+    enrollmentFormId: text('enrollment_form_id')
+      .notNull()
+      .references(() => enrollmentForms.id, { onDelete: 'cascade' }),
+    hospitalId: text('hospital_id')
+      .notNull()
+      .references(() => hospitals.id, { onDelete: 'cascade' }),
+    /** 'SPARK' | 'SOAR' | 'NEST' | 'TTT' */
+    initiativeCode: text('initiative_code').notNull(),
+    toEmail: text('to_email').notNull(),
+    toName: text('to_name'),
+    /** Which save of the details went out. */
+    detailsVersion: integer('details_version').notNull(),
+    /** 'receipt' | 'submit' | 'send' */
+    via: text('via').notNull(),
+    sentByUserId: text('sent_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    /** False when SendGrid refused it, or in dev with no SendGrid key. */
+    emailSent: boolean('email_sent').notNull(),
+    ...timestamps,
+  },
+  (t) => ({
+    yearIdx: index('enrollment_onboarding_sends_year_idx').on(t.programYear),
+  }),
+);
+
 export const auditLog = pgTable(
   'audit_log',
   {

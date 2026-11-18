@@ -63,7 +63,8 @@ function Verifier() {
         manager will be in contact with next steps.
       </p>
       <p className="mt-3 text-sm text-cpcqc-purple-dark/70">
-        {result.hospitalName} — {result.initiativeCode}, {result.programYear}
+        {result.hospitalName} — {result.initiativeCode === 'TTT' ? 'Turning the Tide' : result.initiativeCode},{' '}
+        {result.programYear}
       </p>
       <p className="mt-4 text-sm text-cpcqc-purple-dark/75">
         Need to change something?{' '}
