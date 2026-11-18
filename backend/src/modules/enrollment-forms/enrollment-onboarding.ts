@@ -24,9 +24,9 @@ import {
   INITIATIVE_SHORT,
   hasOnboarding,
   onboardingEmail,
+  onboardingProblem,
   type FormInitiativeCode,
   type OnboardingContent,
-  type OnboardingSession,
 } from './enrollment-emails.js';
 import {
   onboardingRecipients,
@@ -59,7 +59,7 @@ export interface OnboardingDetailsView extends OnboardingContent {
 }
 
 function contentOf(row: typeof schema.enrollmentOnboardingDetails.$inferSelect): OnboardingContent {
-  return { sessions: (row.sessions as OnboardingSession[] | null) ?? [], note: row.note };
+  return { message: row.message };
 }
 
 export async function getOnboardingDetails(programYear: number): Promise<OnboardingDetailsView[]> {
@@ -73,8 +73,7 @@ export async function getOnboardingDetails(programYear: number): Promise<Onboard
     if (!r) {
       return {
         initiativeCode: code,
-        sessions: [],
-        note: null,
+        message: '',
         version: null,
         updatedAt: null,
         updatedBy: null,
@@ -110,14 +109,16 @@ export async function saveOnboardingDetails(
   content: OnboardingContent,
   ctx: AuthContext,
 ): Promise<OnboardingDetailsView> {
+  // Trailing spaces off each line, and blank lines at either end.
   const clean: OnboardingContent = {
-    sessions: content.sessions.map((s) => ({
-      title: s.title.trim(),
-      when: s.when.trim(),
-      registrationUrl: s.registrationUrl?.trim() || null,
-    })),
-    note: content.note?.trim() || null,
+    message: content.message
+      .split('\n')
+      .map((l) => l.trimEnd())
+      .join('\n')
+      .trim(),
   };
+  const problem = onboardingProblem(clean.message);
+  if (problem) throw new HttpError(400, problem);
   const existing = await db.query.enrollmentOnboardingDetails.findFirst({
     where: and(
       eq(schema.enrollmentOnboardingDetails.programYear, programYear),
@@ -129,8 +130,7 @@ export async function saveOnboardingDetails(
     await db
       .update(schema.enrollmentOnboardingDetails)
       .set({
-        sessions: clean.sessions,
-        note: clean.note,
+        message: clean.message,
         version: existing.version + 1,
         updatedByUserId: ctx.userId ?? null,
         updatedAt: now,
@@ -141,8 +141,7 @@ export async function saveOnboardingDetails(
       id: uuid(),
       programYear,
       initiativeCode: code,
-      sessions: clean.sessions,
-      note: clean.note,
+      message: clean.message,
       version: 1,
       updatedByUserId: ctx.userId ?? null,
       createdAt: now,

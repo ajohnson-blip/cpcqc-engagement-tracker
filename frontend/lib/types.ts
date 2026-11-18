@@ -1121,18 +1121,11 @@ export interface WelcomeSendResult {
   remaining: number;
 }
 
-/** One onboarding date, as the PM wrote it. */
-export interface OnboardingSession {
-  title: string;
-  when: string;
-  registrationUrl: string | null;
-}
-
-/** An initiative's onboarding details for a program year. */
+/** An initiative's onboarding message for a program year. */
 export interface OnboardingDetails {
   initiativeCode: 'SPARK' | 'SOAR' | 'NEST' | 'TTT';
-  sessions: OnboardingSession[];
-  note: string | null;
+  /** The PM's text: paragraphs, with [link text](https://…) links. */
+  message: string;
   /** Null until first saved. */
   version: number | null;
   updatedAt: string | null;

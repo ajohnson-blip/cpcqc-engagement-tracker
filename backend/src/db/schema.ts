@@ -800,11 +800,11 @@ export const enrollmentFormReminders = pgTable(
 );
 
 /**
- * Each initiative's onboarding dates and registration links for a program
- * year, written by its PM on the enrollment-forms page. Once set, enrollment
- * receipts carry them, and staff send them to hospitals that enrolled before.
- * Every save bumps `version`, so a hospital sent an earlier version can be
- * told what changed.
+ * Each initiative's onboarding message for a program year, written by its PM
+ * on the enrollment-forms page from a template. Once set, enrollment receipts
+ * carry it, and staff send it to hospitals that enrolled before. Every save
+ * bumps `version`, so a hospital sent an earlier version can be told it
+ * changed.
  */
 export const enrollmentOnboardingDetails = pgTable(
   'enrollment_onboarding_details',
@@ -813,9 +813,8 @@ export const enrollmentOnboardingDetails = pgTable(
     programYear: integer('program_year').notNull(),
     /** 'SPARK' | 'SOAR' | 'NEST' | 'TTT' */
     initiativeCode: text('initiative_code').notNull(),
-    /** [{ title, when, registrationUrl }], in the order hospitals see them. */
-    sessions: jsonb('sessions').notNull().default([]),
-    note: text('note'),
+    /** The PM's text: paragraphs, with [link text](https://…) links. */
+    message: text('message').notNull().default(''),
     version: integer('version').notNull().default(1),
     updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
     ...timestamps,

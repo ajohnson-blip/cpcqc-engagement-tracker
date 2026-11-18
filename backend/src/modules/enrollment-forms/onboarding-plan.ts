@@ -1,8 +1,8 @@
 /**
- * Onboarding details: who gets them, and which hospitals still need them.
+ * Onboarding messages: who gets them, and which hospitals still need them.
  *
- * Every submitted enrollment form gets its initiative's onboarding details,
- * once its PM has written them, in one email to the person who submitted it
+ * Every submitted enrollment form gets its initiative's onboarding message,
+ * once its PM has written it, in one email to the person who submitted it
  * and the champions it names. A Turning the Tide form that names no champions
  * goes to the hospital's Turning the Tide roster instead, since continuing
  * hospitals were not asked for one.
@@ -116,7 +116,7 @@ export function planOnboarding(input: OnboardingPlanInput): OnboardingPlan {
     const note = (reason: string): PlanNote => ({ hospital: f.hospitalName, initiative: f.code, reason });
     const version = input.versions[f.code];
     if (version === undefined) {
-      plan.held.push(note(`No ${INITIATIVE_SHORT[f.code]} onboarding details yet.`));
+      plan.held.push(note(`No ${INITIATIVE_SHORT[f.code]} onboarding message yet.`));
       continue;
     }
     const sends = (sendsFor.get(f.formId) ?? []).sort((a, b) => b.sentAt.localeCompare(a.sentAt));
@@ -138,7 +138,7 @@ export function planOnboarding(input: OnboardingPlanInput): OnboardingPlan {
       if (!input.includeFailed) continue;
       kind = 'retry';
     } else if (earlierOk) {
-      plan.updated.push(note(`Sent ${earlierOk.sentDay}, before the details last changed.`));
+      plan.updated.push(note(`Sent ${earlierOk.sentDay}, before the message last changed.`));
       if (!input.includeUpdated) continue;
       kind = 'update';
     } else {

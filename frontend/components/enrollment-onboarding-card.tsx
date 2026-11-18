@@ -1,30 +1,25 @@
 'use client';
 
 /**
- * Onboarding dates and registration, per initiative.
+ * Onboarding messages, per initiative.
  *
- * The PM writes each initiative's details here. Once saved, every new
- * enrollment receipt for that initiative carries them, and the champions the
- * form names get them too. Hospitals that submitted before then get them from
- * the send below, which covers only the initiative whose tab is selected, as
- * each PM sends their own: preview first, a test copy to yourself, then the
- * send, in batches. Nobody gets the same version twice. Changing the details makes a
- * new version, and hospitals sent the earlier one are listed so the PM can
- * choose to send the update.
+ * Each initiative's PM writes its onboarding message here, starting from a
+ * template: the tracker adds only the greeting and first line naming the
+ * hospital, and CPCQC's sign-off. Once saved, every new enrollment receipt for
+ * that initiative carries the message, and the champions the form names get it
+ * too. Hospitals that submitted before then get it from the send below, which
+ * covers only the initiative whose tab is selected, as each PM sends their
+ * own: preview first, a test copy to yourself, then the send, in batches.
+ * Nobody gets the same version twice. Saving a change makes a new version, and
+ * hospitals sent the earlier one are listed so the PM can choose to send it.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
-import { AlertTriangle, CalendarDays, ChevronDown, ChevronRight, Plus, Send, Trash2 } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronDown, ChevronRight, Link2, Send } from 'lucide-react';
 import { api } from '@/lib/api';
 import { fmtDate } from '@/lib/format';
-import type {
-  OnboardingDetails,
-  OnboardingPreview,
-  OnboardingSendResult,
-  OnboardingSession,
-  WelcomePlanNote,
-} from '@/lib/types';
+import type { OnboardingDetails, OnboardingPreview, OnboardingSendResult, WelcomePlanNote } from '@/lib/types';
 
 type Code = OnboardingDetails['initiativeCode'];
 const CODES: Code[] = ['SPARK', 'SOAR', 'NEST', 'TTT'];
@@ -36,33 +31,6 @@ const KIND: Record<OnboardingPreview['emails'][number]['kind'], string> = {
   retry: 'Retry',
 };
 
-interface Draft {
-  sessions: OnboardingSession[];
-  note: string;
-}
-
-const draftOf = (d: OnboardingDetails | undefined): Draft => ({
-  sessions: d?.sessions.length ? d.sessions.map((s) => ({ ...s })) : [{ title: '', when: '', registrationUrl: '' }],
-  note: d?.note ?? '',
-});
-
-/** Blank date rows are dropped; anything half-filled is an error to fix. */
-function cleaned(draft: Draft): { sessions: OnboardingSession[]; note: string | null } | string {
-  const sessions: OnboardingSession[] = [];
-  for (const [i, s] of draft.sessions.entries()) {
-    const title = s.title.trim();
-    const when = s.when.trim();
-    const url = (s.registrationUrl ?? '').trim();
-    if (!title && !when && !url) continue;
-    const n = `Date ${i + 1}`;
-    if (!title) return `${n} needs a name, e.g. "Onboarding webinar".`;
-    if (!when) return `${n} needs a date and time.`;
-    if (url && !/^https?:\/\/\S+\.\S+/i.test(url)) return `${n}'s registration link must start with https://.`;
-    sessions.push({ title, when, registrationUrl: url || null });
-  }
-  return { sessions, note: draft.note.trim() || null };
-}
-
 export function EnrollmentOnboardingCard({
   programYear,
   onSent,
@@ -71,22 +39,25 @@ export function EnrollmentOnboardingCard({
   onSent: (text: string, ok: boolean) => void;
 }) {
   const [details, setDetails] = useState<OnboardingDetails[] | null>(null);
+  const [template, setTemplate] = useState('');
   const [active, setActive] = useState<Code>('SPARK');
-  const [draft, setDraft] = useState<Draft>(draftOf(undefined));
+  const [message, setMessage] = useState('');
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showSample, setShowSample] = useState(false);
+  const box = useRef<HTMLTextAreaElement>(null);
 
   const q = `programYear=${programYear}`;
 
   useEffect(() => {
     api
-      .get<{ details: OnboardingDetails[] }>(`/staff/enrollment-forms/onboarding/details?${q}`)
+      .get<{ details: OnboardingDetails[]; template: string }>(`/staff/enrollment-forms/onboarding/details?${q}`)
       .then((r) => {
         setDetails(r.details);
-        setDraft(draftOf(r.details.find((d) => d.initiativeCode === 'SPARK')));
+        setTemplate(r.template);
+        setMessage(r.details.find((d) => d.initiativeCode === 'SPARK')?.message ?? '');
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [q]);
@@ -95,41 +66,59 @@ export function EnrollmentOnboardingCard({
 
   function choose(code: Code) {
     if (code === active) return;
-    if (dirty && !window.confirm(`Discard your unsaved changes to the ${LABEL[active]} details?`)) return;
+    if (dirty && !window.confirm(`Discard your unsaved changes to the ${LABEL[active]} message?`)) return;
     setActive(code);
-    setDraft(draftOf(details?.find((d) => d.initiativeCode === code)));
+    setMessage(details?.find((d) => d.initiativeCode === code)?.message ?? '');
     setDirty(false);
     setSaved(null);
     setError(null);
     setShowSample(false);
   }
 
-  function edit(change: (d: Draft) => Draft) {
-    setDraft((d) => change(d));
+  function change(text: string) {
+    setMessage(text);
     setDirty(true);
     setSaved(null);
   }
 
+  function useTemplate() {
+    if (message.trim() && !window.confirm('Replace what you have written with the template?')) return;
+    change(template);
+    box.current?.focus();
+  }
+
+  /** Puts a named link where the cursor is, so nobody has to remember the format. */
+  function addLink() {
+    const text = window.prompt('Link text, e.g. "Register for option 1"');
+    if (!text?.trim()) return;
+    const url = window.prompt('Web address, starting with https://');
+    if (!url?.trim()) return;
+    const el = box.current;
+    const at = el ? el.selectionStart : message.length;
+    const end = el ? el.selectionEnd : message.length;
+    const link = `[${text.trim()}](${url.trim()})`;
+    change(message.slice(0, at) + link + message.slice(end));
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(at + link.length, at + link.length);
+    });
+  }
+
   async function save() {
-    const body = cleaned(draft);
-    if (typeof body === 'string') {
-      setError(body);
-      return;
-    }
     setSaving(true);
     setError(null);
     try {
       const r = await api.put<{ details: OnboardingDetails }>(
         `/staff/enrollment-forms/onboarding/details/${active}?${q}`,
-        body,
+        { message },
       );
       setDetails((all) => (all ?? []).map((d) => (d.initiativeCode === active ? r.details : d)));
-      setDraft(draftOf(r.details));
+      setMessage(r.details.message);
       setDirty(false);
       setSaved(
         r.details.sample
-          ? `Saved. New ${LABEL[active]} receipts now include these details.`
-          : 'Saved. There is nothing to send yet, so receipts stay as they were.',
+          ? `Saved. New ${LABEL[active]} receipts now include this message.`
+          : 'Saved. The message is empty, so receipts say the PM will be in touch.',
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -140,11 +129,12 @@ export function EnrollmentOnboardingCard({
 
   return (
     <section className="mb-6 rounded-2xl bg-white p-6 shadow-card">
-      <h2 className="font-rounded text-lg font-extrabold text-cpcqc-purple-dark">Onboarding details</h2>
+      <h2 className="font-rounded text-lg font-extrabold text-cpcqc-purple-dark">Onboarding message</h2>
       <p className="mt-1 max-w-3xl text-sm text-cpcqc-purple-dark/70">
-        Each initiative&rsquo;s onboarding dates and registration links. Once saved, every new enrollment
-        receipt for that initiative includes them, and the champions named on the form get them too.
-        Hospitals that have already submitted get them from the send below, one initiative at a time.
+        Each initiative&rsquo;s PM writes what hospitals need for onboarding, starting from the template. Once
+        saved, every new enrollment receipt for that initiative includes it, and the champions named on the
+        form get it too. Hospitals that have already submitted get it from the send below, one initiative at a
+        time.
       </p>
 
       <div className="mt-4 flex flex-wrap gap-2" role="tablist">
@@ -170,7 +160,7 @@ export function EnrollmentOnboardingCard({
                   'h-2 w-2 rounded-full',
                   d?.sample ? 'bg-cpcqc-teal-dark' : active === code ? 'bg-white/50' : 'bg-cpcqc-purple-dark/20',
                 )}
-                aria-label={d?.sample ? 'details saved' : 'no details yet'}
+                aria-label={d?.sample ? 'message saved' : 'no message yet'}
               />
             </button>
           );
@@ -181,78 +171,41 @@ export function EnrollmentOnboardingCard({
         <p className="mt-4 text-sm text-cpcqc-purple-dark/60">{error ?? 'Loading…'}</p>
       ) : (
         <div className="mt-4 space-y-3">
-          {draft.sessions.map((s, i) => (
-            <div key={i} className="grid gap-2 rounded-xl bg-cpcqc-cream-dark/20 p-3 md:grid-cols-[1fr_1.4fr_1.4fr_auto]">
-              <label className="text-xs font-bold text-cpcqc-purple-dark/70">
-                Name
-                <input
-                  value={s.title}
-                  onChange={(e) =>
-                    edit((d) => ({ ...d, sessions: d.sessions.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)) }))
-                  }
-                  placeholder="Onboarding webinar"
-                  maxLength={120}
-                  className="mt-1 w-full rounded-lg border border-cpcqc-purple-dark/20 px-2 py-1.5 text-sm font-normal text-cpcqc-purple-dark"
-                />
-              </label>
-              <label className="text-xs font-bold text-cpcqc-purple-dark/70">
-                Date and time
-                <input
-                  value={s.when}
-                  onChange={(e) =>
-                    edit((d) => ({ ...d, sessions: d.sessions.map((x, j) => (j === i ? { ...x, when: e.target.value } : x)) }))
-                  }
-                  placeholder="Tuesday, January 12, 2027, 12–1 pm MT"
-                  maxLength={200}
-                  className="mt-1 w-full rounded-lg border border-cpcqc-purple-dark/20 px-2 py-1.5 text-sm font-normal text-cpcqc-purple-dark"
-                />
-              </label>
-              <label className="text-xs font-bold text-cpcqc-purple-dark/70">
-                Registration link <span className="font-normal">(optional)</span>
-                <input
-                  value={s.registrationUrl ?? ''}
-                  onChange={(e) =>
-                    edit((d) => ({
-                      ...d,
-                      sessions: d.sessions.map((x, j) => (j === i ? { ...x, registrationUrl: e.target.value } : x)),
-                    }))
-                  }
-                  placeholder="https://…"
-                  maxLength={1000}
-                  inputMode="url"
-                  className="mt-1 w-full rounded-lg border border-cpcqc-purple-dark/20 px-2 py-1.5 text-sm font-normal text-cpcqc-purple-dark"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={() => edit((d) => ({ ...d, sessions: d.sessions.filter((_, j) => j !== i) }))}
-                className="self-end rounded-lg p-2 text-cpcqc-purple-dark/50 hover:bg-cpcqc-pink-dark/10 hover:text-cpcqc-pink-dark"
-                aria-label={`Remove date ${i + 1}`}
-              >
-                <Trash2 size={16} aria-hidden />
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={() => edit((d) => ({ ...d, sessions: [...d.sessions, { title: '', when: '', registrationUrl: '' }] }))}
-            disabled={draft.sessions.length >= 12}
-            className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple hover:underline disabled:opacity-50"
-          >
-            <Plus size={14} aria-hidden /> Add a date
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={useTemplate}
+              className="rounded-full border border-cpcqc-purple/30 px-3 py-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple hover:bg-cpcqc-purple/10"
+            >
+              Start from the template
+            </button>
+            <button
+              type="button"
+              onClick={addLink}
+              className="inline-flex items-center gap-1 rounded-full border border-cpcqc-purple/30 px-3 py-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple hover:bg-cpcqc-purple/10"
+            >
+              <Link2 size={14} aria-hidden /> Add a link
+            </button>
+          </div>
 
           <label className="block text-xs font-bold text-cpcqc-purple-dark/70">
-            Anything else hospitals should know <span className="font-normal">(optional)</span>
+            {LABEL[active]} onboarding message
             <textarea
-              value={draft.note}
-              onChange={(e) => edit((d) => ({ ...d, note: e.target.value }))}
-              rows={3}
-              maxLength={4000}
-              placeholder="e.g. Who should attend, what to prepare. Web addresses become links."
-              className="mt-1 w-full rounded-lg border border-cpcqc-purple-dark/20 px-2 py-1.5 text-sm font-normal text-cpcqc-purple-dark"
+              ref={box}
+              value={message}
+              onChange={(e) => change(e.target.value)}
+              rows={13}
+              maxLength={6000}
+              placeholder="Click Start from the template, or write your own."
+              className="mt-1 w-full rounded-lg border border-cpcqc-purple-dark/20 px-3 py-2 text-sm font-normal leading-relaxed text-cpcqc-purple-dark"
             />
           </label>
+          <p className="text-xs text-cpcqc-purple-dark/60">
+            Replace everything in {'{curly brackets}'}; the message can&rsquo;t be saved until you do. A link is
+            written <code>[link text](https://…)</code>, which hospitals see as just the link text; use{' '}
+            <strong>Add a link</strong> to insert one. A bare web address becomes a link too. Hospitals see a
+            greeting and a line naming their hospital above your message, and CPCQC&rsquo;s name below it.
+          </p>
 
           {error && <p className="rounded-lg bg-cpcqc-pink-dark/10 px-3 py-2 text-sm text-cpcqc-pink-dark">{error}</p>}
           {saved && <p className="text-sm text-cpcqc-teal-dark">{saved}</p>}
@@ -264,7 +217,7 @@ export function EnrollmentOnboardingCard({
               disabled={!dirty || saving}
               className="rounded-full bg-cpcqc-purple px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-white hover:bg-cpcqc-purple/90 disabled:opacity-50"
             >
-              {saving ? 'Saving…' : `Save ${LABEL[active]} details`}
+              {saving ? 'Saving…' : `Save ${LABEL[active]} message`}
             </button>
             {current?.sample && (
               <button
@@ -327,7 +280,7 @@ function OnboardingSend({
   programYear: number;
   /** The initiative whose tab is selected: the send covers it alone. */
   code: Code;
-  /** Unsaved edits above: the send uses the details as last saved. */
+  /** Unsaved edits above: the send uses the message as last saved. */
   dirty: boolean;
   onSent: (text: string, ok: boolean) => void;
 }) {
@@ -416,7 +369,7 @@ function OnboardingSend({
     } catch (err) {
       setError(
         `${err instanceof Error ? err.message : String(err)} ${sent} sent before it stopped. ` +
-          'Preview again to see what is left; nobody gets the same details twice.',
+          'Preview again to see what is left; nobody gets the same message twice.',
       );
       return;
     } finally {
@@ -443,17 +396,17 @@ function OnboardingSend({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="font-rounded text-base font-extrabold text-cpcqc-purple-dark">
-            Send {LABEL[code]} onboarding details
+            Send {LABEL[code]} onboarding message
           </h3>
           <p className="mt-1 max-w-3xl text-sm text-cpcqc-purple-dark/70">
             To hospitals that have already submitted a {LABEL[code]} enrollment form: one email per form, to
             the person who submitted it and the champions it names. Only {LABEL[code]} is included; choose
             another initiative&rsquo;s tab above to send theirs. You&rsquo;ll see every email before anything
-            is sent, and nobody gets the same details twice.
+            is sent, and nobody gets the same message twice.
           </p>
           {dirty && (
             <p className="mt-1 text-xs font-bold text-cpcqc-orange-dark">
-              You have unsaved changes above. The send uses the details as last saved.
+              You have unsaved changes above. The send uses the message as last saved.
             </p>
           )}
         </div>
@@ -488,7 +441,7 @@ function OnboardingSend({
               <ul className="mt-1 list-disc space-y-0.5 pl-5">
                 {waiting.counts.map(([code, n]) => (
                   <li key={code}>
-                    {n} {SHORT[code]} form{n === 1 ? '' : 's'}: no {LABEL[code as Code]} details saved yet.
+                    {n} {SHORT[code]} form{n === 1 ? '' : 's'}: no {LABEL[code as Code]} message saved yet.
                   </li>
                 ))}
                 {waiting.other.map((h, i) => (
@@ -508,8 +461,8 @@ function OnboardingSend({
               setIncludeUpdated(v);
               void load(v, includeFailed);
             }}
-            label={(n) => `Also send the updated details to ${n} form${n === 1 ? '' : 's'} sent an earlier version`}
-            title="Sent before the details changed"
+            label={(n) => `Also send the updated message to ${n} form${n === 1 ? '' : 's'} sent an earlier version`}
+            title="Sent before the message changed"
           />
           <OptIn
             notes={preview.failed}
@@ -598,12 +551,12 @@ function OnboardingSend({
   );
 }
 
-/** Forms held only because their initiative has no details, counted per initiative. */
+/** Forms held only because their initiative has no message, counted per initiative. */
 function waitingByInitiative(held: WelcomePlanNote[]) {
   const counts = new Map<string, number>();
   const other: WelcomePlanNote[] = [];
   for (const h of held) {
-    if (h.initiative && /onboarding details yet/.test(h.reason)) {
+    if (h.initiative && /onboarding message yet/.test(h.reason)) {
       counts.set(h.initiative, (counts.get(h.initiative) ?? 0) + 1);
     } else other.push(h);
   }

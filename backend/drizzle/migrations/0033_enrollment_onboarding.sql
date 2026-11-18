@@ -1,13 +1,12 @@
--- Onboarding dates and registration links per initiative per year, written by
--- the PMs, and every time a hospital was sent them. Each save of the details
--- bumps `version`, so staff can see who got an earlier version.
+-- Each initiative's onboarding message per year, written by its PM, and every
+-- time a hospital was sent it. Each save bumps `version`, so staff can see who
+-- got an earlier version.
 CREATE TABLE IF NOT EXISTS "enrollment_onboarding_details" (
   "id" text PRIMARY KEY NOT NULL,
   "program_year" integer NOT NULL,
   "initiative_code" text NOT NULL,
-  -- [{ title, when, registrationUrl }]
-  "sessions" jsonb DEFAULT '[]'::jsonb NOT NULL,
-  "note" text,
+  -- The PM's own text, from the template on the enrollment-forms page.
+  "message" text DEFAULT '' NOT NULL,
   "version" integer DEFAULT 1 NOT NULL,
   "updated_by_user_id" text,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,

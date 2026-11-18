@@ -17,6 +17,7 @@ import {
 } from './enrollment-forms.staff.js';
 import { previewWelcome, saveWelcomeSheet, sendWelcome, sendWelcomeTest } from './enrollment-welcome.js';
 import { previewReminders, sendReminderTest, sendReminders } from './enrollment-reminders.js';
+import { ONBOARDING_TEMPLATE } from './enrollment-emails.js';
 import {
   getOnboardingDetails,
   previewOnboarding,
@@ -95,43 +96,19 @@ router.post('/reminders/send', requireAuth, requireStaff, async (req, res) => {
 // already submitted. New submissions get them in their receipts.
 router.get('/onboarding/details', requireAuth, requireStaff, async (req, res) => {
   const programYear = programYearSchema.parse(req.query.programYear);
-  res.json({ details: await getOnboardingDetails(programYear) });
+  res.json({ details: await getOnboardingDetails(programYear), template: ONBOARDING_TEMPLATE });
 });
 
-const httpUrl = z
-  .string()
-  .trim()
-  .max(1000)
-  .url()
-  .refine((u) => /^https?:\/\//i.test(u), 'Registration links must start with https:// or http://');
-
-const onboardingDetailsSchema = z.object({
-  sessions: z
-    .array(
-      z.object({
-        title: z.string().trim().min(1, 'Each date needs a name, e.g. "Onboarding webinar".').max(120),
-        when: z.string().trim().min(1, 'Each date needs a date and time.').max(200),
-        registrationUrl: z.union([httpUrl, z.literal('')]).nullable().optional(),
-      }),
-    )
-    .max(12),
-  note: z.string().max(4000).nullable().optional(),
-});
+// The message's own checks (template text left in, a link without an
+// address) are in saveOnboardingDetails, so they read as plain sentences.
+const onboardingDetailsSchema = z.object({ message: z.string().max(6000) });
 
 router.put('/onboarding/details/:code', requireAuth, requireStaff, async (req, res) => {
   const programYear = programYearSchema.parse(req.query.programYear);
   const code = z.enum(ENROLLABLE).parse(req.params.code);
   const body = onboardingDetailsSchema.parse(req.body);
   res.json({
-    details: await saveOnboardingDetails(
-      programYear,
-      code,
-      {
-        sessions: body.sessions.map((s) => ({ ...s, registrationUrl: s.registrationUrl || null })),
-        note: body.note ?? null,
-      },
-      req.auth!,
-    ),
+    details: await saveOnboardingDetails(programYear, code, { message: body.message }, req.auth!),
   });
 });
 

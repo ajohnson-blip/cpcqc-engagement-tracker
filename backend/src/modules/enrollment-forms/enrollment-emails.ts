@@ -75,6 +75,8 @@ const ORDER: FormInitiativeCode[] = ['SPARK', 'SOAR', 'NEST', 'TTT'];
 interface LinkSegment {
   label: string;
   url: string;
+  /** The plain-text part, when the bare URL alone would lose the label. */
+  plain?: string;
 }
 type Line = Array<string | LinkSegment>;
 /** An email as paragraphs of lines, so it can be written once and sent both ways. */
@@ -92,7 +94,7 @@ const escapeHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 function render(subject: string, paragraphs: Paragraph[]): RenderedEmail {
-  const text = (line: Line) => line.map((seg) => (typeof seg === 'string' ? seg : seg.url)).join('');
+  const text = (line: Line) => line.map((seg) => (typeof seg === 'string' ? seg : (seg.plain ?? seg.url))).join('');
   const html = (line: Line) =>
     line
       .map((seg) =>
@@ -333,56 +335,78 @@ export function acceptanceEmail(input: AcceptanceEmailInput): RenderedEmail {
 
 // -------- Onboarding --------
 
-/** One onboarding date, as the PM wrote it. */
-export interface OnboardingSession {
-  /** e.g. "Onboarding webinar". */
-  title: string;
-  /** Free text, so PMs can write dates and times their own way. */
-  when: string;
-  registrationUrl: string | null;
-}
-
-/** An initiative's onboarding details, as staff saved them. */
+/**
+ * An initiative's onboarding message, written by its PM from the template on
+ * the enrollment-forms page. Plain text: blank lines separate paragraphs,
+ * [link text](https://…) makes a named link, and a bare web address becomes
+ * a link too.
+ */
 export interface OnboardingContent {
-  sessions: OnboardingSession[];
-  note: string | null;
+  message: string;
 }
 
 /** Set when there is anything to tell a hospital. */
 export const hasOnboarding = (o: OnboardingContent | null | undefined): o is OnboardingContent =>
-  !!o && (o.sessions.length > 0 || !!o.note?.trim());
+  !!o && !!o.message.trim();
 
-const URL_IN_TEXT = /(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]])/g;
+/**
+ * Where PMs start. Anything in {curly brackets} is theirs to replace, and a
+ * message still holding any is refused (onboardingProblem), so a template
+ * can't reach a hospital half filled in.
+ */
+export const ONBOARDING_TEMPLATE = [
+  'Please register your team for one of the two onboarding sessions below. Your team only needs to attend one.',
+  '',
+  'Option 1: {day, date and time} – [Register for option 1]({registration link})',
+  'Option 2: {day, date and time} – [Register for option 2]({registration link})',
+  '',
+  '{Anything else your team should know before onboarding, such as who should attend.}',
+  '',
+  'If you have questions, please contact me at {your email}.',
+  '',
+  '{Your name}',
+  '{Your title}',
+].join('\n');
 
-/** A line of the PM's note, with any web address it contains made a link. */
-function noteLine(text: string): Line {
+const PLACEHOLDER = /\{[^{}\n]{1,120}\}/;
+const NAMED_LINK = /\[([^\]\n]+)\]\(([^)\s]*)\)/g;
+
+/** Why a message can't be saved yet, or null when it can. */
+export function onboardingProblem(message: string): string | null {
+  const left = PLACEHOLDER.exec(message);
+  if (left) return `Replace ${left[0]} with your own text before saving.`;
+  for (const m of message.matchAll(NAMED_LINK)) {
+    if (!/^https?:\/\/\S+\.\S+/i.test(m[2]!)) {
+      return `The link "${m[1]}" needs a web address starting with https://.`;
+    }
+  }
+  return null;
+}
+
+const LINKISH = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]])/g;
+
+/** One line of the PM's message, with its links made links. */
+function messageLine(text: string): Line {
   const line: Line = [];
   let last = 0;
-  for (const m of text.matchAll(URL_IN_TEXT)) {
+  for (const m of text.matchAll(LINKISH)) {
     if (m.index! > last) line.push(text.slice(last, m.index));
-    line.push({ label: m[0], url: m[0] });
+    line.push(
+      m[1] ? { label: m[1], url: m[2]!, plain: `${m[1]} (${m[2]})` } : { label: m[3]!, url: m[3]! },
+    );
     last = m.index! + m[0].length;
   }
   if (last < text.length) line.push(text.slice(last));
   return line.length ? line : [''];
 }
 
-/**
- * The dates and registration links, then the PM's note. Each date is its own
- * paragraph, with a named link to register; the plain-text part carries the
- * bare address. The note keeps the PM's own paragraphs.
- */
+/** The PM's message as paragraphs, keeping their line breaks. */
 function onboardingParagraphs(o: OnboardingContent): Paragraph[] {
-  const sessions: Paragraph[] = o.sessions.map((s) => [
-    [`${s.title.trim()}: ${s.when.trim()}`],
-    ...(s.registrationUrl ? [[{ label: `Register for ${s.title.trim()}`, url: s.registrationUrl.trim() }]] : []),
-  ]);
-  const note: Paragraph[] = (o.note ?? '')
+  return o.message
     .split(/\n\s*\n/)
     .map((p) => p.trim())
     .filter(Boolean)
-    .map((p) => p.split('\n').map((l) => noteLine(l.trim())));
-  return [...sessions, ...note];
+    .map((p) => p.split('\n').map((l) => messageLine(l.trim())));
 }
 
 export interface OnboardingEmailInput {
@@ -399,9 +423,10 @@ export interface OnboardingEmailInput {
 }
 
 /**
- * An initiative's onboarding dates and registration, for the people at a
- * hospital that has submitted its enrollment form: its champions when it
- * submits, and everyone when staff send them later.
+ * An initiative's onboarding message, for the people at a hospital that has
+ * submitted its enrollment form: its champions when it submits, and everyone
+ * when staff send it later. The greeting and first line name the hospital;
+ * everything after is the PM's.
  */
 export function onboardingEmail(input: OnboardingEmailInput): RenderedEmail {
   const short = INITIATIVE_SHORT[input.initiativeCode];
@@ -409,20 +434,16 @@ export function onboardingEmail(input: OnboardingEmailInput): RenderedEmail {
     ? `Hi ${input.hospitalName} ${short} team,`
     : `Hi ${input.recipientName?.trim() || 'there'},`;
   const intro = input.update
-    ? `The ${input.programYear} ${short} onboarding details have changed. Here are the current dates and ` +
-      `registration for ${input.hospitalName}.`
+    ? `The ${input.programYear} ${short} onboarding information has changed. Here is the updated version for ` +
+      `${input.hospitalName}.`
     : `Thank you for submitting ${input.hospitalName}'s ${input.programYear} ${short} enrollment form. ` +
-      'Here are your onboarding dates and how to register.';
-  return render(
-    `${input.update ? 'Updated: ' : ''}${short} ${input.programYear} onboarding dates and registration — ${input.hospitalName}`,
-    [
-      [[hello]],
-      [[intro]],
-      ...onboardingParagraphs(input.onboarding),
-      [['If you have questions, please contact qi@cpcqc.org.']],
-      [['Colorado Perinatal Care Quality Collaborative']],
-    ],
-  );
+      'Here is what comes next for onboarding.';
+  return render(`${input.update ? 'Updated: ' : ''}${short} ${input.programYear} onboarding — ${input.hospitalName}`, [
+    [[hello]],
+    [[intro]],
+    ...onboardingParagraphs(input.onboarding),
+    [['Colorado Perinatal Care Quality Collaborative']],
+  ]);
 }
 
 export interface ReceiptEmailInput {
@@ -434,7 +455,7 @@ export interface ReceiptEmailInput {
   editUrl: string;
   /** The enrollment window's last day (ISO), or null when not yet set. */
   closesAt: string | null;
-  /** The initiative's onboarding details, once its PM has written them. */
+  /** The initiative's onboarding message, once its PM has written it. */
   onboarding?: OnboardingContent | null;
 }
 
@@ -452,14 +473,13 @@ export function receiptEmail(input: ReceiptEmailInput): RenderedEmail {
     [
       [
         onboarding
-          ? 'Your enrollment form has been received. Your onboarding dates and registration are below. ' +
-            'If you need support, please contact qi@cpcqc.org'
+          ? 'Your enrollment form has been received. Onboarding information from your program manager is ' +
+            'below. If you need support, please contact qi@cpcqc.org'
           : 'Your enrollment form has been received and the program manager will be in contact ' +
             'with next steps. If you need support, please contact qi@cpcqc.org',
       ],
     ],
     [[`Hospital: ${input.hospitalName}`], [`Initiative: ${INITIATIVE_NAMES[input.initiativeCode]}`], [`Program year: ${input.programYear}`]],
-    ...(onboarding ? [[['Onboarding dates and registration:']], ...onboardingParagraphs(onboarding)] : []),
     [
       [
         `To change anything${input.closesAt ? ` before ${longDate(input.closesAt)}` : ''}, use this link: `,
@@ -472,6 +492,8 @@ export function receiptEmail(input: ReceiptEmailInput): RenderedEmail {
           'If you didn’t submit this form, please let us know at qi@cpcqc.org.',
       ],
     ],
+    // Last, so the PM's sign-off sits just above CPCQC's.
+    ...(onboarding ? [[['Onboarding']], ...onboardingParagraphs(onboarding)] : []),
     [['Colorado Perinatal Care Quality Collaborative']],
   ]);
 }

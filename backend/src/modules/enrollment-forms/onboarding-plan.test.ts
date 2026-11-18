@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { onboardingRecipients, planOnboarding, type OnboardingForm, type OnboardingPlanInput } from './onboarding-plan.js';
-import { onboardingEmail, receiptEmail } from './enrollment-emails.js';
+import { ONBOARDING_TEMPLATE, onboardingEmail, onboardingProblem, receiptEmail } from './enrollment-emails.js';
 
 const form = (over: Partial<OnboardingForm> = {}): OnboardingForm => ({
   formId: 'f-ex-001-spark',
@@ -68,7 +68,7 @@ describe('planOnboarding', () => {
       ['Sample Hospital 01', 'TTT', 'new', 1],
     ]);
     expect(plan.held).toEqual([
-      { hospital: 'Sample Hospital 03', initiative: 'NEST', reason: 'No NEST onboarding details yet.' },
+      { hospital: 'Sample Hospital 03', initiative: 'NEST', reason: 'No NEST onboarding message yet.' },
     ]);
   });
 
@@ -119,15 +119,21 @@ describe('planOnboarding', () => {
 });
 
 const onboarding = {
-  sessions: [
-    { title: 'Onboarding webinar', when: 'Tuesday, January 12, 2027, 12–1 pm MT', registrationUrl: 'https://example.test/register' },
-    { title: 'Data training', when: 'January 20, 2027', registrationUrl: null },
-  ],
-  note: 'Slides will be posted at https://example.test/slides.\n\nBring your data champion.',
+  message: [
+    'Please register your team for one of the two onboarding sessions below.',
+    '',
+    'Option 1: Tuesday, January 12, 2027, 12–1 pm MT – [Register for option 1](https://example.test/option-1)',
+    'Option 2: Thursday, January 14, 2027, 9–10 am MT – [Register for option 2](https://example.test/option-2)',
+    '',
+    'Slides will be posted at https://example.test/slides.',
+    '',
+    'Alex Rivera',
+    'SPARK Program Manager',
+  ].join('\n'),
 };
 
 describe('onboardingEmail', () => {
-  it('greets the team, lists each date with a named registration link, and keeps the note', () => {
+  it("greets the team, then carries the PM's message with its links named", () => {
     const { subject, body, html } = onboardingEmail({
       recipientName: null,
       forTeam: true,
@@ -136,18 +142,22 @@ describe('onboardingEmail', () => {
       programYear: 2027,
       onboarding,
     });
-    expect(subject).toBe('Turning the Tide 2027 onboarding dates and registration — Example Valley Hospital');
+    expect(subject).toBe('Turning the Tide 2027 onboarding — Example Valley Hospital');
     expect(body).toContain('Hi Example Valley Hospital Turning the Tide team,');
-    expect(body).toContain('Onboarding webinar: Tuesday, January 12, 2027, 12–1 pm MT\nhttps://example.test/register');
-    expect(body).toContain('Data training: January 20, 2027');
-    expect(body).toContain('Bring your data champion.');
-    expect(html).toContain('>Register for Onboarding webinar</a>');
+    expect(body).toContain("Thank you for submitting Example Valley Hospital's 2027 Turning the Tide enrollment form.");
+    expect(body).toContain(
+      'Option 1: Tuesday, January 12, 2027, 12–1 pm MT – Register for option 1 (https://example.test/option-1)\n' +
+        'Option 2:',
+    );
+    expect(body).toMatch(/Alex Rivera\nSPARK Program Manager\n\nColorado Perinatal Care Quality Collaborative$/);
+    expect(html).toContain('href="https://example.test/option-1"');
+    expect(html).toContain('>Register for option 1</a>');
     expect(html).toContain('href="https://example.test/slides"');
     expect(html).not.toContain('slides.</a>');
     expect(body).not.toMatch(/TtT/);
   });
 
-  it('says what changed for someone sent an earlier version', () => {
+  it('says it changed for someone sent an earlier version', () => {
     const { subject, body } = onboardingEmail({
       recipientName: 'Jordan Lee',
       forTeam: false,
@@ -157,9 +167,9 @@ describe('onboardingEmail', () => {
       onboarding,
       update: true,
     });
-    expect(subject).toMatch(/^Updated: SPARK 2027 onboarding/);
+    expect(subject).toBe('Updated: SPARK 2027 onboarding — Example Valley Hospital');
     expect(body).toContain('Hi Jordan Lee,');
-    expect(body).toContain('The 2027 SPARK onboarding details have changed.');
+    expect(body).toContain('The 2027 SPARK onboarding information has changed.');
   });
 
   it('escapes what the PM typed', () => {
@@ -169,13 +179,26 @@ describe('onboardingEmail', () => {
       hospitalName: 'Example Valley Hospital',
       initiativeCode: 'NEST',
       programYear: 2027,
-      onboarding: { sessions: [{ title: '<b>Kickoff</b>', when: 'Jan 5', registrationUrl: null }], note: null },
+      onboarding: { message: '<b>Kickoff</b> & more' },
     });
-    expect(html).toContain('&lt;b&gt;Kickoff&lt;/b&gt;');
+    expect(html).toContain('&lt;b&gt;Kickoff&lt;/b&gt; &amp; more');
   });
 });
 
-describe('receiptEmail with onboarding details', () => {
+describe('onboardingProblem', () => {
+  it('refuses the template until every {placeholder} is replaced', () => {
+    expect(onboardingProblem(ONBOARDING_TEMPLATE)).toBe('Replace {day, date and time} with your own text before saving.');
+    expect(onboardingProblem(onboarding.message)).toBeNull();
+  });
+
+  it('refuses a named link without a web address', () => {
+    expect(onboardingProblem('[Register](www.example.test/register)')).toBe(
+      'The link "Register" needs a web address starting with https://.',
+    );
+  });
+});
+
+describe('receiptEmail with an onboarding message', () => {
   const base = {
     submitterName: 'Jordan Lee',
     hospitalName: 'Example Valley Hospital',
@@ -185,17 +208,17 @@ describe('receiptEmail with onboarding details', () => {
     closesAt: '2026-12-01',
   };
 
-  it('carries the dates once the PM has written them', () => {
+  it("carries the PM's message last, just above CPCQC's sign-off", () => {
     const { body } = receiptEmail({ ...base, onboarding });
-    expect(body).toContain('Your onboarding dates and registration are below.');
-    expect(body).toContain('Onboarding dates and registration:');
-    expect(body).toContain('Onboarding webinar: Tuesday, January 12, 2027');
+    expect(body).toContain('Onboarding information from your program manager is below.');
     expect(body).toContain('https://qi.example.org/enrollment/2027?token=abc');
+    expect(body.indexOf('Keep this email')).toBeLessThan(body.indexOf('Onboarding\n\nPlease register'));
+    expect(body).toMatch(/SPARK Program Manager\n\nColorado Perinatal Care Quality Collaborative$/);
   });
 
   it('says the PM will follow up until then', () => {
-    const { body } = receiptEmail({ ...base, onboarding: { sessions: [], note: '  ' } });
+    const { body } = receiptEmail({ ...base, onboarding: { message: '  ' } });
     expect(body).toContain('the program manager will be in contact with next steps');
-    expect(body).not.toContain('Onboarding dates and registration:');
+    expect(body).not.toContain('Onboarding\n');
   });
 });
