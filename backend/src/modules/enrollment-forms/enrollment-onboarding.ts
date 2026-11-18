@@ -296,6 +296,8 @@ export interface OnboardingOptions {
   includeFailed: boolean;
   /** ISO timestamp: forms attempted since then are left out. */
   attemptedSince?: string | null;
+  /** One initiative only, as each PM sends their own; null for all. */
+  initiative?: FormInitiativeCode | null;
 }
 
 export interface OnboardingPreviewEmail extends PlannedOnboarding {
@@ -354,6 +356,7 @@ async function plan(programYear: number, opts: OnboardingOptions) {
     includeUpdated: opts.includeUpdated,
     includeFailed: opts.includeFailed,
     attemptedSince: opts.attemptedSince ?? null,
+    initiative: opts.initiative ?? null,
   });
   return { result, content, forms: new Map(forms.map((r) => [r.f.id, asOnboardingForm(r.f, r.hospitalName)])) };
 }
@@ -487,8 +490,9 @@ export async function sendOnboarding(
       remaining: result.remaining,
       includeUpdated: opts.includeUpdated,
       includeFailed: opts.includeFailed,
+      initiative: opts.initiative ?? null,
     },
-    note: `Sent ${batch.length} onboarding email(s).`,
+    note: `Sent ${batch.length} ${opts.initiative ? `${opts.initiative} ` : ''}onboarding email(s).`,
   });
 
   return result;

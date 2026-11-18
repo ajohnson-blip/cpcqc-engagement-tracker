@@ -139,6 +139,7 @@ const onboardingOptions = (q: Record<string, unknown>) => ({
   includeUpdated: q.includeUpdated === 'true',
   includeFailed: q.includeFailed === 'true',
   attemptedSince: z.string().datetime().optional().parse(q.since) ?? null,
+  initiative: z.enum(ENROLLABLE).optional().parse(q.initiative || undefined) ?? null,
 });
 
 router.get('/onboarding', requireAuth, requireStaff, async (req, res) => {

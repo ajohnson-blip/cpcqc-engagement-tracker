@@ -99,6 +99,12 @@ describe('planOnboarding', () => {
     expect(retry.emails[0]).toMatchObject({ code: 'SPARK', kind: 'retry', update: false });
   });
 
+  it("plans one initiative's forms only, when a PM sends their own", () => {
+    const plan = planOnboarding(input({ initiative: 'TTT' }));
+    expect(plan.emails.map((e) => [e.hospital.name, e.code])).toEqual([['Sample Hospital 01', 'TTT']]);
+    expect(plan.held).toEqual([]);
+  });
+
   it('leaves out anything attempted in this run, so batches never repeat a form', () => {
     const plan = planOnboarding(
       input({

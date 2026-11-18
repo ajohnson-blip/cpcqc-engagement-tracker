@@ -6,8 +6,9 @@
  * The PM writes each initiative's details here. Once saved, every new
  * enrollment receipt for that initiative carries them, and the champions the
  * form names get them too. Hospitals that submitted before then get them from
- * the send below: preview first, a test copy to yourself, then the send, in
- * batches. Nobody gets the same version twice. Changing the details makes a
+ * the send below, which covers only the initiative whose tab is selected, as
+ * each PM sends their own: preview first, a test copy to yourself, then the
+ * send, in batches. Nobody gets the same version twice. Changing the details makes a
  * new version, and hospitals sent the earlier one are listed so the PM can
  * choose to send the update.
  */
@@ -143,7 +144,7 @@ export function EnrollmentOnboardingCard({
       <p className="mt-1 max-w-3xl text-sm text-cpcqc-purple-dark/70">
         Each initiative&rsquo;s onboarding dates and registration links. Once saved, every new enrollment
         receipt for that initiative includes them, and the champions named on the form get them too.
-        Hospitals that have already submitted get them from <strong>Send onboarding details</strong> below.
+        Hospitals that have already submitted get them from the send below, one initiative at a time.
       </p>
 
       <div className="mt-4 flex flex-wrap gap-2" role="tablist">
@@ -295,7 +296,7 @@ export function EnrollmentOnboardingCard({
         </div>
       )}
 
-      <OnboardingSend programYear={programYear} onSent={onSent} />
+      <OnboardingSend programYear={programYear} code={active} dirty={dirty} onSent={onSent} />
     </section>
   );
 }
@@ -319,9 +320,15 @@ function EmailFrame({ title, html }: { title: string; html: string }) {
 
 function OnboardingSend({
   programYear,
+  code,
+  dirty,
   onSent,
 }: {
   programYear: number;
+  /** The initiative whose tab is selected: the send covers it alone. */
+  code: Code;
+  /** Unsaved edits above: the send uses the details as last saved. */
+  dirty: boolean;
   onSent: (text: string, ok: boolean) => void;
 }) {
   const [preview, setPreview] = useState<OnboardingPreview | null>(null);
@@ -333,8 +340,18 @@ function OnboardingSend({
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
+  // A preview belongs to one initiative: switching tabs starts over.
+  useEffect(() => {
+    setPreview(null);
+    setIncludeUpdated(false);
+    setIncludeFailed(false);
+    setError(null);
+    setTestNote(null);
+    setOpenIndex(null);
+  }, [code]);
+
   const query = (updated = includeUpdated, failed = includeFailed) =>
-    `programYear=${programYear}&includeUpdated=${updated}&includeFailed=${failed}`;
+    `programYear=${programYear}&initiative=${code}&includeUpdated=${updated}&includeFailed=${failed}`;
 
   async function load(updated = includeUpdated, failed = includeFailed) {
     setBusy('preview');
@@ -375,7 +392,9 @@ function OnboardingSend({
   async function doSend() {
     if (!preview) return;
     const n = preview.emails.length;
-    if (!window.confirm(`Send ${n} onboarding email${n === 1 ? '' : 's'} now? This can't be undone.`)) return;
+    if (!window.confirm(`Send ${n} ${LABEL[code]} onboarding email${n === 1 ? '' : 's'} now? This can't be undone.`)) {
+      return;
+    }
     setBusy('send');
     setError(null);
     setProgress({ done: 0, total: n });
@@ -409,8 +428,8 @@ function OnboardingSend({
     void load(false, false);
     onSent(
       failed.length === 0
-        ? `Sent ${sent} onboarding email${sent === 1 ? '' : 's'}.`
-        : `Sent ${sent} onboarding emails; ${failed.length} didn't go through (${failed
+        ? `Sent ${sent} ${LABEL[code]} onboarding email${sent === 1 ? '' : 's'}.`
+        : `Sent ${sent} ${LABEL[code]} onboarding emails; ${failed.length} didn't go through (${failed
             .map((f) => `${f.hospital}: ${f.toEmail}`)
             .join('; ')}). They're listed under "Didn't go through" to retry.`,
       failed.length === 0,
@@ -423,12 +442,20 @@ function OnboardingSend({
     <div className="mt-6 border-t border-cpcqc-purple-dark/10 pt-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="font-rounded text-base font-extrabold text-cpcqc-purple-dark">Send onboarding details</h3>
+          <h3 className="font-rounded text-base font-extrabold text-cpcqc-purple-dark">
+            Send {LABEL[code]} onboarding details
+          </h3>
           <p className="mt-1 max-w-3xl text-sm text-cpcqc-purple-dark/70">
-            To hospitals that have already submitted an enrollment form: one email per form, to the person
-            who submitted it and the champions it names. You&rsquo;ll see every email before anything is
-            sent, and nobody gets the same details twice.
+            To hospitals that have already submitted a {LABEL[code]} enrollment form: one email per form, to
+            the person who submitted it and the champions it names. Only {LABEL[code]} is included; choose
+            another initiative&rsquo;s tab above to send theirs. You&rsquo;ll see every email before anything
+            is sent, and nobody gets the same details twice.
           </p>
+          {dirty && (
+            <p className="mt-1 text-xs font-bold text-cpcqc-orange-dark">
+              You have unsaved changes above. The send uses the details as last saved.
+            </p>
+          )}
         </div>
         <button
           type="button"
@@ -437,7 +464,7 @@ function OnboardingSend({
           className="inline-flex items-center gap-1.5 rounded-full border border-cpcqc-purple/30 px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-cpcqc-purple hover:bg-cpcqc-purple hover:text-white disabled:opacity-50"
         >
           <CalendarDays size={14} aria-hidden />
-          {busy === 'preview' ? 'Checking…' : preview ? 'Refresh' : 'Preview onboarding emails'}
+          {busy === 'preview' ? 'Checking…' : preview ? 'Refresh' : `Preview ${LABEL[code]} emails`}
         </button>
       </div>
 
@@ -449,7 +476,7 @@ function OnboardingSend({
             <strong>
               {preview.emails.length} email{preview.emails.length === 1 ? '' : 's'}
             </strong>{' '}
-            ready to send.
+            ready to send for {LABEL[code]}.
           </p>
 
           {waiting && (waiting.counts.length > 0 || waiting.other.length > 0) && (

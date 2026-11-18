@@ -86,6 +86,8 @@ export interface OnboardingPlanInput {
   includeFailed: boolean;
   /** ISO timestamp: forms attempted since then are left out. */
   attemptedSince: string | null;
+  /** One initiative only, as each PM sends their own; null for all. */
+  initiative?: FormInitiativeCode | null;
 }
 
 export interface OnboardingPlan {
@@ -105,7 +107,9 @@ export function planOnboarding(input: OnboardingPlanInput): OnboardingPlan {
   const sendsFor = new Map<string, OnboardingSendRecord[]>();
   for (const s of input.sends) sendsFor.set(s.formId, [...(sendsFor.get(s.formId) ?? []), s]);
 
-  const forms = [...input.forms].sort(
+  const forms = input.forms
+    .filter((f) => !input.initiative || f.code === input.initiative)
+    .sort(
     (a, b) => a.hospitalName.localeCompare(b.hospitalName) || ORDER.indexOf(a.code) - ORDER.indexOf(b.code),
   );
   for (const f of forms) {
