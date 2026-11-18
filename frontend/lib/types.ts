@@ -1020,6 +1020,18 @@ export interface EnrollmentCoverage {
   submittedCount: number;
   outstanding: Array<{ id: string; name: string }>;
   unexpectedCount: number;
+  /** Taken off this initiative's list by staff, and not filed. */
+  withdrawn: Array<{ id: string; name: string }>;
+}
+
+/** A hospital staff took off one initiative's enrollment list. */
+export interface StaffEnrollmentWithdrawal {
+  id: string;
+  hospital: { id: string; name: string };
+  initiativeCode: EnrollableInitiativeCode;
+  reason: string | null;
+  withdrawnAt: string;
+  withdrawnBy: string | null;
 }
 
 /** One initiative's form, sent by staff from the enrollment-forms screen. */
@@ -1041,6 +1053,8 @@ export interface StaffEnrollmentOverview {
   coverage: EnrollmentCoverage[];
   /** Newest first. */
   sent: StaffEnrollmentFormSent[];
+  /** Hospitals taken off an initiative's list, newest first. */
+  withdrawals: StaffEnrollmentWithdrawal[];
 }
 
 export interface EnrollmentRecipientSuggestion {

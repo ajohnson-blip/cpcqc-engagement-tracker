@@ -7,6 +7,10 @@
  * it, a hospital CPCQC enrolls directly would file a form the chase list calls
  * unexpected, and would never show as outstanding if it didn't.
  *
+ * Staff can take a hospital off an initiative's list (`withdrawn`), e.g. when
+ * it switches initiatives before submitting. Until it files that form anyway,
+ * that outranks every source above: it is neither counted nor chased.
+ *
  * Pure, so it is testable without a database (the `@/` alias does not resolve
  * under vitest).
  */
@@ -21,6 +25,8 @@ export interface CoverageSource<C extends string> {
   tttContinuing: string[];
   /** Forms staff sent from the enrollment-forms screen. */
   sent: Array<{ hospitalId: string; initiativeCode: string }>;
+  /** Hospitals staff took off an initiative's list. */
+  withdrawn?: Array<{ hospitalId: string; initiativeCode: string }>;
   nameOf: (hospitalId: string) => string;
 }
 
@@ -30,6 +36,8 @@ export interface Coverage<C extends string> {
   submittedCount: number;
   outstanding: Array<{ id: string; name: string }>;
   unexpectedCount: number;
+  /** Taken off this initiative's list by staff, and not filed. */
+  withdrawn: Array<{ id: string; name: string }>;
 }
 
 export function computeCoverage<C extends string>(src: CoverageSource<C>): Coverage<C>[] {
@@ -47,12 +55,21 @@ export function computeCoverage<C extends string>(src: CoverageSource<C>): Cover
     const filedIds = new Set(
       src.filed.filter((f) => f.initiativeCode === code).map((f) => f.hospitalId),
     );
+    // A hospital that files the form anyway is enrolling after all, so its
+    // removal no longer applies: it counts like any other filed form.
+    const withdrawnIds = new Set(
+      (src.withdrawn ?? [])
+        .filter((w) => w.initiativeCode === code && !filedIds.has(w.hospitalId))
+        .map((w) => w.hospitalId),
+    );
+    for (const id of withdrawnIds) expectedIds.delete(id);
     return {
       initiativeCode: code,
       expected: [...expectedIds].map(named).sort(byName),
       submittedCount: [...filedIds].filter((id) => expectedIds.has(id)).length,
       outstanding: [...expectedIds].filter((id) => !filedIds.has(id)).map(named).sort(byName),
       unexpectedCount: [...filedIds].filter((id) => !expectedIds.has(id)).length,
+      withdrawn: [...withdrawnIds].map(named).sort(byName),
     };
   });
 }

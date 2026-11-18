@@ -13,7 +13,9 @@ import { CHAMPION_ROLES, ENROLLABLE, sendNewEditLink } from './enrollment-forms.
 import {
   getRecipientSuggestions,
   getStaffEnrollmentOverview,
+  restoreToList,
   sendEnrollmentForms,
+  withdrawFromList,
 } from './enrollment-forms.staff.js';
 import { previewWelcome, saveWelcomeSheet, sendWelcome, sendWelcomeTest } from './enrollment-welcome.js';
 import { previewReminders, sendReminderTest, sendReminders } from './enrollment-reminders.js';
@@ -149,6 +151,27 @@ router.post('/:formId/edit-link', requireAuth, requireStaff, async (req, res) =>
     .object({ toEmail: z.string().trim().email().max(254), toName: z.string().trim().max(200).optional() })
     .parse(req.body);
   res.json(await sendNewEditLink(formId, { email: body.toEmail, name: body.toName ?? null }, req.auth!));
+});
+
+/**
+ * Takes a hospital off one initiative's list — e.g. it switched initiatives
+ * before submitting. No email; DELETE puts it back.
+ */
+router.post('/withdrawals', requireAuth, requireStaff, async (req, res) => {
+  const body = z
+    .object({
+      programYear: programYearSchema,
+      hospitalId: z.string().min(1),
+      initiativeCode: z.enum(ENROLLABLE),
+      reason: z.string().trim().max(500).optional(),
+    })
+    .parse(req.body);
+  res.json(await withdrawFromList(body, req.auth!));
+});
+
+router.delete('/withdrawals/:id', requireAuth, requireStaff, async (req, res) => {
+  await restoreToList(z.string().min(1).parse(req.params.id), req.auth!);
+  res.json({ ok: true });
 });
 
 /** Emails the hospital a link per initiative and adds it to each chase list. */

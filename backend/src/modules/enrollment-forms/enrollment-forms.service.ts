@@ -172,7 +172,37 @@ export async function getEnrollmentContext(
       eq(schema.annualInterestForms.hospitalId, hospitalId),
     ),
   });
-  const decided = (interest?.decidedInitiatives ?? null) as string[] | null;
+  // Plus any form staff sent the hospital, which is as good as accepting it,
+  // less any initiative staff have since taken it off, e.g. one it switched
+  // away from before submitting.
+  const [off, sentForms] = await Promise.all([
+    db
+      .select({ code: schema.enrollmentFormWithdrawals.initiativeCode })
+      .from(schema.enrollmentFormWithdrawals)
+      .where(
+        and(
+          eq(schema.enrollmentFormWithdrawals.programYear, programYear),
+          eq(schema.enrollmentFormWithdrawals.hospitalId, hospitalId),
+        ),
+      ),
+    db
+      .select({ code: schema.enrollmentFormInvitations.initiativeCode })
+      .from(schema.enrollmentFormInvitations)
+      .where(
+        and(
+          eq(schema.enrollmentFormInvitations.programYear, programYear),
+          eq(schema.enrollmentFormInvitations.hospitalId, hospitalId),
+        ),
+      ),
+  ]);
+  const decided = interest?.decidedInitiatives
+    ? ENROLLABLE.filter(
+        (c) =>
+          ((interest.decidedInitiatives as string[]).includes(c) || sentForms.some((f) => f.code === c)) &&
+          c !== 'TTT' &&
+          !off.some((o) => o.code === c),
+      )
+    : null;
 
   // Advisory, never blocking: CPCQC decides who enrols, and a hospital may have
   // been accepted into something the tracker doesn't know about yet. But an

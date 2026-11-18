@@ -751,6 +751,34 @@ export const enrollmentFormInvitations = pgTable(
 );
 
 /**
+ * A hospital staff took off an initiative's enrollment list: accepted for it,
+ * or sent its form, but no longer enrolling in it — e.g. it switched to
+ * another initiative before submitting. It stops counting toward that
+ * initiative's expected total, leaves the outstanding list and gets no more
+ * reminders for it. The acceptance and the sends stay as they were, as the
+ * record of what happened; undo deletes this row. Sending the hospital that
+ * initiative's form again deletes it too.
+ */
+export const enrollmentFormWithdrawals = pgTable(
+  'enrollment_form_withdrawals',
+  {
+    id: idCol(),
+    programYear: integer('program_year').notNull(),
+    hospitalId: text('hospital_id')
+      .notNull()
+      .references(() => hospitals.id, { onDelete: 'cascade' }),
+    /** 'SPARK' | 'SOAR' | 'NEST' | 'TTT' */
+    initiativeCode: text('initiative_code').notNull(),
+    reason: text('reason'),
+    withdrawnByUserId: text('withdrawn_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => ({
+    uniq: uniqueIndex('enrollment_form_withdrawals_unique').on(t.programYear, t.hospitalId, t.initiativeCode),
+  }),
+);
+
+/**
  * The enrollment-decisions sheet staff uploaded for the welcome-to-enroll
  * emails, kept so the preview, test and send survive a page refresh and work
  * from any computer. The latest upload for a year is the one in use; earlier

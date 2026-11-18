@@ -50,6 +50,45 @@ describe('computeCoverage', () => {
     expect(nest!.outstanding.map((h) => h.id)).toEqual(['ex-003']);
   });
 
+  it('drops a hospital staff took off the list from the total, the chase list and reminders', () => {
+    // Accepted for SPARK and sent the SPARK form, then switched to NEST.
+    const [spark, , nest] = computeCoverage({
+      codes,
+      filed: [],
+      accepted: [
+        { hospitalId: 'ex-001', decidedInitiatives: ['SPARK'] },
+        { hospitalId: 'ex-002', decidedInitiatives: ['SPARK'] },
+      ],
+      tttContinuing: [],
+      sent: [
+        { hospitalId: 'ex-001', initiativeCode: 'SPARK' },
+        { hospitalId: 'ex-001', initiativeCode: 'NEST' },
+      ],
+      withdrawn: [{ hospitalId: 'ex-001', initiativeCode: 'SPARK' }],
+      nameOf,
+    });
+    expect(spark!.expected.map((h) => h.id)).toEqual(['ex-002']);
+    expect(spark!.outstanding.map((h) => h.id)).toEqual(['ex-002']);
+    expect(spark!.withdrawn).toEqual([{ id: 'ex-001', name: 'Example Valley Hospital' }]);
+    expect(nest!.outstanding.map((h) => h.id)).toEqual(['ex-001']);
+    expect(nest!.withdrawn).toEqual([]);
+  });
+
+  it('counts a form filed after all, as though the hospital was never taken off', () => {
+    const [spark] = computeCoverage({
+      codes,
+      filed: [{ hospitalId: 'ex-001', initiativeCode: 'SPARK' }],
+      accepted: [{ hospitalId: 'ex-001', decidedInitiatives: ['SPARK'] }],
+      tttContinuing: [],
+      sent: [],
+      withdrawn: [{ hospitalId: 'ex-001', initiativeCode: 'SPARK' }],
+      nameOf,
+    });
+    expect(spark!.submittedCount).toBe(1);
+    expect(spark!.unexpectedCount).toBe(0);
+    expect(spark!.withdrawn).toEqual([]);
+  });
+
   it('counts a form nobody expected without adding it to the expected list', () => {
     const [spark] = computeCoverage({
       codes,
