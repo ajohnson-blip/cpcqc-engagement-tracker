@@ -350,18 +350,60 @@ export const hasOnboarding = (o: OnboardingContent | null | undefined): o is Onb
   !!o && !!o.message.trim();
 
 /**
- * Where PMs start, in CPCQC's wording (2026-11-18). Anything in {curly
- * brackets} is theirs to replace, and a message still holding any is refused
+ * The onboarding sessions SPARK, SOAR and NEST share for 2027, as CPCQC set
+ * them on 2026-11-18. Each has breakout rooms by initiative. Turning the Tide
+ * is not included: its PM decides whether and what to send.
+ */
+const SHARED_SESSIONS: Record<number, Array<{ when: string; url: string }>> = {
+  2027: [
+    {
+      when: 'Thursday, January 7, 2027, 9–10 am MT',
+      url: 'https://cpcqc-org.zoom.us/meeting/register/TTtBbrszS1eDzmySQ0Jtbw',
+    },
+    {
+      when: 'Thursday, January 14, 2027, 12–1 pm MT',
+      url: 'https://cpcqc-org.zoom.us/meeting/register/5GlNVfMRQiK6orzTJjyNDg',
+    },
+  ],
+};
+const SHARES_SESSIONS: FormInitiativeCode[] = ['SPARK', 'SOAR', 'NEST'];
+
+export interface OnboardingTemplate {
+  text: string;
+  /** Whether the message box starts with it before anything is saved. */
+  startsFilledIn: boolean;
+}
+
+/**
+ * Where a PM starts, in CPCQC's wording (2026-11-18). SPARK, SOAR and NEST get
+ * the year's shared sessions already filled in, so their PMs add only their
+ * own contact details; Turning the Tide, and any year without shared
+ * sessions, get blanks for the dates and links. Anything in {curly brackets}
+ * is the PM's to replace, and a message still holding any is refused
  * (onboardingProblem), so a template can't reach a hospital half filled in.
  */
-export function onboardingTemplate(programYear: number): string {
-  return [
+export function onboardingTemplate(programYear: number, code: FormInitiativeCode): OnboardingTemplate {
+  const shared = SHARES_SESSIONS.includes(code) ? SHARED_SESSIONS[programYear] : undefined;
+  const options = shared
+    ? shared.map((s, i) => `Option ${i + 1}: ${s.when} – [Register for option ${i + 1}](${s.url})`)
+    : [
+        'Option 1: {day, date and time} – [Register for option 1]({registration link})',
+        'Option 2: {day, date and time} – [Register for option 2]({registration link})',
+      ];
+  const text = [
     'Please register for at least one of the two onboarding sessions below. Onboarding attendance is required ' +
       'and your team only needs to attend one.',
     '',
-    'Option 1: {day, date and time} – [Register for option 1]({registration link})',
-    'Option 2: {day, date and time} – [Register for option 2]({registration link})',
+    ...options,
     '',
+    ...(shared
+      ? [
+          'If your hospital is in two initiatives, please either attend both onboarding sessions or have two team ' +
+            'members attend the same session, one for each initiative. Each session has breakout rooms by ' +
+            'initiative, and each breakout room covers important information for that initiative.',
+          '',
+        ]
+      : []),
     'Please have all of your initiative champions attend if possible. Onboarding covers valuable information ' +
       `to support your success in ${programYear}!`,
     '',
@@ -370,6 +412,8 @@ export function onboardingTemplate(programYear: number): string {
     '{Your name}',
     '{Your title}',
   ].join('\n');
+  // Turning the Tide starts empty: its PM chooses whether to use this at all.
+  return { text, startsFilledIn: code !== 'TTT' };
 }
 
 const PLACEHOLDER = /\{[^{}\n]{1,120}\}/;

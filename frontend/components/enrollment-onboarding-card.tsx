@@ -37,8 +37,16 @@ const KIND: Record<OnboardingPreview['emails'][number]['kind'], string> = {
  * unsaved change: nothing is lost by leaving it, and the {placeholders} keep
  * it from being saved as is.
  */
-function startingText(saved: OnboardingDetails | undefined, template: string): string {
-  return saved?.message.trim() ? saved.message : template;
+function startingText(saved: OnboardingDetails | undefined, template: Template | undefined): string {
+  if (saved?.message.trim()) return saved.message;
+  return template?.startsFilledIn ? template.text : '';
+}
+
+/** Each initiative's starting point, from the server. */
+interface Template {
+  text: string;
+  /** False for Turning the Tide, whose PM decides whether to send anything. */
+  startsFilledIn: boolean;
 }
 
 export function EnrollmentOnboardingCard({
@@ -49,7 +57,7 @@ export function EnrollmentOnboardingCard({
   onSent: (text: string, ok: boolean) => void;
 }) {
   const [details, setDetails] = useState<OnboardingDetails[] | null>(null);
-  const [template, setTemplate] = useState('');
+  const [templates, setTemplates] = useState<Partial<Record<Code, Template>>>({});
   const [active, setActive] = useState<Code>('SPARK');
   const [message, setMessage] = useState('');
   const [dirty, setDirty] = useState(false);
@@ -63,11 +71,13 @@ export function EnrollmentOnboardingCard({
 
   useEffect(() => {
     api
-      .get<{ details: OnboardingDetails[]; template: string }>(`/staff/enrollment-forms/onboarding/details?${q}`)
+      .get<{ details: OnboardingDetails[]; templates?: Partial<Record<Code, Template>> }>(
+        `/staff/enrollment-forms/onboarding/details?${q}`,
+      )
       .then((r) => {
         setDetails(r.details);
-        setTemplate(r.template ?? '');
-        setMessage(startingText(r.details.find((d) => d.initiativeCode === 'SPARK'), r.template ?? ''));
+        setTemplates(r.templates ?? {});
+        setMessage(startingText(r.details.find((d) => d.initiativeCode === 'SPARK'), r.templates?.SPARK));
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [q]);
@@ -78,7 +88,7 @@ export function EnrollmentOnboardingCard({
     if (code === active) return;
     if (dirty && !window.confirm(`Discard your unsaved changes to the ${LABEL[active]} message?`)) return;
     setActive(code);
-    setMessage(startingText(details?.find((d) => d.initiativeCode === code), template));
+    setMessage(startingText(details?.find((d) => d.initiativeCode === code), templates[code]));
     setDirty(false);
     setSaved(null);
     setError(null);
@@ -90,6 +100,8 @@ export function EnrollmentOnboardingCard({
     setDirty(true);
     setSaved(null);
   }
+
+  const template = templates[active]?.text ?? '';
 
   function useTemplate() {
     if (!template) {

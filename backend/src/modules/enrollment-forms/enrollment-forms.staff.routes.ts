@@ -96,7 +96,10 @@ router.post('/reminders/send', requireAuth, requireStaff, async (req, res) => {
 // already submitted. New submissions get them in their receipts.
 router.get('/onboarding/details', requireAuth, requireStaff, async (req, res) => {
   const programYear = programYearSchema.parse(req.query.programYear);
-  res.json({ details: await getOnboardingDetails(programYear), template: onboardingTemplate(programYear) });
+  res.json({
+    details: await getOnboardingDetails(programYear),
+    templates: Object.fromEntries(ENROLLABLE.map((code) => [code, onboardingTemplate(programYear, code)])),
+  });
 });
 
 // The message's own checks (template text left in, a link without an

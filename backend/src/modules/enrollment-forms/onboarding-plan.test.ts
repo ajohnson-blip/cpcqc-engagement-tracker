@@ -187,10 +187,35 @@ describe('onboardingEmail', () => {
 
 describe('onboardingProblem', () => {
   it('refuses the template until every {placeholder} is replaced', () => {
-    const template = onboardingTemplate(2027);
-    expect(template).toContain('Onboarding attendance is required and your team only needs to attend one.');
-    expect(template).toContain('to support your success in 2027!');
-    expect(onboardingProblem(template)).toBe('Replace {day, date and time} with your own text before saving.');
+    const generic = onboardingTemplate(2028, 'SPARK').text;
+    expect(generic).toContain('Onboarding attendance is required and your team only needs to attend one.');
+    expect(generic).toContain('to support your success in 2028!');
+    expect(onboardingProblem(generic)).toBe('Replace {day, date and time} with your own text before saving.');
+  });
+
+  it("fills in 2027's shared sessions for SPARK, SOAR and NEST, leaving only the PM's own details", () => {
+    for (const code of ['SPARK', 'SOAR', 'NEST'] as const) {
+      const t = onboardingTemplate(2027, code);
+      expect(t.startsFilledIn).toBe(true);
+      expect(t.text).toContain(
+        'Option 1: Thursday, January 7, 2027, 9–10 am MT – [Register for option 1]' +
+          '(https://cpcqc-org.zoom.us/meeting/register/TTtBbrszS1eDzmySQ0Jtbw)',
+      );
+      expect(t.text).toContain(
+        'Option 2: Thursday, January 14, 2027, 12–1 pm MT – [Register for option 2]' +
+          '(https://cpcqc-org.zoom.us/meeting/register/5GlNVfMRQiK6orzTJjyNDg)',
+      );
+      expect(t.text).toContain('If your hospital is in two initiatives, please either attend both onboarding sessions');
+      expect(onboardingProblem(t.text)).toBe('Replace {your email} with your own text before saving.');
+    }
+  });
+
+  it('leaves Turning the Tide empty, with blanks for the dates if its PM wants the template', () => {
+    const t = onboardingTemplate(2027, 'TTT');
+    expect(t.startsFilledIn).toBe(false);
+    expect(t.text).toContain('Option 1: {day, date and time}');
+    expect(t.text).not.toContain('zoom.us');
+    expect(t.text).not.toContain('two initiatives');
     expect(onboardingProblem(onboarding.message)).toBeNull();
   });
 
