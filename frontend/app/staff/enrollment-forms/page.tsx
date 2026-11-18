@@ -53,6 +53,42 @@ const ROLE_LABEL: Record<string, string> = {
 
 type InitiativeFilter = EnrollableInitiativeCode | 'all';
 
+/**
+ * A card used once a year, folded to one line so the cards PMs use day to
+ * day come first. Closed, it isn't loaded at all; opening it shows the card
+ * exactly as before.
+ */
+function OnceAYear({ title, summary, children }: { title: string; summary: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return open ? (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        className="mb-2 inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple hover:underline"
+      >
+        <ChevronDown size={14} aria-hidden /> Hide {title.toLowerCase()}
+      </button>
+      {children}
+    </div>
+  ) : (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      aria-expanded={false}
+      className="mb-6 flex w-full items-center justify-between gap-3 rounded-2xl bg-white px-6 py-3 text-left shadow-card hover:bg-cpcqc-purple/5"
+    >
+      <span>
+        <span className="font-rounded text-sm font-extrabold text-cpcqc-purple-dark">{title}</span>
+        <span className="ml-2 text-xs text-cpcqc-purple-dark/60">{summary}</span>
+      </span>
+      <span className="inline-flex shrink-0 items-center gap-1 text-xs font-bold uppercase tracking-wide text-cpcqc-purple">
+        Show <ChevronRight size={14} aria-hidden />
+      </span>
+    </button>
+  );
+}
+
 export default function StaffEnrollmentFormsPage() {
   const [data, setData] = useState<StaffEnrollmentOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -173,13 +209,15 @@ export default function StaffEnrollmentFormsPage() {
         </div>
       )}
 
-      <WelcomeUploadCard
-        programYear={PROGRAM_YEAR}
-        onSent={(text, ok) => {
-          setNotice({ text, ok });
-          setReloadKey((k) => k + 1);
-        }}
-      />
+      <OnceAYear title="Welcome-to-enroll emails" summary="Sent once a year, when the acceptance sheet is ready.">
+        <WelcomeUploadCard
+          programYear={PROGRAM_YEAR}
+          onSent={(text, ok) => {
+            setNotice({ text, ok });
+            setReloadKey((k) => k + 1);
+          }}
+        />
+      </OnceAYear>
 
       <EnrollmentRemindersCard
         programYear={PROGRAM_YEAR}
