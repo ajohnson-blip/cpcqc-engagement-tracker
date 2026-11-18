@@ -228,20 +228,8 @@ export function EnrollmentOnboardingCard({
               className="mt-1 w-full rounded-lg border border-cpcqc-purple-dark/20 px-3 py-2 text-sm font-normal leading-relaxed text-cpcqc-purple-dark"
             />
           </label>
-          <p className="text-xs text-cpcqc-purple-dark/60">
-            Replace everything in {'{curly brackets}'}; the message can&rsquo;t be saved until you do. A link is
-            written <code>[link text](https://…)</code>, which hospitals see as just the link text; use{' '}
-            <strong>Add a link</strong> to insert one. A bare web address becomes a link too. Hospitals see a
-            greeting and a line naming their hospital above your message, and CPCQC&rsquo;s name below it.
-          </p>
-
           {error && <p className="rounded-lg bg-cpcqc-pink-dark/10 px-3 py-2 text-sm text-cpcqc-pink-dark">{error}</p>}
           {saved && <p className="text-sm text-cpcqc-teal-dark">{saved}</p>}
-          {!current?.sample && !dirty && message === template && template && (
-            <p className="text-sm text-cpcqc-purple-dark/70">
-              This is the template. Replace everything in {'{curly brackets}'}, then save.
-            </p>
-          )}
 
           <div className="flex flex-wrap items-center gap-3">
             <button
